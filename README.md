@@ -9,7 +9,7 @@ parameters, scripts, UI, articles, Kirby data, and runtime identity separate.
 
 ## Dependencies
 
-- Smashline (clone engine fork)
+- Smashline (clone engine fork) : <https://github.com/PropaSmike/smashline/tree/clone-engine-beta>
 - ParamConfig (Not required but heavily recommended)
 - The CSK Collection (For UI slots addition)
 - NRO Hook
@@ -108,6 +108,30 @@ clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", ta
 - [Items and Training UI](docs/wiki/ITEMS.md)
 - [Stages](docs/wiki/STAGES.md)
 - [Rust API reference](docs/API.md)
+
+## Credits
+
+Clone Engine exists thanks to the work and research of the Smash Ultimate modding community.
+People aren't always the kindest to those who put in the hardest work, so please go show them
+the love and respect they deserve.
+
+**Runtime dependencies**
+- [Skyline](https://github.com/skyline-dev/skyline) — shadowninja108, jam1garner, 3096, Raytwo, Genwald, blu-dev, jugeeya, Sammi-Husky
+- [ARCropolis](https://github.com/Raytwo/arcropolis) — Raytwo, blu-dev, Coolsonickirby, jam1garner, jozz024, WuBoytH, itsmeft24, Genwald
+- [Smashline](https://github.com/HDR-Development/smashline) — WuBoytH, blu-dev, FatherOfEgg, moklmaru, plyrthn, Moydow
+- [NRO Hook](https://github.com/ultimate-research/nro-hook-plugin) — jam1garner, jugeeya, blu-dev
+- [The CSK Collection](https://github.com/Coolsonickirby/the_csk_collection_api) — Coolsonickirby, zrksyd
+- [ParamConfig](https://github.com/CSharpM7/lib_paramconfig) — CSharpM7, Coolsonickirby, theincredibleplayer
+
+**Build dependencies**
+- [skyline-rs](https://github.com/ultimate-research/skyline-rs) — jam1garner, Raytwo, jugeeya, blu-dev, WuBoytH, tech-ticks, Genwald, TheGreenPlanet
+- [skyline-smash](https://github.com/ultimate-research/skyline-smash) — WuBoytH, blu-dev, jobrien97, jam1garner, jugeeya, Ayerbe-Dev, theincredibleplayer, FaultyPine
+- [smash-script](https://github.com/WuBoytH/smash-script) — blu-dev, Claude-1308, Ayerbe-Dev, FaultyPine, WuBoytH
+- [ninput](https://github.com/blu-dev/ninput) — blu-dev
+
+The Smashline fork this engine requires is a fork of HDR-Development/Smashline
+with one optional custom-kind bridge added. Upstream behavior is unchanged when
+Clone Engine is absent.
 
 ## License
 
