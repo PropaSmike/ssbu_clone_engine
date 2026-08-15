@@ -11,7 +11,7 @@ pub fn install(kind: i32) {
         ParamOp::Mul,
         1.15,
     );
-    bridged &= clone_engine_api::param_override_slot(kind, 7, "scale", ParamOp::Mul, 0.95);
+    bridged &= clone_engine_api::param_override_slot(kind, 7, "jump_y", ParamOp::Mul, 0.95);
     bridged &= clone_engine_api::param_int_override(kind, "jump_squat_frame", 10);
     if !bridged {
         clone_engine_api::elog!("[template] ParamConfig bridge unavailable");
