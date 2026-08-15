@@ -1,0 +1,11 @@
+place = "template_stage"
+display_name = "Template Stage"
+id_name = "Template_Stage"
+forms = ["normal", "omega", "battlefield"]
+ships_battle_tree = false
+series = "smash"
+disp_order = 118
+donor = "dk_jungle"
+content_donor = "dk_jungle"
+carry_donor_scenery = true
+resource_place = "dk_jungle"

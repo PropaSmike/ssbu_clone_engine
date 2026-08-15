@@ -1,0 +1,33 @@
+[package]
+name = "clone_engine_moveset_template"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[package.metadata.skyline]
+titleid = "01006A800016E000"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+kirby_copy_example = []
+shared_hook_example = []
+
+[dependencies]
+clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.1.0-beta.1" }
+skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
+smash_script = { git = "https://github.com/WuBoytH/smash-script.git", rev = "24c5b69b79c7d7b041c3993ecd766ceccf950c2b" }
+smashline = { git = "https://github.com/PropaSmike/smashline", tag = "clone-engine-beta.1" }
+the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api.git", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361" }
+arcropolis-api = { git = "https://github.com/Raytwo/arcropolis_api", rev = "5d100d3eb48a4591839925f74f7cf2c781f09f15" }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+panic = "abort"
+lto = true
+codegen-units = 1

@@ -1,0 +1,17 @@
+[package]
+name = "clone_engine_api"
+version = "0.1.0-beta.1"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Client API for registering and identifying SSBU Clone Engine fighters"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = ["smash"]
+smash = ["dep:skyline_smash"]
+
+[dependencies]
+skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
+skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git", rev = "58aee32a5838379cadd120c8e62fd0e0ea9e5ad7", optional = true }

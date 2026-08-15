@@ -1,0 +1,18 @@
+{
+  "release": "0.1.0-beta.1",
+  "game": {
+    "title_id": "01006A800016E000",
+    "version": "13.0.4",
+    "main_flat_sha256": "F70C97D2BDCD00C2E81559F5ABD0871E3C550B240D2005AB2E6085957A9D7613"
+  },
+  "clone_engine": {
+    "api_versions": [1, 2],
+    "default_feature": "beta"
+  },
+  "smashline": {
+    "upstream_revision": "df194a0",
+    "release_tag": "clone-engine-beta.1",
+    "bridge_version": 2
+  },
+  "research_features_in_release": false
+}

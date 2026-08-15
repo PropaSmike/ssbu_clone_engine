@@ -1,0 +1,77 @@
+[package]
+name = "ssbu_clone_engine"
+version = "0.1.0-beta.1"
+authors = ["PropaSmike"]
+edition = "2021"
+license = "GPL-3.0-only"
+
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["beta"]
+beta_core = ["clone_runtime", "true_kind", "css_slot", "native_relocate"]
+beta = ["beta_core", "item_clone_backend", "item_ui_backend", "stage_mint", "stage_slot", "stage_select_runtime"]
+clone_runtime = []
+stage_probe = []
+stage_relocate = []
+native_table_backend = []
+native_relocate = ["native_table_backend"]
+native_patch_probe = ["native_relocate"]
+diag_article_motion = []
+diag_kirby_copy = []
+diag_fighter_camera = []
+diag_trail = []
+diag_pocket = []
+diag_item_kind = []
+diag_item_categories = ["item_clone_backend"]
+diag_item_ui = ["item_clone_backend"]
+item_ui_backend = ["item_clone_backend"]
+research_item_families = ["item_clone_backend"]
+item_clone_backend = ["beta_core"]
+item_slot_backend = ["item_clone_backend"]
+item_selftest = ["item_clone_backend"]
+diag_alloc_selftest = ["native_relocate"]
+demo = []
+diag_identity = []
+diag_swap = []
+diag_article = []
+diag_article_nopatch = []
+diag_article_baseblob = []
+diag_article_initspoof = []
+true_kind = ["clone_runtime"]
+diag_kind118 = ["true_kind"]
+css_slot = ["dep:the_csk_collection_api"]
+stage_slot = ["dep:the_csk_collection_api"]
+stage_mint_places = ["stage_relocate"]
+stage_mint = ["stage_mint_places", "stage_config_bridge"]
+stage_select_runtime = []
+stage_resolve_probe = ["stage_select_runtime"]
+stage_collision_probe = []
+stage_pane_table = ["ninput"]
+stage_config_bridge = []
+diag_low_place = []
+diag_low_stage_id = []
+stage_page = []
+stage_slice = []
+stage_slice_diag = ["stage_slice"]
+diag_pathtrace = []
+
+diag_load_barrier = []
+
+[dependencies]
+clone_engine_api = { path = "clone_engine_api", default-features = false }
+skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
+skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git", rev = "58aee32a5838379cadd120c8e62fd0e0ea9e5ad7" }
+libc = "0.2"
+ninput = { git = "https://github.com/blu-dev/ninput", rev = "af26d4de5bb5f444985193b296ce65fe364e6a33", optional = true }
+arcropolis-api = { git = "https://github.com/Coolsonickirby/arcropolis_api.git", rev = "5d100d3eb48a4591839925f74f7cf2c781f09f15" }
+the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api.git", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = false
+overflow-checks = false
+
