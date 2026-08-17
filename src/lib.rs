@@ -1130,6 +1130,9 @@ macro_rules! diag_reroute_log {
 static PENDING_AGENT_KIND: crate::thread_context::ThreadScopedKind =
     crate::thread_context::ThreadScopedKind::new();
 
+static PENDING_WEAPON_KIND: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new();
+
 #[no_mangle]
 pub extern "C" fn clone_engine_pending_agent_kind_v1() -> i32 {
     let kind = PENDING_AGENT_KIND
@@ -1143,6 +1146,28 @@ pub extern "C" fn clone_engine_pending_agent_kind_v1() -> i32 {
         }
     }
     kind
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_pending_weapon_kind_v1() -> i32 {
+    let kind = PENDING_WEAPON_KIND
+        .active(unsafe { current_thread_key() })
+        .unwrap_or(-1);
+    if kind >= 0 {
+        static SEEN: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        let n = SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 8 {
+            skyline::println!("[agentname] #{n} smashline asked; answering weapon kind {kind}");
+        }
+    }
+    kind
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn enter_pending_weapon_kind(
+    kind: i32,
+) -> crate::thread_context::ScopedKindGuard<'static> {
+    PENDING_WEAPON_KIND.enter(unsafe { current_thread_key() }, kind)
 }
 
 macro_rules! nonshare_hook {
@@ -1411,7 +1436,10 @@ macro_rules! article_animcmd_agent_hooks {
                     return call_original!(object, boma, lua_state);
                 };
                 core::ptr::write_volatile(kind_field, source);
-                let agent = call_original!(object, boma, lua_state);
+                let agent = {
+                    let _pending = crate::enter_pending_weapon_kind(kind);
+                    call_original!(object, boma, lua_state)
+                };
                 core::ptr::write_volatile(kind_field, kind);
                 let n = ARTICLE_ANIMCMD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 if n < 24 {
