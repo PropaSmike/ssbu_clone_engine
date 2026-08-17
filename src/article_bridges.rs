@@ -332,7 +332,10 @@ pub(crate) unsafe fn article_status_agent_create(
         source
     );
 
-    let agent = call_original!(object, boma, lua_state);
+    let agent = {
+        let _pending = crate::enter_pending_weapon_kind(kind);
+        call_original!(object, boma, lua_state)
+    };
 
     if source.is_some() {
         core::ptr::write_volatile(kind_field, kind);
