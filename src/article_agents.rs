@@ -246,11 +246,17 @@ extern "C" fn set_status_scripts(agent: *mut u8) {
     agent_log!("[articleagent] scripts installed, highest {highest}");
 
     unsafe {
-        let table = base
-            .global_table
-            .try_get_ptr::<u8>()
-            .unwrap_or(core::ptr::null_mut());
-        agent_log!("[articleagent] global_table {:#x}", table as usize);
+        let global_table = &base.global_table as *const _ as *const u8;
+        let global_type = core::ptr::read_volatile(global_table as *const u32);
+        let table = if global_type == L2C_TYPE_TABLE {
+            core::ptr::read_volatile(global_table.add(8) as *const usize) as *mut u8
+        } else {
+            core::ptr::null_mut()
+        };
+        agent_log!(
+            "[articleagent] global_table {:#x} type {global_type}",
+            table as usize
+        );
         if !table.is_null() {
             let slot = table_entry(table, GLOBAL_TABLE_STATUS_TOTAL);
             if !slot.is_null() && core::ptr::read_volatile(slot as *const u32) == L2C_TYPE_INT {
@@ -269,6 +275,8 @@ extern "C" fn set_status_scripts(agent: *mut u8) {
 }
 
 const L2C_TYPE_INT: u32 = 2;
+
+const L2C_TYPE_TABLE: u32 = 5;
 
 const L2C_VALUE_SIZE: usize = 0x10;
 
