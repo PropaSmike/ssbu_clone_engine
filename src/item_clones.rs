@@ -16,6 +16,7 @@ use clone_engine_api::{
 pub(crate) const FIRST_SPARSE_ITEM_KIND: i32 = 0x36A;
 const LAST_ORDINARY_ITEM_KIND: i32 = 0x1AF;
 const NATIVE_ITEM_COUNT: usize = 432;
+const KIND_AUTO: i32 = -1;
 pub(crate) const FIRST_COMPACT_RESOURCE_KIND: i32 = NATIVE_ITEM_COUNT as i32;
 pub(crate) const MAX_COMPACT_RESOURCE_COUNT: usize = 0x0FFF;
 const UNSUPPORTED_AGENT_BASE_KIND: i32 = 398;
@@ -25,6 +26,13 @@ const ITEM_DESCRIPTOR_STRIDE: usize = 0x20;
 const OFF_ITEM_REQUEST_FULL: usize = 0x15B5A40;
 const OFF_ITEM_REQUEST_SIMPLE: usize = 0x15B5D00;
 const OFF_ITEM_LOWER_CREATOR: usize = 0x15DB0B0;
+const OFF_ITEM_HAVE_ITEM: usize = 0x2098BF0;
+const OFF_ITEM_BORN_ITEM: usize = 0x2098DF0;
+const OFF_ITEM_ATTACH_ITEM: usize = 0x2098EE0;
+const OFF_ITEM_GET_HAVE_ITEM_KIND: usize = 0x2098CD0;
+const OFF_ITEM_GET_HAVE_ITEM_ID: usize = 0x2098D30;
+const OFF_ITEM_GET_PICKABLE_ITEM_KIND: usize = 0x2098D60;
+const OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID: usize = 0x2098D40;
 const OFF_ITEM_DEACTIVATE: usize = 0x15D4570;
 const OFF_BATTLE_OBJECT_UPDATE: usize = 0x3A84E0;
 const BATTLE_OBJECT_MODULE_TABLE: usize = 0x20;
@@ -332,6 +340,7 @@ struct PendingSlot {
     spawn_source: AtomicU32,
     boma: AtomicUsize,
     agent: AtomicUsize,
+    module: AtomicUsize,
 }
 
 impl PendingSlot {
@@ -345,6 +354,7 @@ impl PendingSlot {
             spawn_source: AtomicU32::new(ItemSpawnSource::Unknown as u32),
             boma: AtomicUsize::new(0),
             agent: AtomicUsize::new(0),
+            module: AtomicUsize::new(0),
         }
     }
 }
@@ -602,6 +612,7 @@ unsafe fn arm_request_with_context(
             .store(spawn_source as u32, Ordering::Relaxed);
         slot.boma.store(0, Ordering::Relaxed);
         slot.agent.store(0, Ordering::Relaxed);
+        slot.module.store(0, Ordering::Relaxed);
         slot.stage.store(1, Ordering::Release);
         return true;
     }
@@ -670,6 +681,7 @@ fn release_pending(index: usize) {
         .store(ItemSpawnSource::Unknown as u32, Ordering::Relaxed);
     slot.boma.store(0, Ordering::Relaxed);
     slot.agent.store(0, Ordering::Relaxed);
+    slot.module.store(0, Ordering::Relaxed);
     slot.owner_thread.store(0, Ordering::Release);
 }
 
@@ -694,7 +706,10 @@ unsafe fn publish_live(pending_index: usize, object: *mut u8) {
             .store(pending.boma.load(Ordering::Acquire), Ordering::Relaxed);
         slot.agent
             .store(pending.agent.load(Ordering::Acquire), Ordering::Relaxed);
-        slot.module.store(0, Ordering::Relaxed);
+        slot.module.store(
+            pending.module.load(Ordering::Acquire),
+            Ordering::Relaxed,
+        );
         slot.object_id.store(object_id, Ordering::Relaxed);
         slot.public_kind.store(public_kind, Ordering::Relaxed);
         slot.base_kind.store(base_kind, Ordering::Relaxed);
@@ -732,6 +747,11 @@ pub(crate) unsafe fn bind_live_module(module: usize, base_kind: i32) {
             return;
         }
     }
+    if let Some(index) = active_pending() {
+        if PENDING[index].base_kind.load(Ordering::Acquire) == base_kind {
+            PENDING[index].module.store(module, Ordering::Release);
+        }
+    }
 }
 
 fn live_kind_by(value: usize, field: fn(&LiveSlot) -> &AtomicUsize) -> Option<i32> {
@@ -754,6 +774,17 @@ fn live_kind_by_boma(boma: usize) -> Option<i32> {
 
 fn live_kind_by_agent(agent: usize) -> Option<i32> {
     live_kind_by(agent, |slot| &slot.agent)
+}
+
+fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
+    if object_id == u32::MAX {
+        return None;
+    }
+    LIVE.iter().find_map(|slot| {
+        (slot.state.load(Ordering::Acquire) == 2
+            && slot.object_id.load(Ordering::Acquire) == object_id)
+            .then(|| slot.public_kind.load(Ordering::Acquire))
+    })
 }
 
 fn remove_live(object: usize, object_id: u32) -> Option<i32> {
@@ -824,6 +855,52 @@ unsafe fn item_request_full_bridge(ctx: &mut skyline::hooks::InlineCtx) {
 #[skyline::hook(offset = OFF_ITEM_REQUEST_SIMPLE, inline)]
 unsafe fn item_request_simple_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
+}
+
+#[skyline::hook(offset = OFF_ITEM_HAVE_ITEM, inline)]
+unsafe fn item_have_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
+    rewrite_requested_kind(ctx);
+}
+
+#[skyline::hook(offset = OFF_ITEM_BORN_ITEM, inline)]
+unsafe fn item_born_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
+    rewrite_requested_kind(ctx);
+}
+
+#[skyline::hook(offset = OFF_ITEM_ATTACH_ITEM, inline)]
+unsafe fn item_attach_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
+    rewrite_requested_kind(ctx);
+}
+
+#[skyline::from_offset(OFF_ITEM_GET_HAVE_ITEM_ID)]
+fn native_get_have_item_id(boma: *mut u8, index: i32) -> u32;
+
+#[skyline::from_offset(OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID)]
+fn native_get_pickable_item_object_id(boma: *mut u8) -> u32;
+
+unsafe fn publish_kind(reported: i32, object_id: u32) -> i32 {
+    match live_kind_by_object_id(object_id) {
+        Some(public) if definition(public).is_some_and(|view| view.base_kind == reported) => public,
+        _ => reported,
+    }
+}
+
+#[skyline::hook(offset = OFF_ITEM_GET_HAVE_ITEM_KIND)]
+unsafe fn item_get_have_item_kind_bridge(boma: *mut u8, index: i32) -> i32 {
+    let reported = call_original!(boma, index);
+    if boma.is_null() || LIVE_COUNT.load(Ordering::Acquire) == 0 {
+        return reported;
+    }
+    publish_kind(reported, native_get_have_item_id(boma, index))
+}
+
+#[skyline::hook(offset = OFF_ITEM_GET_PICKABLE_ITEM_KIND)]
+unsafe fn item_get_pickable_item_kind_bridge(boma: *mut u8) -> i32 {
+    let reported = call_original!(boma);
+    if boma.is_null() || LIVE_COUNT.load(Ordering::Acquire) == 0 {
+        return reported;
+    }
+    publish_kind(reported, native_get_pickable_item_object_id(boma))
 }
 
 #[skyline::hook(offset = OFF_ITEM_LOWER_CREATOR)]
@@ -1538,6 +1615,32 @@ fn commit_item_definitions(mut staged: Vec<ItemCloneDefinition>) -> i32 {
     RESULT_OK
 }
 
+fn item_identity(resource: &str) -> String {
+    format!("item_kind_{resource}")
+}
+
+fn allocate_item_kind(existing: &[ItemCloneDefinition], resource: &str) -> Option<i32> {
+    let identity = item_identity(resource);
+    let taken = |kind: i32| existing.iter().any(|known| known.public_kind == kind);
+    if let Some(kind) = crate::kind_ledger::reserved_kind(&identity) {
+        if kind >= FIRST_SPARSE_ITEM_KIND && !taken(kind) {
+            return Some(kind);
+        }
+    }
+    let limit = FIRST_SPARSE_ITEM_KIND + crate::item_params::MAX_CLONE_KINDS as i32;
+    let kind = (FIRST_SPARSE_ITEM_KIND..limit).find(|candidate| !taken(*candidate))?;
+    crate::kind_ledger::record(&identity, kind);
+    Some(kind)
+}
+
+pub(crate) fn item_kind_for_identity(resource: &str) -> Option<i32> {
+    let definitions = definitions().read().ok()?;
+    definitions
+        .iter()
+        .find(|known| known.resource_name.to_str().ok() == Some(resource))
+        .map(|known| known.public_kind)
+}
+
 unsafe fn make_item_definition(
     public_kind: i32,
     base_kind: i32,
@@ -1615,13 +1718,26 @@ pub unsafe extern "C" fn clone_engine_register_item_v1(
     if category != ItemCategory::Item {
         return ERROR_ITEM_CATEGORY;
     }
+    let mut item_kind = registration.item_kind;
+    if item_kind == KIND_AUTO {
+        let Ok(existing) = definitions().read() else {
+            return ERROR_UNSUPPORTED;
+        };
+        let Ok(resource) = CStr::from_ptr(registration.resource_name).to_str() else {
+            return ERROR_NAME;
+        };
+        let Some(allocated) = allocate_item_kind(&existing, resource) else {
+            return ERROR_ITEM_FAMILY_CAPACITY;
+        };
+        item_kind = allocated;
+    }
     let definition = match make_item_definition(
-        registration.item_kind,
+        item_kind,
         registration.base_item_kind,
         registration.resource_name,
         registration.agent_name,
         category,
-        registration.item_kind,
+        item_kind,
         0,
         1,
     ) {
@@ -1740,6 +1856,19 @@ pub extern "C" fn clone_engine_item_base_kind(item_kind: i32) -> i32 {
     definition(item_kind)
         .map(|definition| definition.base_kind)
         .unwrap_or(item_kind)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_item_kind_for_identity_v1(
+    resource_name: *const c_char,
+) -> i32 {
+    if resource_name.is_null() {
+        return -1;
+    }
+    let Ok(resource) = CStr::from_ptr(resource_name).to_str() else {
+        return -1;
+    };
+    item_kind_for_identity(resource).unwrap_or(-1)
 }
 
 #[no_mangle]
@@ -2065,6 +2194,11 @@ pub fn install() {
         skyline::install_hooks!(
             item_request_full_bridge,
             item_request_simple_bridge,
+            item_have_item_bridge,
+            item_born_item_bridge,
+            item_attach_item_bridge,
+            item_get_have_item_kind_bridge,
+            item_get_pickable_item_kind_bridge,
             item_lower_creator_bridge,
             item_deactivate_bridge,
             battle_object_update
