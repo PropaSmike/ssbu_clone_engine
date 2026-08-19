@@ -77,7 +77,10 @@ static AGENTS: [CloneAgent; MAX_CLONE_KINDS] = [const { CloneAgent::new() }; MAX
 
 static PREFLIGHT_OK: AtomicBool = AtomicBool::new(false);
 static HOOKS_INSTALLED: AtomicBool = AtomicBool::new(false);
-static SWAP_REPORTED: AtomicBool = AtomicBool::new(false);
+static SWAP_REPORTED: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+const SWAP_REPORT_LIMIT: u32 = 12;
 
 fn slot_for(public_kind: i32) -> Option<&'static CloneAgent> {
     if public_kind < 0 {
@@ -380,8 +383,12 @@ unsafe fn clone_identity_of_item(item: usize) -> Option<(i32, i32)> {
     (base >= 0).then_some((public, base))
 }
 
-unsafe fn swap_agent_hash(item: usize, site: &str, seen: &AtomicBool) -> Option<u64> {
-    let announce = !seen.swap(true, Ordering::AcqRel);
+unsafe fn swap_agent_hash(
+    item: usize,
+    site: &str,
+    seen: &core::sync::atomic::AtomicU32,
+) -> Option<u64> {
+    let announce = seen.fetch_add(1, Ordering::Relaxed) < SWAP_REPORT_LIMIT;
     let identity = clone_identity_of_item(item);
     let field = (item + ITEM_AGENT_HASH_FIELD) as *mut u64;
     let current = core::ptr::read_volatile(field);
@@ -409,9 +416,10 @@ unsafe fn swap_agent_hash(item: usize, site: &str, seen: &AtomicBool) -> Option<
     }
     core::ptr::write_volatile(field, hash);
     crate::item_clones::bind_live_module(item, base);
-    if !SWAP_REPORTED.swap(true, Ordering::AcqRel) {
+    let reported = SWAP_REPORTED.fetch_add(1, Ordering::Relaxed);
+    if reported < SWAP_REPORT_LIMIT {
         crate::dbg_log_public(&format!(
-            "[itemlua] item {item:#x} is clone {public:#x} (base {base:#x}): \
+            "[itemlua] #{reported} item {item:#x} is clone {public:#x} (base {base:#x}): \
              agent hash {current:#x} -> {hash:#x}"
         ));
     }
@@ -432,7 +440,8 @@ pub(crate) unsafe fn restore_agent_hash(item: usize, base_kind: i32) {
 macro_rules! swap_hook {
     ($name:ident, $register:expr) => {
         unsafe extern "C" fn $name(ctx: &mut skyline::hooks::InlineCtx) {
-            static SEEN: AtomicBool = AtomicBool::new(false);
+            static SEEN: core::sync::atomic::AtomicU32 =
+                core::sync::atomic::AtomicU32::new(0);
             let item = ctx.registers[ITEM_REGISTER].x() as usize;
             if let Some(hash) = swap_agent_hash(item, stringify!($name), &SEEN) {
                 ctx.registers[$register].set_x(hash);

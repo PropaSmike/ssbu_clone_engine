@@ -544,6 +544,7 @@ static SHARED_HOOK_V2_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_ORIGINAL_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_V1_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_KIND_FOR_IDENTITY_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_FAMILY_V2_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_UI_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_BASE_KIND_FN: AtomicUsize = AtomicUsize::new(0);
@@ -654,6 +655,25 @@ pub fn item_backend_status() -> u32 {
     };
     let function: ItemBackendStatusFn = unsafe { std::mem::transmute(address) };
     unsafe { function() }
+}
+
+pub fn allocate_item(item: &ItemCloneRegistration<'_>) -> Result<i32, Error> {
+    let mut request = item.clone();
+    request.item_kind = KIND_AUTO;
+    register_item(&request)?;
+    item_kind_for_identity(item.resource_name).ok_or(Error::Engine(ERROR_BACKEND_UNAVAILABLE))
+}
+
+pub fn item_kind_for_identity(resource_name: &str) -> Option<i32> {
+    let name = CString::new(resource_name).ok()?;
+    let address = resolve(
+        &ITEM_KIND_FOR_IDENTITY_FN,
+        b"clone_engine_item_kind_for_identity_v1\0",
+    )?;
+    let function: unsafe extern "C" fn(*const c_char) -> i32 =
+        unsafe { std::mem::transmute(address) };
+    let kind = unsafe { function(name.as_ptr()) };
+    (kind >= 0).then_some(kind)
 }
 
 pub fn register_item(item: &ItemCloneRegistration<'_>) -> Result<(), Error> {
