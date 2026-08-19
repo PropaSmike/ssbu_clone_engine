@@ -25,9 +25,40 @@ The optional keys are `base_item`, which names the base in the log, `agent_name`
 which defaults to `resource_name`, `ui_id`, which defaults to
 `ui_item_<resource_name>`, and `training_order`.
 
-A plugin instead calls `register_item`, and its `ITEM_KIND` must be at least
-`FIRST_CUSTOM_ITEM_KIND` (0x36A) and unique across every custom item the user
-has installed.
+## A plugin does not pick a number either
+
+Pass `KIND_AUTO` to `allocate_item`. It registers the item and returns the kind
+the engine assigned, stepping over anything another pack already took. Hold it
+in a `CloneItemKind`, which caches the number and can recover it later from the
+resource name.
+
+```rust
+use clone_engine_api::{CloneItemKind, ItemCloneRegistration, KIND_AUTO};
+
+static WAWA: CloneItemKind = CloneItemKind::new("wawa");
+
+let kind = clone_engine_api::allocate_item(&ItemCloneRegistration::new(
+    KIND_AUTO,
+    63,
+    "wawa",
+    "wawa",
+))?;
+WAWA.store(kind);
+```
+
+Everything that wants a kind takes `WAWA.raw()`, including the `ItemModule`
+calls that spawn or attach the item. Those take the game's own
+`smash::app::ItemKind` wrapper around the number:
+
+```rust
+ItemModule::have_item(boma, smash::app::ItemKind(WAWA.raw()), 0, 0, false, false);
+```
+
+`register_item` with a number you chose still works, and a pack written before
+`allocate_item` keeps running. It is the worse option: the number has to be at
+least `FIRST_CUSTOM_ITEM_KIND` (0x36A) and unique across every custom item the
+user has installed, and neither you nor the engine can enforce that for a
+number two packs hardcoded.
 
 ## File layout
 

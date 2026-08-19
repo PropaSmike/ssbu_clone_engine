@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use crate::item_slots::{text_word, InlineHook};
 
@@ -11,6 +11,12 @@ const OFF_AGENT_LOAD_CHUNK: usize = 0x372C470;
 const AGENT_LOAD_CHUNK_EXPECTED: u32 = 0xA9BB67FA;
 
 const OFF_LUA_LOAD_CHUNK: usize = 0x372D180;
+
+const OFF_AGENT_LOCK: usize = 0x39C1490;
+const AGENT_LOCK_EXPECTED: u32 = 0xB000C6F0;
+const OFF_AGENT_UNLOCK: usize = 0x39C14A0;
+const AGENT_UNLOCK_EXPECTED: u32 = 0xB000C6F0;
+const AGENT_MANAGER_LOCK_FIELD: usize = 0x70;
 const LUA_LOAD_CHUNK_EXPECTED: u32 = 0xA9BD57FC;
 const LUA_CHUNK_NAME: &[u8] = b"buf\0";
 
@@ -53,6 +59,8 @@ struct CloneAgent {
     resolved: AtomicBool,
     requested: AtomicBool,
     stage: AtomicU32,
+    built_agent: AtomicUsize,
+    built_state: AtomicUsize,
     reported: AtomicBool,
     completed: AtomicBool,
 }
@@ -67,6 +75,8 @@ impl CloneAgent {
             resolved: AtomicBool::new(false),
             requested: AtomicBool::new(false),
             stage: AtomicU32::new(0),
+            built_agent: AtomicUsize::new(0),
+            built_state: AtomicUsize::new(0),
             reported: AtomicBool::new(false),
             completed: AtomicBool::new(false),
         }
@@ -80,7 +90,8 @@ static HOOKS_INSTALLED: AtomicBool = AtomicBool::new(false);
 static SWAP_REPORTED: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
-const SWAP_REPORT_LIMIT: u32 = 12;
+const SWAP_REPORT_LIMIT: u32 = 64;
+const DECLINE_REPORT_LIMIT: u32 = 64;
 
 fn slot_for(public_kind: i32) -> Option<&'static CloneAgent> {
     if public_kind < 0 {
@@ -213,6 +224,18 @@ unsafe fn reset_lua_stack(state: usize) {
     core::ptr::write_volatile((state + LUA_STATE_TOP) as *mut usize, want);
 }
 
+unsafe fn with_agent_lock<T>(body: impl FnOnce() -> T) -> Option<T> {
+    let manager = agent_manager()?;
+    let target = manager + AGENT_MANAGER_LOCK_FIELD;
+    let lock: unsafe extern "C" fn(usize) = core::mem::transmute(crate::text_base() + OFF_AGENT_LOCK);
+    let unlock: unsafe extern "C" fn(usize) =
+        core::mem::transmute(crate::text_base() + OFF_AGENT_UNLOCK);
+    lock(target);
+    let out = body();
+    unlock(target);
+    Some(out)
+}
+
 unsafe fn compile_own_chunk(state: usize, hash: u64) -> Result<usize, String> {
     let bytes = crate::item_params::read_own_file(hash)?;
     if bytes.len() < 4 || &bytes[..4] != b"\x1bLua" {
@@ -224,13 +247,17 @@ unsafe fn compile_own_chunk(state: usize, hash: u64) -> Result<usize, String> {
     }
     let load: unsafe extern "C" fn(usize, *const u8, usize, *const u8, u32) -> u32 =
         core::mem::transmute(crate::text_base() + OFF_LUA_LOAD_CHUNK);
-    let result = load(
-        state,
-        bytes.as_ptr(),
-        bytes.len(),
-        LUA_CHUNK_NAME.as_ptr(),
-        1,
-    );
+    let Some(result) = with_agent_lock(|| {
+        load(
+            state,
+            bytes.as_ptr(),
+            bytes.len(),
+            LUA_CHUNK_NAME.as_ptr(),
+            1,
+        )
+    }) else {
+        return Err("agent manager not constructed; chunk load skipped".to_string());
+    };
     if result != 0 {
         reset_lua_stack(state);
         return Err(format!(
@@ -242,15 +269,19 @@ unsafe fn compile_own_chunk(state: usize, hash: u64) -> Result<usize, String> {
 }
 
 fn request_files(slot: &CloneAgent) {
-    if slot.requested.swap(true, Ordering::AcqRel) {
-        return;
-    }
     for cell in &slot.paths {
         let file = cell.load(Ordering::Acquire);
-        if file != u32::MAX {
-            unsafe { crate::item_params::request_file_path(file) };
+        if file == u32::MAX {
+            continue;
+        }
+        unsafe {
+            if crate::item_params::resource_is_resident(file) {
+                continue;
+            }
+            crate::item_params::request_file_path(file);
         }
     }
+    slot.requested.store(true, Ordering::Release);
 }
 
 unsafe fn agent_manager() -> Option<usize> {
@@ -261,6 +292,23 @@ unsafe fn agent_manager() -> Option<usize> {
     }
     let manager = core::ptr::read_volatile(holder as *const usize);
     (manager != 0).then_some(manager)
+}
+
+unsafe fn find_agent(hash: u64) -> Option<usize> {
+    const MASK: u64 = 0xFF_FFFF_FFFF;
+    let manager = agent_manager()?;
+    let wanted = hash & MASK;
+    let mut node = core::ptr::read_volatile((manager + 8) as *const usize);
+    let mut count = 0usize;
+    while node != manager && node != 0 && count < 512 {
+        let agent = core::ptr::read_volatile((node + 0x10) as *const usize);
+        if agent != 0 && core::ptr::read_volatile((agent + 0x18) as *const u64) & MASK == wanted {
+            return Some(agent);
+        }
+        count += 1;
+        node = core::ptr::read_volatile((node + 8) as *const usize);
+    }
+    None
 }
 
 unsafe fn survey_agents(manager: usize, wanted: [u64; 2]) -> (usize, [usize; 2]) {
@@ -284,6 +332,37 @@ unsafe fn survey_agents(manager: usize, wanted: [u64; 2]) -> (usize, [usize; 2])
     (count, found)
 }
 
+unsafe fn load_chunks(
+    slot: &CloneAgent,
+    agent: usize,
+    state: usize,
+) -> (usize, Vec<&'static str>, Vec<String>) {
+    let load_chunk: unsafe extern "C" fn(usize, *const u32, u32) =
+        core::mem::transmute(crate::text_base() + OFF_AGENT_LOAD_CHUNK);
+    let mut compiled = 0usize;
+    let mut pending: Vec<&'static str> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    for (index, stem) in SCRIPT_FILES.iter().enumerate() {
+        let file = slot.paths[index].load(Ordering::Acquire);
+        if file != u32::MAX && crate::item_params::resource_is_resident(file) {
+            load_chunk(agent, &file as *const u32, 1);
+            compiled += 1;
+            continue;
+        }
+        let hash = slot.hashes[index].load(Ordering::Acquire);
+        match compile_own_chunk(state, hash) {
+            Ok(_) => compiled += 1,
+            Err(reason) => {
+                pending.push(stem);
+                if !slot.completed.load(Ordering::Acquire) {
+                    failures.push(format!("{stem}: {reason}"));
+                }
+            }
+        }
+    }
+    (compiled, pending, failures)
+}
+
 pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return None;
@@ -294,10 +373,22 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
         return None;
     }
     if slot.stage.load(Ordering::Acquire) == 2 {
-        return Some(hash);
+        let live = unsafe { find_agent(hash) };
+        let state = live
+            .map(|agent| unsafe { core::ptr::read_volatile((agent + 8) as *const usize) })
+            .unwrap_or(0);
+        if live == Some(slot.built_agent.load(Ordering::Acquire))
+            && state == slot.built_state.load(Ordering::Acquire)
+        {
+            return Some(hash);
+        }
+        slot.stage.store(0, Ordering::Release);
+        slot.reported.store(false, Ordering::Release);
     }
+
     let report = |detail: String| {
-        if !slot.reported.swap(true, Ordering::AcqRel) {
+        static REPORTED: AtomicU32 = AtomicU32::new(0);
+        if REPORTED.fetch_add(1, Ordering::Relaxed) < 32 {
             crate::dbg_log_public(&format!(
                 "[itemlua] clone {public_kind:#x} hash {hash:#x}: {detail}"
             ));
@@ -330,34 +421,14 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
             ));
             return None;
         }
-        let load_chunk: unsafe extern "C" fn(usize, *const u32, u32) =
-            core::mem::transmute(crate::text_base() + OFF_AGENT_LOAD_CHUNK);
-        let mut compiled = 0usize;
-        let mut pending: Vec<&str> = Vec::new();
-        let mut failures: Vec<String> = Vec::new();
-        for (index, stem) in SCRIPT_FILES.iter().enumerate() {
-            let file = slot.paths[index].load(Ordering::Acquire);
-            if file != u32::MAX && crate::item_params::resource_is_resident(file) {
-                load_chunk(agent, &file as *const u32, 1);
-                compiled += 1;
-                continue;
-            }
-            let hash = slot.hashes[index].load(Ordering::Acquire);
-            match compile_own_chunk(state, hash) {
-                Ok(_) => compiled += 1,
-                Err(reason) => {
-                    pending.push(stem);
-                    if !slot.completed.load(Ordering::Acquire) {
-                        failures.push(format!("{stem}: {reason}"));
-                    }
-                }
-            }
-        }
+        let (compiled, pending, failures) = load_chunks(slot, agent, state);
         let detail = format!(
             "agent {agent:#x} state {state:#x} (agents={agents}, parent {parent_live:#x}): \
              {compiled} chunks compiled, still loading {pending:?} {failures:?}"
         );
         if pending.is_empty() {
+            slot.built_agent.store(agent, Ordering::Release);
+            slot.built_state.store(state, Ordering::Release);
             slot.stage.store(2, Ordering::Release);
             if !slot.completed.swap(true, Ordering::AcqRel) {
                 crate::dbg_log_public(&format!(
@@ -405,10 +476,11 @@ unsafe fn swap_agent_hash(
         return Some(hash);
     }
     if current != native_agent_hash(base) {
-        if announce {
+        static DECLINED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        let count = DECLINED.fetch_add(1, Ordering::Relaxed);
+        if count < DECLINE_REPORT_LIMIT {
             crate::dbg_log_public(&format!(
-                "[itemlua] {site} declined: field {current:#x} is not base {base:#x}'s \
-                 agent {:#x}",
+                "[itemlua] {site} DECLINED #{count}: item {item:#x} clone {public:#x} field                  {current:#x} is not base {base:#x} native {:#x}; item will run no scripts",
                 native_agent_hash(base)
             ));
         }
@@ -471,6 +543,8 @@ unsafe fn preflight() -> Result<(), String> {
         (OFF_AGENT_GET_OR_CREATE, AGENT_GET_OR_CREATE_EXPECTED),
         (OFF_AGENT_LOAD_CHUNK, AGENT_LOAD_CHUNK_EXPECTED),
         (OFF_LUA_LOAD_CHUNK, LUA_LOAD_CHUNK_EXPECTED),
+        (OFF_AGENT_LOCK, AGENT_LOCK_EXPECTED),
+        (OFF_AGENT_UNLOCK, AGENT_UNLOCK_EXPECTED),
         (SCRIPT_OBJECT_SITE, SCRIPT_OBJECT_EXPECTED),
         (SCRIPT_MODULE_SITE, SCRIPT_MODULE_EXPECTED),
     ] {
