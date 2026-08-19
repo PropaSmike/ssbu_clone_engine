@@ -258,23 +258,43 @@ Use the calls below when the item needs code. A pack may ship both an
 `item.toml` and a plugin; whichever registers first wins and the other reuses
 it.
 
-```rust
-use clone_engine_api::{ItemCloneRegistration, ItemStatusLine};
+A plugin does not pick a number either. Pass `KIND_AUTO` to `allocate_item` and
+it returns the kind the engine handed you. Keep it in a `CloneItemKind`, which also
+recovers the number later from the resource name, so a second plugin can find
+your item without you exporting anything.
 
-clone_engine_api::register_item(&ItemCloneRegistration::new(
-    ITEM_KIND,
+```rust
+use clone_engine_api::{CloneItemKind, ItemCloneRegistration, ItemStatusLine, KIND_AUTO};
+
+static MY_ITEM: CloneItemKind = CloneItemKind::new("my_item");
+
+let kind = clone_engine_api::allocate_item(&ItemCloneRegistration::new(
+    KIND_AUTO,
     0x32,        // vanilla base item
     "my_item",   // item/my_item
     "my_item",   // Lua agent name
 ))?;
+MY_ITEM.store(kind);
 
 clone_engine_api::item_status_named(
-    ITEM_KIND,
+    kind,
     ItemStatusLine::Update,
     "WAIT",
     my_wait_update as *const (),
 )?;
 ```
+
+Use `MY_ITEM.raw()` wherever an `ItemModule` call wants a kind, and
+`MY_ITEM.is(kind)` to test one you were handed. The module calls take the game's
+own `smash::app::ItemKind` wrapper around that number:
+
+```rust
+ItemModule::have_item(boma, smash::app::ItemKind(MY_ITEM.raw()), 0, 0, false, false);
+```
+
+`register_item` with a number of your own still works and is what an older pack
+does, but two packs that pick the same number collide and only one of them
+loads.
 
 Register statuses by name, and do it as soon as your plugin starts. The engine
 keeps the name and resolves it while installing the script on a live agent,
@@ -291,7 +311,10 @@ ones your base item already has.
 
 | Function | Meaning |
 |---|---|
-| `register_item(&ItemCloneRegistration)` | Register a custom item over a vanilla base. |
+| `allocate_item(&ItemCloneRegistration)` | Register with `KIND_AUTO` and get the assigned kind back. Use this. |
+| `item_kind_for_identity(resource_name)` | The kind an already registered resource name landed on. |
+| `CloneItemKind::new(resource_name)` | A handle that caches the kind and resolves it on demand. |
+| `register_item(&ItemCloneRegistration)` | Register a custom item over a vanilla base with a kind you chose. |
 | `register_item_ui(&ItemUiRegistration)` | Give it a Training menu cell. |
 | `item_status_named(kind, line, name, function)` | Add a status callback. Use this. |
 | `item_status(kind, line, status, function)` | The same with a number you resolved. `0` is refused. |
@@ -302,7 +325,15 @@ ones your base item already has.
 | `is_item_kind(kind)` | Whether the engine registered it. |
 | `item_resource_name(kind)` | Its file root. |
 | `item_kind_from_object(object)`, `item_kind_from_boma(boma)` | Recover identity from a live item. Unsafe pointer API. |
+| `item_kind_held(boma, index)`, `item_kind_pickable(boma)` | What a fighter is holding or could pick up, custom kinds included. Unsafe pointer API. |
 | `item_backend_status()` | Readiness flags for each item layer. |
+
+`ItemModule::get_have_item_kind` reports the BASE kind for a custom item, and
+has to: the game calls it every frame and indexes its own tables with the
+result, so a custom kind coming back from it walks off the end of all of them.
+Use `item_kind_held` when you want identity. Going the other way needs nothing
+special, because the engine rewrites the request: `ItemModule::have_item`,
+`born_item` and `attach_item` all accept a custom kind directly.
 
 Any number of custom items may hook any number of different vanilla base items
 in one session. The engine runs the vanilla item's own code first, then adds

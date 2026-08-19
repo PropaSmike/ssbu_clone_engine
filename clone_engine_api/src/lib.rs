@@ -545,6 +545,8 @@ static SHARED_HOOK_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_ORIGINAL_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_KIND_FOR_IDENTITY_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_KIND_HELD_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_KIND_PICKABLE_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_FAMILY_V2_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_UI_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_BASE_KIND_FN: AtomicUsize = AtomicUsize::new(0);
@@ -674,6 +676,44 @@ pub fn item_kind_for_identity(resource_name: &str) -> Option<i32> {
         unsafe { std::mem::transmute(address) };
     let kind = unsafe { function(name.as_ptr()) };
     (kind >= 0).then_some(kind)
+}
+
+pub struct CloneItemKind {
+    cached: std::sync::atomic::AtomicI32,
+    resource_name: &'static str,
+}
+
+impl CloneItemKind {
+    pub const fn new(resource_name: &'static str) -> Self {
+        Self {
+            cached: std::sync::atomic::AtomicI32::new(-1),
+            resource_name,
+        }
+    }
+
+    pub fn store(&self, kind: i32) {
+        if kind >= 0 {
+            self.cached.store(kind, Ordering::Release);
+        }
+    }
+
+    pub fn get(&self) -> Option<i32> {
+        let cached = self.cached.load(Ordering::Acquire);
+        if cached >= 0 {
+            return Some(cached);
+        }
+        let resolved = item_kind_for_identity(self.resource_name)?;
+        self.cached.store(resolved, Ordering::Release);
+        Some(resolved)
+    }
+
+    pub fn raw(&self) -> i32 {
+        self.get().unwrap_or(-1)
+    }
+
+    pub fn is(&self, kind: i32) -> bool {
+        kind >= 0 && self.get() == Some(kind)
+    }
 }
 
 pub fn register_item(item: &ItemCloneRegistration<'_>) -> Result<(), Error> {
@@ -854,6 +894,23 @@ pub unsafe fn item_kind_from_boma(module_accessor: *const c_void) -> i32 {
         return -1;
     };
     let function: ItemObjectKindFn = std::mem::transmute(address);
+    function(module_accessor)
+}
+
+pub unsafe fn item_kind_held(module_accessor: *const c_void, index: i32) -> i32 {
+    let Some(address) = resolve(&ITEM_KIND_HELD_FN, b"clone_engine_item_kind_held_v1\0") else {
+        return -1;
+    };
+    let function: unsafe extern "C" fn(*const c_void, i32) -> i32 = std::mem::transmute(address);
+    function(module_accessor, index)
+}
+
+pub unsafe fn item_kind_pickable(module_accessor: *const c_void) -> i32 {
+    let Some(address) = resolve(&ITEM_KIND_PICKABLE_FN, b"clone_engine_item_kind_pickable_v1\0")
+    else {
+        return -1;
+    };
+    let function: unsafe extern "C" fn(*const c_void) -> i32 = std::mem::transmute(address);
     function(module_accessor)
 }
 

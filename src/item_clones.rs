@@ -249,7 +249,7 @@ fn log(message: String) {
 }
 
 fn limited_log(message: String) {
-    if LOG_SEQUENCE.fetch_add(1, Ordering::Relaxed) < 96 {
+    if LOG_SEQUENCE.fetch_add(1, Ordering::Relaxed) < 1000 {
         log(message);
     }
 }
@@ -318,17 +318,78 @@ fn register_status_script(
     RESULT_OK
 }
 
-fn scripts_for(kind: i32) -> Vec<ItemStatusScript> {
+fn scripts_for(kind: i32) -> Vec<(usize, ItemStatusScript)> {
     status_scripts()
         .read()
         .map(|scripts| {
             scripts
                 .iter()
-                .filter(|script| script.public_kind == kind)
-                .cloned()
+                .enumerate()
+                .filter(|(_, script)| script.public_kind == kind)
+                .map(|(index, script)| (index, script.clone()))
                 .collect()
         })
         .unwrap_or_default()
+}
+
+const MAX_CHAINED_STATUS_SCRIPTS: usize = 64;
+
+#[allow(clippy::declare_interior_mutable_const)]
+const ZERO_SLOT: AtomicUsize = AtomicUsize::new(0);
+
+static CHAIN_ORIGINAL: [AtomicUsize; MAX_CHAINED_STATUS_SCRIPTS] =
+    [ZERO_SLOT; MAX_CHAINED_STATUS_SCRIPTS];
+static CHAIN_TARGET: [AtomicUsize; MAX_CHAINED_STATUS_SCRIPTS] =
+    [ZERO_SLOT; MAX_CHAINED_STATUS_SCRIPTS];
+
+type StatusFn = unsafe extern "C" fn(*mut u8) -> smash::lib::L2CValue;
+
+unsafe fn run_chained_status(index: usize, agent: *mut u8) -> smash::lib::L2CValue {
+    let original = CHAIN_ORIGINAL[index].load(Ordering::Acquire);
+    if original != 0 {
+        let call: StatusFn = core::mem::transmute(original);
+        call(agent);
+    }
+    let target = CHAIN_TARGET[index].load(Ordering::Acquire);
+    if target == 0 {
+        return smash::lib::L2CValue::new_int(0);
+    }
+    let call: StatusFn = core::mem::transmute(target);
+    call(agent)
+}
+
+struct ChainShim<const INDEX: usize>;
+
+impl<const INDEX: usize> ChainShim<INDEX> {
+    unsafe extern "C" fn call(agent: *mut u8) -> smash::lib::L2CValue {
+        run_chained_status(INDEX, agent)
+    }
+}
+
+macro_rules! chain_shims {
+    ($($index:literal),* $(,)?) => {
+        static CHAIN_SHIMS: [StatusFn; MAX_CHAINED_STATUS_SCRIPTS] =
+            [$(ChainShim::<$index>::call),*];
+    };
+}
+
+chain_shims!(
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+    50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+);
+
+const L2C_TYPE_VOID: u32 = 0;
+const L2C_TYPE_POINTER: u32 = 4;
+
+unsafe fn status_function_pointer(value: &smash::lib::L2CValue) -> Result<usize, u32> {
+    let raw = value as *const smash::lib::L2CValue as *const u8;
+    let val_type = core::ptr::read_volatile(raw as *const u32);
+    match val_type {
+        L2C_TYPE_POINTER => Ok(core::ptr::read_volatile(raw.add(8) as *const usize)),
+        L2C_TYPE_VOID => Ok(0),
+        other => Err(other),
+    }
 }
 
 struct PendingSlot {
@@ -685,6 +746,45 @@ fn release_pending(index: usize) {
     slot.owner_thread.store(0, Ordering::Release);
 }
 
+fn retire_live(object: usize) {
+    if object == 0 {
+        return;
+    }
+    for slot in &LIVE {
+        if slot.state.load(Ordering::Acquire) != 2 || slot.object.load(Ordering::Acquire) != object
+        {
+            continue;
+        }
+        if slot
+            .state
+            .compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            continue;
+        }
+        let stale = slot.public_kind.load(Ordering::Relaxed);
+        clear_live_slot(slot);
+        LIVE_COUNT.fetch_sub(1, Ordering::AcqRel);
+        limited_log(format!(
+            "[itemclone] retired duplicate live entry object={object:#x} public={stale:#x}"
+        ));
+    }
+}
+
+fn clear_live_slot(slot: &LiveSlot) {
+    slot.object.store(0, Ordering::Relaxed);
+    slot.boma.store(0, Ordering::Relaxed);
+    slot.agent.store(0, Ordering::Relaxed);
+    slot.module.store(0, Ordering::Relaxed);
+    slot.object_id.store(u32::MAX, Ordering::Relaxed);
+    slot.public_kind.store(-1, Ordering::Relaxed);
+    slot.base_kind.store(-1, Ordering::Relaxed);
+    slot.parent_public_kind.store(-1, Ordering::Relaxed);
+    slot.spawn_source
+        .store(ItemSpawnSource::Unknown as u32, Ordering::Relaxed);
+    slot.state.store(0, Ordering::Release);
+}
+
 unsafe fn publish_live(pending_index: usize, object: *mut u8) {
     if object.is_null() {
         return;
@@ -693,6 +793,7 @@ unsafe fn publish_live(pending_index: usize, object: *mut u8) {
     let public_kind = pending.public_kind.load(Ordering::Acquire);
     let base_kind = pending.base_kind.load(Ordering::Acquire);
     let object_id = (object.add(0x08) as *const u32).read_unaligned();
+    retire_live(object as usize);
     for slot in &LIVE {
         if slot
             .state
@@ -747,11 +848,7 @@ pub(crate) unsafe fn bind_live_module(module: usize, base_kind: i32) {
             return;
         }
     }
-    if let Some(index) = active_pending() {
-        if PENDING[index].base_kind.load(Ordering::Acquire) == base_kind {
-            PENDING[index].module.store(module, Ordering::Release);
-        }
-    }
+    let _ = active_pending();
 }
 
 fn live_kind_by(value: usize, field: fn(&LiveSlot) -> &AtomicUsize) -> Option<i32> {
@@ -788,6 +885,7 @@ fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
 }
 
 fn remove_live(object: usize, object_id: u32) -> Option<i32> {
+    let mut released = None;
     for slot in &LIVE {
         if slot.state.load(Ordering::Acquire) != 2
             || slot.object.load(Ordering::Acquire) != object
@@ -803,33 +901,11 @@ fn remove_live(object: usize, object_id: u32) -> Option<i32> {
             continue;
         }
         let kind = slot.public_kind.load(Ordering::Relaxed);
-        #[cfg(feature = "item_clone_backend")]
-        {
-            let module = slot.module.load(Ordering::Acquire);
-            if module != 0 {
-                unsafe {
-                    crate::item_scripts::restore_agent_hash(
-                        module,
-                        slot.base_kind.load(Ordering::Relaxed),
-                    );
-                }
-            }
-        }
-        slot.object.store(0, Ordering::Relaxed);
-        slot.boma.store(0, Ordering::Relaxed);
-        slot.agent.store(0, Ordering::Relaxed);
-        slot.module.store(0, Ordering::Relaxed);
-        slot.object_id.store(u32::MAX, Ordering::Relaxed);
-        slot.public_kind.store(-1, Ordering::Relaxed);
-        slot.base_kind.store(-1, Ordering::Relaxed);
-        slot.parent_public_kind.store(-1, Ordering::Relaxed);
-        slot.spawn_source
-            .store(ItemSpawnSource::Unknown as u32, Ordering::Relaxed);
-        slot.state.store(0, Ordering::Release);
+        clear_live_slot(slot);
         LIVE_COUNT.fetch_sub(1, Ordering::AcqRel);
-        return Some(kind);
+        released = released.or(Some(kind));
     }
-    None
+    released
 }
 
 unsafe fn rewrite_requested_kind(ctx: &mut skyline::hooks::InlineCtx) {
@@ -885,19 +961,31 @@ unsafe fn publish_kind(reported: i32, object_id: u32) -> i32 {
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_GET_HAVE_ITEM_KIND)]
-unsafe fn item_get_have_item_kind_bridge(boma: *mut u8, index: i32) -> i32 {
-    let reported = call_original!(boma, index);
-    if boma.is_null() || LIVE_COUNT.load(Ordering::Acquire) == 0 {
+#[skyline::from_offset(OFF_ITEM_GET_HAVE_ITEM_KIND)]
+fn native_get_have_item_kind(boma: *mut u8, index: i32) -> i32;
+
+#[skyline::from_offset(OFF_ITEM_GET_PICKABLE_ITEM_KIND)]
+fn native_get_pickable_item_kind(boma: *mut u8) -> i32;
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_item_kind_held_v1(boma: *mut u8, index: i32) -> i32 {
+    if boma.is_null() {
+        return -1;
+    }
+    let reported = native_get_have_item_kind(boma, index);
+    if LIVE_COUNT.load(Ordering::Acquire) == 0 {
         return reported;
     }
     publish_kind(reported, native_get_have_item_id(boma, index))
 }
 
-#[skyline::hook(offset = OFF_ITEM_GET_PICKABLE_ITEM_KIND)]
-unsafe fn item_get_pickable_item_kind_bridge(boma: *mut u8) -> i32 {
-    let reported = call_original!(boma);
-    if boma.is_null() || LIVE_COUNT.load(Ordering::Acquire) == 0 {
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_item_kind_pickable_v1(boma: *mut u8) -> i32 {
+    if boma.is_null() {
+        return -1;
+    }
+    let reported = native_get_pickable_item_kind(boma);
+    if LIVE_COUNT.load(Ordering::Acquire) == 0 {
         return reported;
     }
     publish_kind(reported, native_get_pickable_item_object_id(boma))
@@ -1429,7 +1517,7 @@ unsafe extern "C" fn item_set_status_bridge(agent: *mut u8) {
         return;
     }
     let base = &mut *(agent as *mut smash::lua2cpp::L2CAgentBase);
-    for script in scripts {
+    for (index, script) in scripts {
         let Some(line_value) = item_status_line_value(script.line as u32) else {
             continue;
         };
@@ -1437,8 +1525,7 @@ unsafe extern "C" fn item_set_status_bridge(agent: *mut u8) {
             static UNRESOLVED: AtomicBool = AtomicBool::new(false);
             if !UNRESOLVED.swap(true, Ordering::AcqRel) {
                 limited_log(format!(
-                    "[itemclone] status {} for public={kind:#x} did not resolve at dispatch; \
-                     skipped",
+                    "[itemclone] status {} for public={kind:#x} did not resolve at dispatch",
                     script.describe()
                 ));
             }
@@ -1446,10 +1533,32 @@ unsafe extern "C" fn item_set_status_bridge(agent: *mut u8) {
         };
         let status = smash::lib::L2CValue::new_int(status_kind as u32 as u64);
         let line = smash::lib::L2CValue::new_int(line_value as u32 as u64);
-        base.sv_set_status_func(status, line, core::mem::transmute(script.function));
+
+        let installed = if index < MAX_CHAINED_STATUS_SCRIPTS {
+            let existing = base.sv_get_status_func(&status, &line);
+            match status_function_pointer(&existing) {
+                Ok(original) => {
+                    let shim = CHAIN_SHIMS[index] as usize;
+                    if original != shim {
+                        CHAIN_ORIGINAL[index].store(original, Ordering::Release);
+                    }
+                    CHAIN_TARGET[index].store(script.function, Ordering::Release);
+                    base.sv_set_status_func(status, line, core::mem::transmute(shim));
+                    let kept = CHAIN_ORIGINAL[index].load(Ordering::Acquire);
+                    format!("chained over {kept:#x}")
+                }
+                Err(val_type) => {
+                    base.sv_set_status_func(status, line, core::mem::transmute(script.function));
+                    format!("REPLACED: existing function has val_type {val_type}")
+                }
+            }
+        } else {
+            base.sv_set_status_func(status, line, core::mem::transmute(script.function));
+            format!("REPLACED: over {MAX_CHAINED_STATUS_SCRIPTS} scripts registered")
+        };
+
         limited_log(format!(
-            "[itemclone] status public={kind:#x} status={}={status_kind:#x} \
-             line={}={line_value:#x} (hook)",
+            "[itemclone] status public={kind:#x} status={}={status_kind:#x} line={}={line_value:#x} ({installed})",
             script.describe(),
             script.line
         ));
@@ -2197,8 +2306,6 @@ pub fn install() {
             item_have_item_bridge,
             item_born_item_bridge,
             item_attach_item_bridge,
-            item_get_have_item_kind_bridge,
-            item_get_pickable_item_kind_bridge,
             item_lower_creator_bridge,
             item_deactivate_bridge,
             battle_object_update
