@@ -84,6 +84,10 @@ pub fn decode_pair(pc: usize, adrp_word: u32, add_word: u32) -> Option<usize> {
     Some((page + offset) as usize)
 }
 
+unsafe fn write_text_pair(address: usize, first: u32, second: u32) -> bool {
+    crate::text_patch::write_words(address, &[first, second])
+}
+
 impl RelocationPlan {
     pub fn build(references: &[TableReference], table_pointer: usize) -> Result<Self, PlanError> {
         let mut patches = Vec::with_capacity(references.len());
@@ -114,12 +118,20 @@ impl RelocationPlan {
         })
     }
 
-    pub unsafe fn apply(&self) {
+    pub unsafe fn apply(&self) -> usize {
+        let mut refused = 0usize;
         for patch in &self.patches {
-            let site = patch.adrp_at as *mut u32;
-            site.add(1).write_volatile(patch.add_word);
-            site.write_volatile(patch.adrp_word);
+            let site = patch.adrp_at as *const u32;
+            if site.read_volatile() == patch.adrp_word
+                && site.add(1).read_volatile() == patch.add_word
+            {
+                continue;
+            }
+            if !write_text_pair(patch.adrp_at, patch.adrp_word, patch.add_word) {
+                refused += 1;
+            }
         }
+        refused
     }
 }
 

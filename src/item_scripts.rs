@@ -7,6 +7,9 @@ const AGENT_MANAGER_GLOBAL: usize = 0x593A340;
 const OFF_AGENT_GET_OR_CREATE: usize = 0x372BA50;
 const AGENT_GET_OR_CREATE_EXPECTED: u32 = 0xD10143FF;
 
+const OFF_AGENT_RELEASE: usize = 0x372BCB0;
+const AGENT_RELEASE_EXPECTED: u32 = 0xD10203FF;
+
 const OFF_AGENT_LOAD_CHUNK: usize = 0x372C470;
 const AGENT_LOAD_CHUNK_EXPECTED: u32 = 0xA9BB67FA;
 
@@ -61,6 +64,9 @@ struct CloneAgent {
     stage: AtomicU32,
     built_agent: AtomicUsize,
     built_state: AtomicUsize,
+    built_parent: AtomicUsize,
+    built_parent_state: AtomicUsize,
+    acquired: AtomicU32,
     reported: AtomicBool,
     completed: AtomicBool,
 }
@@ -77,6 +83,9 @@ impl CloneAgent {
             stage: AtomicU32::new(0),
             built_agent: AtomicUsize::new(0),
             built_state: AtomicUsize::new(0),
+            built_parent: AtomicUsize::new(0),
+            built_parent_state: AtomicUsize::new(0),
+            acquired: AtomicU32::new(0),
             reported: AtomicBool::new(false),
             completed: AtomicBool::new(false),
         }
@@ -363,6 +372,45 @@ unsafe fn load_chunks(
     (compiled, pending, failures)
 }
 
+unsafe fn parent_identity() -> (usize, usize) {
+    let Some(parent) = find_agent(ITEM_PARENT_AGENT) else {
+        return (0, 0);
+    };
+    (
+        parent,
+        core::ptr::read_volatile((parent + 8) as *const usize),
+    )
+}
+
+unsafe fn retire_agent(
+    manager: usize,
+    slot: &CloneAgent,
+    public_kind: i32,
+    hash: u64,
+    parent: usize,
+    parent_state: usize,
+) {
+    let release: unsafe extern "C" fn(usize, u64) =
+        core::mem::transmute(crate::text_base() + OFF_AGENT_RELEASE);
+    let taken = slot.acquired.swap(0, Ordering::AcqRel);
+    for _ in 0..taken {
+        release(manager, hash);
+    }
+    let residue = find_agent(hash);
+    slot.built_agent.store(0, Ordering::Release);
+    slot.built_state.store(0, Ordering::Release);
+    slot.built_parent.store(0, Ordering::Release);
+    slot.built_parent_state.store(0, Ordering::Release);
+    slot.completed.store(false, Ordering::Release);
+    static RETIRED: AtomicU32 = AtomicU32::new(0);
+    let count = RETIRED.fetch_add(1, Ordering::Relaxed);
+    if count < 32 {
+        crate::dbg_log_public(&format!(
+            "[itemlua] clone {public_kind:#x} hash {hash:#x} RETIRED #{count}: item parent agent is now {parent:#x} state {parent_state:#x}; released {taken} reference(s), residue {residue:#x?}"
+        ));
+    }
+}
+
 pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return None;
@@ -371,19 +419,6 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
     let hash = slot.hash.load(Ordering::Acquire);
     if hash == 0 {
         return None;
-    }
-    if slot.stage.load(Ordering::Acquire) == 2 {
-        let live = unsafe { find_agent(hash) };
-        let state = live
-            .map(|agent| unsafe { core::ptr::read_volatile((agent + 8) as *const usize) })
-            .unwrap_or(0);
-        if live == Some(slot.built_agent.load(Ordering::Acquire))
-            && state == slot.built_state.load(Ordering::Acquire)
-        {
-            return Some(hash);
-        }
-        slot.stage.store(0, Ordering::Release);
-        slot.reported.store(false, Ordering::Release);
     }
 
     let report = |detail: String| {
@@ -399,6 +434,32 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
             report("lua agent manager is not constructed yet".into());
             return None;
         };
+
+        if slot.stage.load(Ordering::Acquire) == 2 {
+            let live = find_agent(hash);
+            let state = live
+                .map(|agent| core::ptr::read_volatile((agent + 8) as *const usize))
+                .unwrap_or(0);
+            let (parent, parent_state) = parent_identity();
+            let built = slot.built_agent.load(Ordering::Acquire);
+            let parent_moved = parent != slot.built_parent.load(Ordering::Acquire)
+                || parent_state != slot.built_parent_state.load(Ordering::Acquire);
+            if live == Some(built)
+                && state == slot.built_state.load(Ordering::Acquire)
+                && parent != 0
+                && !parent_moved
+            {
+                return Some(hash);
+            }
+            if live.is_none() {
+                slot.acquired.store(0, Ordering::Release);
+            } else if parent_moved {
+                retire_agent(manager, slot, public_kind, hash, parent, parent_state);
+            }
+            slot.stage.store(0, Ordering::Release);
+            slot.reported.store(false, Ordering::Release);
+        }
+
         request_files(slot);
         let (agents, [parent_live, _]) = survey_agents(manager, [ITEM_PARENT_AGENT, hash]);
         let get_or_create: unsafe extern "C" fn(usize, u64, u64) -> u32 =
@@ -413,7 +474,13 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
             ));
             return None;
         }
+        slot.acquired.fetch_add(1, Ordering::AcqRel);
         slot.stage.store(1, Ordering::Release);
+        let parent_state = if parent_live == 0 {
+            0
+        } else {
+            core::ptr::read_volatile((parent_live + 8) as *const usize)
+        };
         let state = core::ptr::read_volatile((agent + 8) as *const usize);
         if state == 0 {
             report(format!(
@@ -423,12 +490,13 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
         }
         let (compiled, pending, failures) = load_chunks(slot, agent, state);
         let detail = format!(
-            "agent {agent:#x} state {state:#x} (agents={agents}, parent {parent_live:#x}): \
-             {compiled} chunks compiled, still loading {pending:?} {failures:?}"
+            "agent {agent:#x} state {state:#x} (agents={agents}, parent {parent_live:#x} state {parent_state:#x}): {compiled} chunks compiled, still loading {pending:?} {failures:?}"
         );
-        if pending.is_empty() {
+        if pending.is_empty() && parent_live != 0 {
             slot.built_agent.store(agent, Ordering::Release);
             slot.built_state.store(state, Ordering::Release);
+            slot.built_parent.store(parent_live, Ordering::Release);
+            slot.built_parent_state.store(parent_state, Ordering::Release);
             slot.stage.store(2, Ordering::Release);
             if !slot.completed.swap(true, Ordering::AcqRel) {
                 crate::dbg_log_public(&format!(
@@ -541,6 +609,7 @@ const SITES: &[(usize, u32, InlineHook)] = &[
 unsafe fn preflight() -> Result<(), String> {
     for (offset, expected) in [
         (OFF_AGENT_GET_OR_CREATE, AGENT_GET_OR_CREATE_EXPECTED),
+        (OFF_AGENT_RELEASE, AGENT_RELEASE_EXPECTED),
         (OFF_AGENT_LOAD_CHUNK, AGENT_LOAD_CHUNK_EXPECTED),
         (OFF_LUA_LOAD_CHUNK, LUA_LOAD_CHUNK_EXPECTED),
         (OFF_AGENT_LOCK, AGENT_LOCK_EXPECTED),

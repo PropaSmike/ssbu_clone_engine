@@ -48,7 +48,10 @@ pub(crate) unsafe fn retake_foreign_sites(table: usize) -> (usize, usize) {
     }
     match RelocationPlan::build(&references, table) {
         Ok(plan) => {
-            plan.apply();
+            if !plan_is_safe("owned", &plan) {
+                return (0, skipped);
+            }
+            report_refused("owned", plan.apply(), plan.patches.len());
             let mut landed = 0usize;
             for patch in &plan.patches {
                 let site = patch.adrp_at as *const u32;
@@ -106,7 +109,10 @@ pub(crate) unsafe fn finish_foreign_sites(sites: &[usize], table: usize) -> usiz
     }
     match RelocationPlan::build(&references, table) {
         Ok(plan) => {
-            plan.apply();
+            if !plan_is_safe("stragglers", &plan) {
+                return 0;
+            }
+            report_refused("stragglers", plan.apply(), plan.patches.len());
             skyline::println!(
                 "[stagereloc] finished {} site(s) the foreign owner left unpatched -> {:#x}",
                 plan.patches.len(),
@@ -250,6 +256,60 @@ pub(crate) unsafe fn canary_intact(at: usize) -> bool {
         }
         offset += 8;
     }
+    true
+}
+
+unsafe fn report_refused(label: &str, refused: usize, total: usize) {
+    if refused != 0 {
+        skyline::println!(
+            "[stagereloc] {} could not write {} of {} site(s); .text stayed read-only",
+            label,
+            refused,
+            total
+        );
+    }
+}
+
+unsafe fn text_span() -> (usize, usize) {
+    let base = crate::text_base();
+    let end = skyline::hooks::getRegionAddress(skyline::hooks::Region::Rodata) as usize;
+    (base, end)
+}
+
+unsafe fn plan_is_safe(label: &str, plan: &RelocationPlan) -> bool {
+    let (base, end) = text_span();
+    if base == 0 || end <= base {
+        skyline::println!(
+            "[stagereloc] REFUSED {}: .text reads {:#x}..{:#x}; nothing written",
+            label,
+            base,
+            end
+        );
+        return false;
+    }
+    for (index, patch) in plan.patches.iter().enumerate() {
+        if patch.adrp_at < base || patch.adrp_at.saturating_add(8) > end {
+            skyline::println!(
+                "[stagereloc] REFUSED {}: site {} of {} is {:#x}, outside .text {:#x}..{:#x}; nothing written",
+                label,
+                index,
+                plan.patches.len(),
+                patch.adrp_at,
+                base,
+                end
+            );
+            return false;
+        }
+    }
+    skyline::println!(
+        "[stagereloc] {} plan: {} site(s), first {:#x}, table {:#x}, .text {:#x}..{:#x}",
+        label,
+        plan.patches.len(),
+        plan.patches.first().map(|patch| patch.adrp_at).unwrap_or(0),
+        plan.table_pointer,
+        base,
+        end
+    );
     true
 }
 
@@ -417,7 +477,13 @@ unsafe fn relocate_owned(plan: &crate::stage_backend::Plan) {
     }
 
     for (name, built) in &plans {
-        built.apply();
+        if !plan_is_safe(name, built) {
+            return;
+        }
+    }
+
+    for (name, built) in &plans {
+        report_refused(name, built.apply(), built.patches.len());
         let mut landed = 0usize;
         for patch in &built.patches {
             let site = patch.adrp_at as *const u32;
@@ -483,11 +549,7 @@ pub(crate) unsafe fn widen_bounds(tables: &[&str]) {
         Ok(patches) => {
             let mut landed = 0usize;
             for patch in &patches {
-                skyline::patching::sky_memcpy(
-                    (text + patch.address) as *const _,
-                    &patch.word as *const u32 as *const _,
-                    4,
-                );
+                crate::text_patch::write_word(text + patch.address, patch.word);
             }
             for patch in &patches {
                 if core::ptr::read_volatile((text + patch.address) as *const u32) == patch.word {
@@ -532,11 +594,7 @@ pub(crate) fn apply_select_cap(phase: &str) {
         Ok(patches) => {
             for (offset, word) in &patches {
                 unsafe {
-                    skyline::patching::sky_memcpy(
-                        (text + offset) as *const _,
-                        word as *const u32 as *const _,
-                        4,
-                    );
+                    crate::text_patch::write_word(text + offset, *word);
                 }
             }
             let live = patches

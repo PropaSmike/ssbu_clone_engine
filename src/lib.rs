@@ -100,6 +100,7 @@ mod stage_select_page;
 mod stage_select_slice;
 #[cfg(feature = "stage_relocate")]
 mod stage_transaction;
+mod text_patch;
 mod thread_context;
 
 #[cfg(feature = "css_slot")]
@@ -157,6 +158,10 @@ struct CloneCssEntry;
 impl CloneDefinition {
     fn ships_own_param_resources(&self) -> bool {
         self.owns_param_resources || self.article_namespace != 0 || !self.articles.is_empty()
+    }
+
+    fn ships_own_ai_resources(&self) -> bool {
+        self.owns_param_resources
     }
 
     #[cfg(feature = "css_slot")]
@@ -1558,8 +1563,8 @@ pub extern "C" fn clone_engine_param_int_override_v1(
 }
 
 #[cfg(feature = "css_slot")]
-static PARAM_CONTEXT_THREAD: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
+static PARAM_CONTEXT: thread_context::ThreadReentrancyFlag =
+    thread_context::ThreadReentrancyFlag::new();
 
 #[cfg(feature = "css_slot")]
 static PARAM_BRACKETS_INSTALLED: core::sync::atomic::AtomicBool =
@@ -1578,11 +1583,8 @@ macro_rules! param_getter_brackets {
             #[cfg(feature = "css_slot")]
             #[skyline::hook(offset = $offset)]
             unsafe fn $name(module: u64, param_type: u64, param_hash: u64) -> $ret {
-                let thread = current_thread_key();
-                let previous = PARAM_CONTEXT_THREAD.swap(thread, core::sync::atomic::Ordering::AcqRel);
-                let value = call_original!(module, param_type, param_hash);
-                PARAM_CONTEXT_THREAD.store(previous, core::sync::atomic::Ordering::Release);
-                value
+                let _param_context = PARAM_CONTEXT.enter(current_thread_key());
+                call_original!(module, param_type, param_hash)
             }
         )*
 
@@ -1677,7 +1679,7 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     let kind = call_original!(boma);
 
     let thread = current_thread_key();
-    if thread == 0 || PARAM_CONTEXT_THREAD.load(core::sync::atomic::Ordering::Acquire) != thread {
+    if !PARAM_CONTEXT.is_active(thread) {
         return kind;
     }
     if lr < text_base() || lr.wrapping_sub(text_base()) < 0x0800_0000 {
@@ -1887,7 +1889,10 @@ unsafe extern "C" fn pocket_watch_tick(agent: &mut smash::lua2cpp::L2CFighterBas
 
     article_owners::sweep(|object_id| smash::app::sv_battle_object::is_active(object_id));
 
+    item_clones::note_live_clones();
+    item_clones::sweep_live(|object_id| smash::app::sv_battle_object::is_active(object_id));
     let held = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_KIND);
+    pocket_item_tick(boma, entry as usize, held);
     let previous =
         POCKET_PREVIOUS[entry as usize].swap(held, core::sync::atomic::Ordering::Relaxed);
     if held == previous {
@@ -1904,6 +1909,91 @@ unsafe extern "C" fn pocket_watch_tick(agent: &mut smash::lua2cpp::L2CFighterBas
     let n = POCKET_WATCH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 12 {
         dbg_log!("[artowner] #{n} pocket watch entry={entry} took wkind={held} -> clone {owner}");
+    }
+}
+
+#[cfg(feature = "css_slot")]
+const POCKET_OBJECT_ID: i32 = 0x1000_00C7;
+
+#[cfg(feature = "css_slot")]
+const POCKET_OBJECT_CATEGORY: i32 = 0x1000_00C3;
+
+#[cfg(feature = "css_slot")]
+const MURABITO_STATUS_SPECIAL_N_TAKE_OUT: i32 = 0x1E4;
+
+#[cfg(feature = "css_slot")]
+static POCKET_ITEM_LATCH: [core::sync::atomic::AtomicI32; 8] =
+    [const { core::sync::atomic::AtomicI32::new(-1) }; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_ITEM_PREVIOUS: [core::sync::atomic::AtomicI32; 8] =
+    [const { core::sync::atomic::AtomicI32::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_ITEM_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+unsafe fn pocket_item_tick(
+    boma: *mut smash::app::BattleObjectModuleAccessor,
+    entry: usize,
+    held: i32,
+) {
+    let previous = POCKET_ITEM_PREVIOUS[entry].swap(held, core::sync::atomic::Ordering::Relaxed);
+    let latched = POCKET_ITEM_LATCH[entry].load(core::sync::atomic::Ordering::Relaxed);
+
+    if held == 0 {
+        if latched >= 0 {
+            POCKET_ITEM_LATCH[entry].store(-1, core::sync::atomic::Ordering::Relaxed);
+            item_clones::drop_pocket_ticket(latched);
+            let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 24 {
+                dbg_log!("[pocketclone] #{n} entry={entry} emptied, released clone {latched:#x}");
+            }
+        }
+        return;
+    }
+
+    if held != previous {
+        let object_id = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_ID) as u32;
+        let category = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_CATEGORY);
+        let live = item_clones::live_kind_by_object_id(object_id);
+        let retired = item_clones::recently_retired_clone(held);
+        let vanished = item_clones::vanished_clone_with_base(held);
+        let clone = live.or(vanished).or(retired);
+        POCKET_ITEM_LATCH[entry].store(clone.unwrap_or(-1), core::sync::atomic::Ordering::Relaxed);
+        let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 24 {
+            dbg_log!(
+                "[pocketclone] #{n} entry={entry} stored kind={held:#x} category={category} live={live:?} vanished={vanished:?} retired={retired:?} clone={clone:?}"
+            );
+        }
+        return;
+    }
+
+    if latched < 0 {
+        return;
+    }
+
+    let status = smash::app::lua_bind::StatusModule::status_kind(boma);
+    let fighter = smash::app::utility::get_kind(&mut *boma);
+    let releasing = if fighter == *smash::lib::lua_const::FIGHTER_KIND_MURABITO {
+        status == MURABITO_STATUS_SPECIAL_N_TAKE_OUT
+    } else {
+        true
+    };
+    if !releasing {
+        item_clones::drop_pocket_ticket(latched);
+        return;
+    }
+    if item_clones::pocket_ticket_pending(latched) {
+        return;
+    }
+    let armed = item_clones::queue_pocket_ticket(latched);
+    let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 24 {
+        dbg_log!(
+            "[pocketclone] #{n} entry={entry} fighter={fighter} status={status:#x} arming clone {latched:#x} armed={armed}"
+        );
     }
 }
 
