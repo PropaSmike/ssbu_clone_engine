@@ -259,7 +259,7 @@ resource_name = "wawa"
 
     #[test]
     fn the_ui_id_defaults_to_the_shipped_convention() {
-        assert_eq!(parse(EXAMPLE_PACK).unwrap().ui(), "ui_item_okp");
+        assert_eq!(parse(EXAMPLE_PACK).unwrap().ui(), "ui_item_wawa");
     }
 
     #[test]

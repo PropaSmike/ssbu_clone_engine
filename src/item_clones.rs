@@ -489,6 +489,38 @@ fn queue_spawn_ticket(public_kind: i32, spawn_source: ItemSpawnSource) -> bool {
     false
 }
 
+pub(crate) fn queue_pocket_ticket(public_kind: i32) -> bool {
+    queue_spawn_ticket(public_kind, ItemSpawnSource::Direct)
+}
+
+pub(crate) fn pocket_ticket_pending(public_kind: i32) -> bool {
+    SPAWN_TICKETS.iter().any(|ticket| {
+        ticket.state.load(Ordering::Acquire) == 1
+            && ticket.public_kind.load(Ordering::Relaxed) == public_kind
+    })
+}
+
+pub(crate) fn drop_pocket_ticket(public_kind: i32) {
+    for ticket in &SPAWN_TICKETS {
+        if ticket.public_kind.load(Ordering::Relaxed) != public_kind {
+            continue;
+        }
+        if ticket
+            .state
+            .compare_exchange(1, 2, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            continue;
+        }
+        ticket.public_kind.store(-1, Ordering::Relaxed);
+        ticket.base_kind.store(-1, Ordering::Relaxed);
+        ticket
+            .spawn_source
+            .store(ItemSpawnSource::Unknown as u32, Ordering::Relaxed);
+        ticket.state.store(0, Ordering::Release);
+    }
+}
+
 pub(crate) fn clear_spawn_tickets() {
     for ticket in &SPAWN_TICKETS {
         if ticket
@@ -873,7 +905,7 @@ fn live_kind_by_agent(agent: usize) -> Option<i32> {
     live_kind_by(agent, |slot| &slot.agent)
 }
 
-fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
+pub(crate) fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
     if object_id == u32::MAX {
         return None;
     }
@@ -881,6 +913,154 @@ fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
         (slot.state.load(Ordering::Acquire) == 2
             && slot.object_id.load(Ordering::Acquire) == object_id)
             .then(|| slot.public_kind.load(Ordering::Acquire))
+    })
+}
+
+struct RetiredItem {
+    public_kind: AtomicI32,
+    base_kind: AtomicI32,
+    sequence: AtomicU32,
+}
+
+impl RetiredItem {
+    const fn new() -> Self {
+        Self {
+            public_kind: AtomicI32::new(-1),
+            base_kind: AtomicI32::new(-1),
+            sequence: AtomicU32::new(0),
+        }
+    }
+}
+
+static RETIRED: [RetiredItem; 16] = [const { RetiredItem::new() }; 16];
+static RETIRED_SEQUENCE: AtomicU32 = AtomicU32::new(1);
+static RETIRED_CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+fn remember_retired(public_kind: i32, base_kind: i32) {
+    if public_kind < 0 {
+        return;
+    }
+    let index = RETIRED_CURSOR.fetch_add(1, Ordering::Relaxed) % RETIRED.len();
+    let entry = &RETIRED[index];
+    entry.public_kind.store(public_kind, Ordering::Relaxed);
+    entry.base_kind.store(base_kind, Ordering::Relaxed);
+    entry.sequence.store(
+        RETIRED_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        Ordering::Release,
+    );
+}
+
+pub(crate) fn recently_retired_clone(base_kind: i32) -> Option<i32> {
+    let mut best: Option<(i32, u32)> = None;
+    for entry in &RETIRED {
+        if entry.base_kind.load(Ordering::Acquire) != base_kind {
+            continue;
+        }
+        let public_kind = entry.public_kind.load(Ordering::Relaxed);
+        if public_kind < 0 {
+            continue;
+        }
+        let sequence = entry.sequence.load(Ordering::Relaxed);
+        if best.map_or(true, |(_, current)| {
+            sequence.wrapping_sub(current) as i32 > 0
+        }) {
+            best = Some((public_kind, sequence));
+        }
+    }
+    best.map(|(public_kind, _)| public_kind)
+}
+
+struct SeenClone {
+    base_kind: AtomicI32,
+    public_kind: AtomicI32,
+}
+
+impl SeenClone {
+    const fn new() -> Self {
+        Self {
+            base_kind: AtomicI32::new(-1),
+            public_kind: AtomicI32::new(-1),
+        }
+    }
+}
+
+static SEEN_CLONES: [SeenClone; 16] = [const { SeenClone::new() }; 16];
+
+fn is_live_public(public_kind: i32) -> bool {
+    LIVE.iter().any(|slot| {
+        slot.state.load(Ordering::Acquire) == 2
+            && slot.public_kind.load(Ordering::Relaxed) == public_kind
+    })
+}
+
+pub(crate) fn note_live_clones() {
+    for slot in &LIVE {
+        if slot.state.load(Ordering::Acquire) != 2 {
+            continue;
+        }
+        let public_kind = slot.public_kind.load(Ordering::Relaxed);
+        let base_kind = slot.base_kind.load(Ordering::Relaxed);
+        if public_kind < 0 || base_kind < 0 {
+            continue;
+        }
+        if SEEN_CLONES
+            .iter()
+            .any(|seen| seen.public_kind.load(Ordering::Acquire) == public_kind)
+        {
+            continue;
+        }
+        for seen in &SEEN_CLONES {
+            if seen
+                .public_kind
+                .compare_exchange(-1, public_kind, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                seen.base_kind.store(base_kind, Ordering::Release);
+                break;
+            }
+        }
+    }
+}
+
+static SWEEP_LOG: AtomicU32 = AtomicU32::new(0);
+
+pub(crate) fn sweep_live(is_active: impl Fn(u32) -> bool) {
+    for slot in &LIVE {
+        if slot.state.load(Ordering::Acquire) != 2 {
+            continue;
+        }
+        let object_id = slot.object_id.load(Ordering::Acquire);
+        if object_id == u32::MAX || is_active(object_id) {
+            continue;
+        }
+        if slot
+            .state
+            .compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            continue;
+        }
+        let public_kind = slot.public_kind.load(Ordering::Relaxed);
+        let base_kind = slot.base_kind.load(Ordering::Relaxed);
+        remember_retired(public_kind, base_kind);
+        clear_live_slot(slot);
+        LIVE_COUNT.fetch_sub(1, Ordering::AcqRel);
+        let n = SWEEP_LOG.fetch_add(1, Ordering::Relaxed);
+        if n < 24 {
+            limited_log(format!(
+                "[itemclone] sweep #{n} retired clone {public_kind:#x} base {base_kind:#x} object id {object_id:#x} left the match without a deactivate"
+            ));
+        }
+    }
+}
+
+pub(crate) fn vanished_clone_with_base(base_kind: i32) -> Option<i32> {
+    SEEN_CLONES.iter().find_map(|seen| {
+        let public_kind = seen.public_kind.load(Ordering::Acquire);
+        if public_kind < 0 || seen.base_kind.load(Ordering::Acquire) != base_kind {
+            return None;
+        }
+        (!is_live_public(public_kind)).then_some(public_kind)
     })
 }
 
@@ -901,6 +1081,7 @@ fn remove_live(object: usize, object_id: u32) -> Option<i32> {
             continue;
         }
         let kind = slot.public_kind.load(Ordering::Relaxed);
+        remember_retired(kind, slot.base_kind.load(Ordering::Relaxed));
         clear_live_slot(slot);
         LIVE_COUNT.fetch_sub(1, Ordering::AcqRel);
         released = released.or(Some(kind));
@@ -910,16 +1091,26 @@ fn remove_live(object: usize, object_id: u32) -> Option<i32> {
 
 unsafe fn rewrite_requested_kind(ctx: &mut skyline::hooks::InlineCtx) {
     let requested = ctx.registers[1].x() as u32 as i32;
-    let Some(definition) = definition(requested) else {
+    if let Some(definition) = definition(requested) {
+        REGISTRATION_CLOSED.store(true, Ordering::Release);
+        BACKEND_STATUS.fetch_or(STATUS_REGISTRATION_CLOSED, Ordering::AcqRel);
+        let armed = arm_request(definition);
+        ctx.registers[1].set_x(definition.base_kind as u32 as u64);
+        limited_log(format!(
+            "[itemclone] request public={requested:#x} -> base={:#x} armed={armed}",
+            definition.base_kind
+        ));
+        return;
+    }
+    let Some((definition, source)) = take_spawn_ticket(requested) else {
         return;
     };
     REGISTRATION_CLOSED.store(true, Ordering::Release);
     BACKEND_STATUS.fetch_or(STATUS_REGISTRATION_CLOSED, Ordering::AcqRel);
-    let armed = arm_request(definition);
-    ctx.registers[1].set_x(definition.base_kind as u32 as u64);
+    let armed = arm_request_with_context(definition, -1, source);
     limited_log(format!(
-        "[itemclone] request public={requested:#x} -> base={:#x} armed={armed}",
-        definition.base_kind
+        "[itemclone] request ticket base={requested:#x} -> public={:#x} source={source:?} armed={armed}",
+        definition.public_kind
     ));
 }
 

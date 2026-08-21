@@ -91,10 +91,7 @@ fn expanded_region(slots: usize) -> usize {
 }
 
 unsafe fn write_instruction(offset: usize, opcode: u32) -> bool {
-    let result =
-        skyline::patching::sky_memcpy((text_base() + offset) as _, &opcode as *const u32 as _, 4);
-
-    result.0.is_none()
+    crate::text_patch::write_word(text_base() + offset, opcode)
 }
 
 unsafe fn instruction_matches(offset: usize, expected: u32) -> bool {
@@ -177,21 +174,14 @@ unsafe fn apply_patches(patches: &[(usize, u32, u32)], label: &str) -> bool {
             );
         }
 
-        let result = skyline::patching::sky_memcpy(
-            (text_base() + offset) as _,
-            words.as_ptr() as _,
-            words.len() * 4,
-        );
-
-        if result.0.is_none() {
+        if crate::text_patch::write_words(text_base() + offset, &words) {
             continue;
         }
 
         skyline::println!(
-            "[resreloc] {} write failed at {:#x} ({:?}); reverting {} earlier sites",
+            "[resreloc] {} write failed at {:#x}; reverting {} earlier sites",
             label,
             offset,
-            result.0,
             start
         );
 

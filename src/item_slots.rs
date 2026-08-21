@@ -1090,6 +1090,114 @@ unsafe fn apply_sibling(ctx: &mut skyline::hooks::InlineCtx, index: usize) {
     ctx.registers[site.base_register as usize].set_x(base as u64);
 }
 
+static BASE_KEEPER_ARMED: AtomicBool = AtomicBool::new(false);
+static BASE_KEEPER_SEEN: AtomicUsize = AtomicUsize::new(0);
+static BASE_KEEPER_RELOADS: AtomicUsize = AtomicUsize::new(0);
+static BASE_KEEPER_INEFFECTIVE: AtomicUsize = AtomicUsize::new(0);
+const BASE_KEEPER_REPORTS: usize = 24;
+const BASE_KEEPER_RELOAD_REPORTS: usize = 24;
+const BASE_KEEPER_GIVE_UP: usize = 16;
+
+const SLOT_GROUP_FLAGS: [usize; 3] = [0x48, 0x49, 0x4B];
+
+unsafe fn slot_flags(slot: usize) -> [u8; 6] {
+    let mut out = [0u8; 6];
+    for (index, offset) in (0x48usize..0x4E).enumerate() {
+        out[index] = core::ptr::read_volatile((slot + offset) as *const u8);
+    }
+    out
+}
+
+unsafe fn slot_needs_reload(slot: usize) -> bool {
+    if core::ptr::read_volatile((slot + SLOT_CONTAINER_OFFSET) as *const usize) == 0 {
+        return true;
+    }
+    SLOT_GROUP_FLAGS
+        .iter()
+        .any(|offset| core::ptr::read_volatile((slot + *offset) as *const u8) == 0)
+}
+
+unsafe fn reacquire(slot: usize, forced: i32) -> ([u8; 6], [u8; 6]) {
+    let before = slot_flags(slot);
+    let saved = FORCED_CLONE.swap(forced, Ordering::AcqRel);
+    item_acquire(slot, 0);
+    FORCED_CLONE.store(saved, Ordering::Release);
+    (before, slot_flags(slot))
+}
+
+unsafe fn keep_base_loaded(public_kind: i32, clone_slot: usize, base_kind: i32) {
+    if !BASE_KEEPER_ARMED.swap(true, Ordering::AcqRel) {
+        crate::dbg_log_public(
+            "[itembase] keeper armed: every clone construction reports both slots",
+        );
+    }
+    if !(0..NATIVE_ITEM_KIND_COUNT as i32).contains(&base_kind) {
+        crate::dbg_log_public(&format!(
+            "[itembase] clone {public_kind:#x}: base {base_kind:#x} is out of range; no keeper"
+        ));
+        return;
+    }
+    let manager = item_manager();
+    if manager == 0 {
+        crate::dbg_log_public(&format!(
+            "[itembase] clone {public_kind:#x}: no ItemManager; keeper skipped"
+        ));
+        return;
+    }
+    let base_slot = manager + base_kind as usize * SLOT_STRIDE + SLOT_BASE_OFFSET;
+    let clone_flags = slot_flags(clone_slot);
+    let base_flags = slot_flags(base_slot);
+    let clone_stale = slot_needs_reload(clone_slot);
+    let base_stale = slot_needs_reload(base_slot);
+    let seen = BASE_KEEPER_SEEN.fetch_add(1, Ordering::Relaxed);
+    if seen < BASE_KEEPER_REPORTS {
+        crate::dbg_log_public(&format!(
+            "[itembase] #{seen} clone {public_kind:#x} base {base_kind:#x}: clone slot {clone_slot:#x} flags={clone_flags:02x?} stale={clone_stale}, base slot {base_slot:#x} flags={base_flags:02x?} stale={base_stale}"
+        ));
+    }
+    if !clone_stale && !base_stale {
+        return;
+    }
+    if BASE_KEEPER_INEFFECTIVE.load(Ordering::Acquire) >= BASE_KEEPER_GIVE_UP {
+        return;
+    }
+    let reload = BASE_KEEPER_RELOADS.fetch_add(1, Ordering::Relaxed);
+    let announce = reload < BASE_KEEPER_RELOAD_REPORTS;
+    let mut recovered = true;
+    if clone_stale {
+        let (before, after) = reacquire(clone_slot, public_kind);
+        if slot_needs_reload(clone_slot) {
+            recovered = false;
+        }
+        if announce {
+            crate::dbg_log_public(&format!(
+                "[itembase] reload #{reload} clone {public_kind:#x} own slot {clone_slot:#x}: flags {before:02x?} -> {after:02x?}"
+            ));
+        }
+    }
+    if base_stale {
+        let (before, after) = reacquire(base_slot, -1);
+        if slot_needs_reload(base_slot) {
+            recovered = false;
+        }
+        if announce {
+            crate::dbg_log_public(&format!(
+                "[itembase] reload #{reload} clone {public_kind:#x} base slot {base_slot:#x}: flags {before:02x?} -> {after:02x?}"
+            ));
+        }
+    }
+    if recovered {
+        BASE_KEEPER_INEFFECTIVE.store(0, Ordering::Release);
+        return;
+    }
+    let failures = BASE_KEEPER_INEFFECTIVE.fetch_add(1, Ordering::AcqRel) + 1;
+    if failures == BASE_KEEPER_GIVE_UP {
+        crate::dbg_log_public(&format!(
+            "[itembase] GIVING UP after {failures} reloads that changed nothing; item_acquire does not rebuild a released slot mid-match"
+        ));
+    }
+}
+
 unsafe extern "C" fn post_acquire(_ctx: &mut skyline::hooks::InlineCtx) {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return;
@@ -1097,6 +1205,7 @@ unsafe extern "C" fn post_acquire(_ctx: &mut skyline::hooks::InlineCtx) {
     let Some((public_kind, slot, base_kind, _)) = active_clone_entry() else {
         return;
     };
+    keep_base_loaded(public_kind, slot, base_kind);
     if !claim_acquire(public_kind) {
         return;
     }
