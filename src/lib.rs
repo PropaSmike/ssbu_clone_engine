@@ -1133,10 +1133,10 @@ macro_rules! diag_reroute_log {
 }
 
 static PENDING_AGENT_KIND: crate::thread_context::ThreadScopedKind =
-    crate::thread_context::ThreadScopedKind::new();
+    crate::thread_context::ThreadScopedKind::new("pending_agent_kind");
 
 static PENDING_WEAPON_KIND: crate::thread_context::ThreadScopedKind =
-    crate::thread_context::ThreadScopedKind::new();
+    crate::thread_context::ThreadScopedKind::new("pending_weapon_kind");
 
 #[no_mangle]
 pub extern "C" fn clone_engine_pending_agent_kind_v1() -> i32 {
@@ -1221,10 +1221,34 @@ share_hook!(animcmd_sound_share_hook, OFF_SOUND_SHARE);
 
 static TEXT_BASE: OnceLock<usize> = OnceLock::new();
 
+static TEXT_END: OnceLock<usize> = OnceLock::new();
+
 fn text_base() -> usize {
     *TEXT_BASE.get_or_init(|| unsafe {
         skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize
     })
+}
+
+pub(crate) fn text_base_public() -> usize {
+    text_base()
+}
+
+fn text_end() -> usize {
+    *TEXT_END.get_or_init(|| unsafe {
+        skyline::hooks::getRegionAddress(skyline::hooks::Region::Rodata) as usize
+    })
+}
+
+fn caller_is_outside_main_text(lr: usize) -> bool {
+    if lr == 0 {
+        return false;
+    }
+    let base = text_base();
+    let end = text_end();
+    if base == 0 || end <= base {
+        return false;
+    }
+    lr < base || lr >= end
 }
 
 #[cfg(any(
@@ -1564,7 +1588,7 @@ pub extern "C" fn clone_engine_param_int_override_v1(
 
 #[cfg(feature = "css_slot")]
 static PARAM_CONTEXT: thread_context::ThreadReentrancyFlag =
-    thread_context::ThreadReentrancyFlag::new();
+    thread_context::ThreadReentrancyFlag::new("param_context");
 
 #[cfg(feature = "css_slot")]
 static PARAM_BRACKETS_INSTALLED: core::sync::atomic::AtomicBool =
@@ -1678,11 +1702,22 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     }
     let kind = call_original!(boma);
 
+    if boma != 0
+        && smash::app::utility::get_category(&mut *(boma as *mut smash::app::BattleObjectModuleAccessor))
+            == *smash::lib::lua_const::BATTLE_OBJECT_CATEGORY_FIGHTER
+    {
+        let entry = smash::app::lua_bind::WorkModule::get_int(
+            boma as *mut smash::app::BattleObjectModuleAccessor,
+            *smash::lib::lua_const::FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID,
+        ) as i32;
+        record_entry_fighter_boma(entry, boma as usize);
+    }
+
     let thread = current_thread_key();
     if !PARAM_CONTEXT.is_active(thread) {
         return kind;
     }
-    if lr < text_base() || lr.wrapping_sub(text_base()) < 0x0800_0000 {
+    if !caller_is_outside_main_text(lr) {
         return kind;
     }
     if boma == 0 || clone_definition(kind).is_some() {
@@ -1713,8 +1748,9 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     let n = PARAM_KIND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 8 {
         dbg_log!(
-            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} caller={:#x}",
-            lr.wrapping_sub(text_base())
+            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} caller={lr:#x} text={:#x}..{:#x}",
+            text_base(),
+            text_end()
         );
     }
     true_kind
@@ -2140,6 +2176,11 @@ unsafe fn weapon_owner_clone_kind(
     {
         return None;
     }
+    if css_registration::owner_object_table_is_populated() {
+        if let Some(entry) = css_registration::entry_of_owner_object(owner_id) {
+            return entry_custom_kind(entry);
+        }
+    }
     if let Some(kind) = fighter_clone_kind(owner) {
         return Some(kind);
     }
@@ -2147,6 +2188,138 @@ unsafe fn weapon_owner_clone_kind(
         return None;
     }
     kirby_copied_clone_kind(owner as u64)
+}
+
+#[cfg(feature = "css_slot")]
+static OWNER_RESOLVE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) static ENTRY_FIGHTER_BOMA: [core::sync::atomic::AtomicUsize; 8] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
+unsafe fn record_entry_fighter_boma(entry_id: i32, boma: usize) {
+    if !(0..8).contains(&entry_id) || boma == 0 {
+        return;
+    }
+    ENTRY_FIGHTER_BOMA[entry_id as usize].store(boma, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn entry_of_fighter_boma(candidate: usize) -> Option<usize> {
+    if candidate == 0 {
+        return None;
+    }
+    ENTRY_FIGHTER_BOMA
+        .iter()
+        .position(|slot| slot.load(core::sync::atomic::Ordering::SeqCst) == candidate)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn entry_of_fighter_object(fighter: usize) -> Option<u8> {
+    if fighter == 0 {
+        return None;
+    }
+    let mut offset = 0usize;
+    while offset < 0x200 {
+        let value = core::ptr::read_volatile((fighter + offset) as *const usize);
+        if let Some(entry) = entry_of_fighter_boma(value) {
+            return Some(entry as u8);
+        }
+        offset += 8;
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn entry_of_fighter_boma_public(candidate: usize) -> Option<usize> {
+    entry_of_fighter_boma(candidate)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn scan_stack_for_owner(sp: usize, span: usize) -> String {
+    if sp == 0 {
+        return "nosp".to_string();
+    }
+    let mut hits: Vec<String> = Vec::new();
+    let mut offset = 0usize;
+    while offset < span {
+        let value = core::ptr::read_volatile((sp + offset) as *const usize);
+        if let Some(entry) = entry_of_fighter_boma(value) {
+            hits.push(format!("+{offset:#x}=>entry{entry}"));
+            if hits.len() >= 8 {
+                break;
+            }
+        }
+        offset += 8;
+    }
+    if hits.is_empty() {
+        "none".to_string()
+    } else {
+        hits.join(",")
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn scan_for_owner_pointer_public(
+    label: &str,
+    base: usize,
+    span: usize,
+) -> String {
+    scan_for_owner_pointer(label, base, span)
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn scan_for_owner_pointer(label: &str, base: usize, span: usize) -> String {
+    if base == 0 {
+        return format!("{label}=null");
+    }
+    let mut hits: Vec<String> = Vec::new();
+    let mut offset = 0usize;
+    while offset < span {
+        let value = core::ptr::read_volatile((base + offset) as *const usize);
+        if let Some(entry) = entry_of_fighter_boma(value) {
+            hits.push(format!("+{offset:#x}=>entry{entry}"));
+            if hits.len() >= 8 {
+                break;
+            }
+        }
+        offset += 8;
+    }
+    if hits.is_empty() {
+        format!("{label}: none")
+    } else {
+        format!("{label}: {}", hits.join(","))
+    }
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn describe_owner(boma: *mut smash::app::BattleObjectModuleAccessor, work_id: i32) -> String {
+    let owner_id = smash::app::lua_bind::WorkModule::get_int(boma, work_id) as u32;
+    if owner_id == *smash::lib::lua_const::BATTLE_OBJECT_ID_INVALID as u32 {
+        return "invalid".to_string();
+    }
+    if !smash::app::sv_battle_object::is_active(owner_id) {
+        return format!("id={owner_id:#x} inactive");
+    }
+    let owner = smash::app::sv_battle_object::module_accessor(owner_id);
+    if owner.is_null() {
+        return format!("id={owner_id:#x} null");
+    }
+    let category = smash::app::utility::get_category(&mut *owner);
+    if category != *smash::lib::lua_const::BATTLE_OBJECT_CATEGORY_FIGHTER {
+        return format!("id={owner_id:#x} category={category}");
+    }
+    let native = smash::app::utility::get_kind(&mut *owner);
+    let entry = smash::app::lua_bind::WorkModule::get_int(
+        owner,
+        *smash::lib::lua_const::FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID,
+    ) as i32;
+    format!(
+        "id={owner_id:#x} boma={:#x} native={native} entry={entry} maps_to={:?}",
+        owner as usize,
+        (0..8).contains(&entry).then(|| entry_custom_kind(entry as u8)).flatten()
+    )
 }
 
 #[cfg(feature = "css_slot")]
@@ -2162,7 +2335,7 @@ pub(crate) unsafe fn article_owner_kind_by_entry(module_accessor: u64) -> Option
     if category != *smash::lib::lua_const::BATTLE_OBJECT_CATEGORY_WEAPON {
         return None;
     }
-    weapon_owner_clone_kind(
+    let resolved = weapon_owner_clone_kind(
         boma,
         *smash::lib::lua_const::WEAPON_INSTANCE_WORK_ID_INT_LINK_OWNER,
         false,
@@ -2173,7 +2346,40 @@ pub(crate) unsafe fn article_owner_kind_by_entry(module_accessor: u64) -> Option
             *smash::lib::lua_const::WEAPON_INSTANCE_WORK_ID_INT_ACTIVATE_FOUNDER_ID,
             false,
         )
-    })
+    });
+
+    let article_kind = smash::app::utility::get_kind(&mut *boma);
+    if custom_articles::custom_weapon_source_kind(article_kind).is_some()
+        || custom_articles::source_weapon_owner_kind(article_kind).is_some()
+        || resolved.is_some()
+    {
+        let n = OWNER_RESOLVE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 40 {
+            dbg_log!(
+                "[ownerresolve] #{n} article={article_kind} boma={module_accessor:#x} link[{}] founder[{}] -> {resolved:?}",
+                describe_owner(boma, *smash::lib::lua_const::WEAPON_INSTANCE_WORK_ID_INT_LINK_OWNER),
+                describe_owner(
+                    boma,
+                    *smash::lib::lua_const::WEAPON_INSTANCE_WORK_ID_INT_ACTIVATE_FOUNDER_ID
+                )
+            );
+            dbg_log!(
+                "[ownerscan] #{n} known{:?} {} {}",
+                ENTRY_FIGHTER_BOMA
+                    .iter()
+                    .map(|slot| slot.load(core::sync::atomic::Ordering::SeqCst))
+                    .take(4)
+                    .collect::<Vec<_>>(),
+                scan_for_owner_pointer("boma", module_accessor as usize, 0x200),
+                scan_for_owner_pointer(
+                    "obj",
+                    module_accessor.wrapping_sub(0x150) as usize,
+                    0x300
+                )
+            );
+        }
+    }
+    resolved
 }
 
 #[cfg(feature = "css_slot")]
@@ -2666,11 +2872,11 @@ fn hash40(s: &str) -> u64 {
 
 #[cfg(feature = "css_slot")]
 static RESOURCE_CONTEXT: crate::thread_context::ThreadScopedKind =
-    crate::thread_context::ThreadScopedKind::new();
+    crate::thread_context::ThreadScopedKind::new("resource_context");
 
 #[cfg(feature = "css_slot")]
 static CONSTRUCTION_CONTEXT: crate::thread_context::ThreadScopedKind =
-    crate::thread_context::ThreadScopedKind::new();
+    crate::thread_context::ThreadScopedKind::new("construction_context");
 
 unsafe fn current_thread_key() -> usize {
     skyline::nn::os::GetCurrentThread() as usize
@@ -2699,6 +2905,19 @@ unsafe fn with_resource_context<R>(kind: i32, callback: impl FnOnce() -> R) -> R
 unsafe fn active_construction_kind() -> Option<i32> {
     let kind = CONSTRUCTION_CONTEXT.active(current_thread_key())?;
     clone_definition(kind).map(|_| kind)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn active_construction_kind_public() -> Option<i32> {
+    active_construction_kind()
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn with_construction_context_public<R>(
+    kind: i32,
+    callback: impl FnOnce() -> R,
+) -> R {
+    with_construction_context(kind, callback)
 }
 
 #[cfg(feature = "css_slot")]

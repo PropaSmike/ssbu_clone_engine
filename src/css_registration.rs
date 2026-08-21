@@ -27,6 +27,142 @@ pub(crate) static CSS_CUSTOM_ENTRY_KINDS: [core::sync::atomic::AtomicI32; 8] =
     [const { core::sync::atomic::AtomicI32::new(-1) }; 8];
 
 #[cfg(feature = "css_slot")]
+pub(crate) const NO_OWNER_OBJECT: u32 = u32::MAX;
+
+#[cfg(feature = "css_slot")]
+pub(crate) static ENTRY_OWNER_OBJECT_ID: [core::sync::atomic::AtomicU32; 8] =
+    [const { core::sync::atomic::AtomicU32::new(NO_OWNER_OBJECT) }; 8];
+
+#[cfg(feature = "css_slot")]
+pub(crate) static ENTRY_FIGHTER_OBJECT: [core::sync::atomic::AtomicUsize; 8] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
+pub(crate) const FIGHTER_ARTICLE_HOLDER_FIELD: usize = 0x5a88;
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn record_entry_fighter_object(entry_id: i32, object: usize) {
+    if !(0..8).contains(&entry_id) || object == 0 {
+        return;
+    }
+    ENTRY_FIGHTER_OBJECT[entry_id as usize].store(object, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(feature = "css_slot")]
+const HOLDER_MAP_SLOTS: usize = 16;
+
+#[cfg(feature = "css_slot")]
+pub(crate) static HOLDER_KEYS: [core::sync::atomic::AtomicUsize; HOLDER_MAP_SLOTS] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; HOLDER_MAP_SLOTS];
+
+#[cfg(feature = "css_slot")]
+pub(crate) static HOLDER_FIGHTERS: [core::sync::atomic::AtomicUsize; HOLDER_MAP_SLOTS] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; HOLDER_MAP_SLOTS];
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn record_article_holder(holder: usize, fighter: usize) {
+    if holder == 0 || fighter == 0 {
+        return;
+    }
+    for index in 0..HOLDER_MAP_SLOTS {
+        let key = HOLDER_KEYS[index].load(core::sync::atomic::Ordering::SeqCst);
+        if key == holder {
+            HOLDER_FIGHTERS[index].store(fighter, core::sync::atomic::Ordering::SeqCst);
+            return;
+        }
+    }
+    for index in 0..HOLDER_MAP_SLOTS {
+        if HOLDER_KEYS[index]
+            .compare_exchange(
+                0,
+                holder,
+                core::sync::atomic::Ordering::AcqRel,
+                core::sync::atomic::Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            HOLDER_FIGHTERS[index].store(fighter, core::sync::atomic::Ordering::SeqCst);
+            return;
+        }
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn fighter_of_article_holder(holder: usize) -> Option<usize> {
+    if holder == 0 {
+        return None;
+    }
+    (0..HOLDER_MAP_SLOTS)
+        .find(|index| HOLDER_KEYS[*index].load(core::sync::atomic::Ordering::SeqCst) == holder)
+        .map(|index| HOLDER_FIGHTERS[index].load(core::sync::atomic::Ordering::SeqCst))
+        .filter(|fighter| *fighter != 0)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn entry_of_article_holder(holder: usize) -> Option<u8> {
+    if holder == 0 {
+        return None;
+    }
+    if let Some(fighter) = fighter_of_article_holder(holder) {
+        if let Some(entry) = crate::entry_of_fighter_object(fighter) {
+            return Some(entry);
+        }
+    }
+    for entry in 0..8usize {
+        let object = ENTRY_FIGHTER_OBJECT[entry].load(core::sync::atomic::Ordering::SeqCst);
+        if object == 0 {
+            continue;
+        }
+        if fighter_holds(object, holder) {
+            return Some(entry as u8);
+        }
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
+const FIGHTER_SCAN_SPAN: usize = 0xf900;
+
+#[cfg(feature = "css_slot")]
+unsafe fn fighter_holds(object: usize, holder: usize) -> bool {
+    let mut offset = 0usize;
+    while offset < FIGHTER_SCAN_SPAN {
+        if core::ptr::read_volatile((object + offset) as *const usize) == holder {
+            return true;
+        }
+        offset += 8;
+    }
+    false
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn record_entry_owner_object(entry_id: i32, object_id: u32) {
+    if !(0..8).contains(&entry_id) || object_id == NO_OWNER_OBJECT {
+        return;
+    }
+    ENTRY_OWNER_OBJECT_ID[entry_id as usize]
+        .store(object_id, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn entry_of_owner_object(object_id: u32) -> Option<u8> {
+    if object_id == NO_OWNER_OBJECT {
+        return None;
+    }
+    ENTRY_OWNER_OBJECT_ID
+        .iter()
+        .position(|slot| slot.load(core::sync::atomic::Ordering::SeqCst) == object_id)
+        .map(|entry| entry as u8)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn owner_object_table_is_populated() -> bool {
+    ENTRY_OWNER_OBJECT_ID
+        .iter()
+        .any(|slot| slot.load(core::sync::atomic::Ordering::SeqCst) != NO_OWNER_OBJECT)
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) fn cache_custom_entry_selection(entry_id: i32, kind: Option<i32>) {
     if !(0..8).contains(&entry_id) {
         return;
@@ -659,5 +795,136 @@ pub(crate) unsafe fn fighter_init_object_data_hook(
     if n < 64 {
         let (_, sub, mtx) = manager_chain();
         dbg_log!("[initspoof] #{n} EXIT kind={kind} sub={sub:#x} mtx={mtx:#x}");
+    }
+}
+
+#[cfg(test)]
+mod owner_object_tests {
+    use super::*;
+
+    fn reset() {
+        for slot in ENTRY_OWNER_OBJECT_ID.iter() {
+            slot.store(NO_OWNER_OBJECT, core::sync::atomic::Ordering::SeqCst);
+        }
+        for slot in CSS_CUSTOM_ENTRY_KINDS.iter() {
+            slot.store(-1, core::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn an_unpopulated_table_claims_nothing() {
+        reset();
+        assert!(!owner_object_table_is_populated());
+        assert_eq!(entry_of_owner_object(0x0), None);
+        assert_eq!(entry_of_owner_object(NO_OWNER_OBJECT), None);
+    }
+
+    #[test]
+    fn each_owner_object_maps_to_its_own_entry() {
+        reset();
+        record_entry_owner_object(0, 0x0);
+        record_entry_owner_object(1, 0x10000);
+        assert!(owner_object_table_is_populated());
+        assert_eq!(entry_of_owner_object(0x0), Some(0));
+        assert_eq!(entry_of_owner_object(0x10000), Some(1));
+        assert_eq!(entry_of_owner_object(0x20000), None);
+    }
+
+    #[test]
+    fn a_second_fighter_does_not_inherit_the_first_entrys_clone() {
+        reset();
+        record_entry_owner_object(0, 0x0);
+        record_entry_owner_object(1, 0x10000);
+        cache_custom_entry_selection(0, Some(122));
+
+        let mecha = entry_of_owner_object(0x0).and_then(entry_custom_kind);
+        let samus = entry_of_owner_object(0x10000).and_then(entry_custom_kind);
+        assert_eq!(mecha, Some(122));
+        assert_eq!(
+            samus, None,
+            "the non-clone fighter must not resolve to the clone in entry 0"
+        );
+    }
+
+    #[test]
+    fn out_of_range_entries_and_sentinels_are_ignored() {
+        reset();
+        record_entry_owner_object(-1, 0x5);
+        record_entry_owner_object(8, 0x6);
+        record_entry_owner_object(0, NO_OWNER_OBJECT);
+        assert!(!owner_object_table_is_populated());
+    }
+
+    #[test]
+    fn a_reused_entry_takes_the_newest_owner() {
+        reset();
+        record_entry_owner_object(0, 0x0);
+        record_entry_owner_object(0, 0x30000);
+        assert_eq!(entry_of_owner_object(0x30000), Some(0));
+        assert_eq!(entry_of_owner_object(0x0), None);
+    }
+}
+
+#[cfg(test)]
+mod holder_tests {
+    use super::*;
+
+    #[test]
+    fn a_holder_maps_to_the_fighter_that_owns_it() {
+        for slot in ENTRY_FIGHTER_OBJECT.iter() {
+            slot.store(0, core::sync::atomic::Ordering::SeqCst);
+        }
+        let words = (FIGHTER_SCAN_SPAN / 8) + 8;
+        let mut mecha = vec![0usize; words];
+        let mut samus = vec![0usize; words];
+        let mecha_holder = 0xAAAA_0000usize;
+        let samus_holder = 0xBBBB_0000usize;
+        mecha[FIGHTER_ARTICLE_HOLDER_FIELD / 8] = mecha_holder;
+        samus[FIGHTER_ARTICLE_HOLDER_FIELD / 8] = samus_holder;
+
+        record_entry_fighter_object(0, mecha.as_ptr() as usize);
+        record_entry_fighter_object(1, samus.as_ptr() as usize);
+
+        unsafe {
+            assert_eq!(entry_of_article_holder(mecha_holder), Some(0));
+            assert_eq!(entry_of_article_holder(samus_holder), Some(1));
+            assert_eq!(entry_of_article_holder(0xCCCC_0000), None);
+            assert_eq!(entry_of_article_holder(0), None);
+        }
+    }
+
+    #[test]
+    fn unrecorded_fighters_are_skipped_not_matched() {
+        for slot in ENTRY_FIGHTER_OBJECT.iter() {
+            slot.store(0, core::sync::atomic::Ordering::SeqCst);
+        }
+        record_entry_fighter_object(0, 0);
+        record_entry_fighter_object(-1, 0x1234);
+        record_entry_fighter_object(8, 0x1234);
+        unsafe {
+            assert_eq!(entry_of_article_holder(0x1234), None);
+        }
+    }
+
+    #[test]
+    fn the_holder_is_found_wherever_the_fighter_stores_it() {
+        for slot in ENTRY_FIGHTER_OBJECT.iter() {
+            slot.store(0, core::sync::atomic::Ordering::SeqCst);
+        }
+        for slot in HOLDER_KEYS.iter() {
+            slot.store(0, core::sync::atomic::Ordering::SeqCst);
+        }
+        let words = (FIGHTER_SCAN_SPAN / 8) + 8;
+        let mut fighter = vec![0usize; words];
+        let holder = 0xDEAD_0000usize;
+        fighter[(FIGHTER_SCAN_SPAN / 8) - 3] = holder;
+        record_entry_fighter_object(2, fighter.as_ptr() as usize);
+        unsafe {
+            assert_eq!(
+                entry_of_article_holder(holder),
+                Some(2),
+                "a holder stored in any field must still resolve"
+            );
+        }
     }
 }

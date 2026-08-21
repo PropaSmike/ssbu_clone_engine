@@ -18,7 +18,7 @@ pub(crate) static KIRBY_HAT_FLOW_LOG: core::sync::atomic::AtomicU32 =
 
 #[cfg(feature = "css_slot")]
 pub(crate) static KIRBY_COPY_CONTEXT: crate::thread_context::ThreadScopedKind =
-    crate::thread_context::ThreadScopedKind::new();
+    crate::thread_context::ThreadScopedKind::new("kirby_copy_context");
 
 #[cfg(feature = "css_slot")]
 pub(crate) static KIRBY_REMOVAL_CONTEXT_THREAD: core::sync::atomic::AtomicUsize =
@@ -574,7 +574,7 @@ pub(crate) static KIRBY_RECORD_BUILD_OWNER: core::sync::atomic::AtomicUsize =
 
 #[cfg(feature = "css_slot")]
 pub(crate) static KIRBY_SLOT_WALKER_ACTIVE: crate::thread_context::ThreadReentrancyFlag =
-    crate::thread_context::ThreadReentrancyFlag::new();
+    crate::thread_context::ThreadReentrancyFlag::new("kirby_slot_walker");
 
 #[cfg(feature = "css_slot")]
 pub(crate) unsafe fn kirby_record_mutex_held_here() -> bool {

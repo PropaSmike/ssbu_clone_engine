@@ -138,6 +138,26 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
         if n < 48 {
             dbg_log!("[wpnctor] #{n} kind={weapon_kind}");
         }
+        if custom_articles::custom_weapon_source_kind(weapon_kind).is_some()
+            || custom_articles::source_weapon_owner_kind(weapon_kind).is_some()
+        {
+            static REGS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+            let r = REGS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if r < 8 {
+                let mut hits: Vec<String> = Vec::new();
+                for index in 0..31usize {
+                    let value = ctx.registers[index].x() as usize;
+                    if let Some(entry) = crate::entry_of_fighter_boma_public(value) {
+                        hits.push(format!("x{index}=>entry{entry}"));
+                    }
+                }
+                let stack = crate::scan_stack_for_owner(ctx.sp.x() as usize, 0x400);
+                dbg_log!(
+                    "[wpnscan] #{r} kind={weapon_kind} regs[{}] stack[{stack}]",
+                    if hits.is_empty() { "none".to_string() } else { hits.join(",") }
+                );
+            }
+        }
     }
 
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
@@ -571,16 +591,79 @@ pub(crate) unsafe fn change_motion_probe(
 }
 
 #[cfg(feature = "css_slot")]
+static HOLDER_BIND_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+unsafe fn bind_article_holder(ctx: &skyline::hooks::InlineCtx) {
+    let fighter = ctx.registers[19].x() as usize;
+    let holder = ctx.registers[20].x() as usize;
+    crate::css_registration::record_article_holder(holder, fighter);
+    let n = HOLDER_BIND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 12 {
+        dbg_log!("[holderbind] #{n} holder={holder:#x} fighter={fighter:#x}");
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x650a84, inline)]
+pub(crate) unsafe fn article_holder_bind_a(ctx: &mut skyline::hooks::InlineCtx) {
+    bind_article_holder(ctx);
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x650f70, inline)]
+pub(crate) unsafe fn article_holder_bind_b(ctx: &mut skyline::hooks::InlineCtx) {
+    bind_article_holder(ctx);
+}
+
+#[cfg(feature = "css_slot")]
+static HOLDER_SCOPE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x3a6270)]
+pub(crate) unsafe fn article_holder_setup_bridge(
+    holder: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+) -> u64 {
+    let entry = crate::css_registration::entry_of_article_holder(holder as usize);
+    let owner_kind = entry.and_then(crate::css_registration::entry_custom_kind);
+
+    let n = HOLDER_SCOPE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 12 {
+        dbg_log!(
+            "[holder] #{n} holder={holder:#x} a1={a1:#x} a2={a2:#x} a3={a3:#x} a4={a4:#x} a5={a5:#x}              entry={entry:?} clone={owner_kind:?} known{:#x?}",
+            (0..2)
+                .map(|e| crate::css_registration::ENTRY_FIGHTER_OBJECT[e]
+                    .load(core::sync::atomic::Ordering::SeqCst))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    match owner_kind {
+        Some(kind) => crate::with_construction_context_public(kind, || {
+            call_original!(holder, a1, a2, a3, a4, a5)
+        }),
+        None => call_original!(holder, a1, a2, a3, a4, a5),
+    }
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x339fee0)]
 pub(crate) unsafe fn weapon_motion_setup_probe(object: *mut u8) -> u64 {
     if object.is_null() {
         return call_original!(object);
     }
 
+
+
     #[cfg(feature = "diag_article_motion")]
     let kind = core::ptr::read_volatile(object.add(0xc) as *const i32);
     let boma = core::ptr::read_volatile(object.add(0x20) as *const usize);
-    let owner_kind = if boma == 0 {
+    let owner_kind = if boma == 0 || crate::active_construction_kind_public().is_some() {
         None
     } else {
         crate::article_owner_kind_by_entry(boma as u64)
@@ -678,6 +761,9 @@ pub(crate) fn install_article_motion_diagnostics() {}
 #[cfg(feature = "css_slot")]
 pub(crate) fn install_article_motion_scope_bridge() {
     skyline::install_hook!(weapon_motion_setup_probe);
+    skyline::install_hook!(article_holder_setup_bridge);
+    skyline::install_hook!(article_holder_bind_a);
+    skyline::install_hook!(article_holder_bind_b);
 }
 
 #[cfg(feature = "css_slot")]
@@ -931,6 +1017,16 @@ pub(crate) unsafe fn custom_article_cache_key_direct(ctx: &mut skyline::hooks::I
 }
 
 #[cfg(feature = "css_slot")]
+static ARTICLE_DATA_VANILLA_LOOKUP_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const ADDED_RESOURCE_INDEX_FLOOR: u32 = 0x8_0000;
+
+#[cfg(feature = "css_slot")]
+const BARE_WEAPON_KIND_CEILING: u64 = 0x1000;
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x17dded0)]
 pub(crate) unsafe fn custom_article_data_cache_insert(
     tree: *mut u8,
@@ -954,11 +1050,19 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
         core::ptr::read_volatile(search_index)
     };
     let result = call_original!(tree, effective_key, search_index, variant, mode);
-    if is_custom {
+    let added = index != u32::MAX && index >= ADDED_RESOURCE_INDEX_FLOOR;
+    if is_custom || added || key < BARE_WEAPON_KIND_CEILING {
         let n = ARTICLE_DATA_CACHE_KEY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n < 48 {
+        if n < 160 {
+            let tag = if effective_key != key {
+                "tagged"
+            } else if added {
+                "UNTAGGED-ADDED"
+            } else {
+                "vanilla"
+            };
             dbg_log!(
-                "[articledata] #{n} key={key:#x}->{effective_key:#x} index={index:#x} variant={variant} mode={mode} ret={result}"
+                "[articledata] #{n} {tag} key={key:#x}->{effective_key:#x} index={index:#x} variant={variant} mode={mode} ret={result}"
             );
         }
     }
@@ -972,6 +1076,13 @@ pub(crate) unsafe fn tag_custom_article_data_lookup(
 ) {
     let key = ctx.registers[2].x();
     let Some(definition) = active_construction_kind().and_then(clone_definition) else {
+        if key < BARE_WEAPON_KIND_CEILING {
+            let n = ARTICLE_DATA_VANILLA_LOOKUP_LOG
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 64 {
+                dbg_log!("[articledata_lookup] #{n} site={site} VANILLA key={key:#x} untagged");
+            }
+        }
         return;
     };
     if !is_custom_article_data_key(definition, key) {
