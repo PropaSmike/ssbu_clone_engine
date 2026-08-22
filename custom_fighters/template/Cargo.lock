@@ -5,6 +5,7 @@ version = 4
 [[package]]
 name = "acmd-engine"
 version = "0.1.0"
+source = "git+https://github.com/PropaSmike/smashline?tag=clone-engine-beta.1#4915215d63272d56ea56072e08522f807279a748"
 dependencies = [
  "hash40",
  "locks",
@@ -96,6 +97,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "clone_engine_api"
 version = "0.1.0-beta.1"
+source = "git+https://github.com/PropaSmike/ssbu_clone_engine?tag=0.1.0-beta.1#ad61ad41a05b063e03695955213e0415af15844f"
 dependencies = [
  "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
  "skyline_smash 0.1.0 (git+https://github.com/ultimate-research/skyline-smash.git?rev=58aee32a5838379cadd120c8e62fd0e0ea9e5ad7)",
@@ -275,6 +277,7 @@ checksum = "1256a11d163c7288d94909f8120ede53294d8c233df314b0e4f01cf0269707da"
 [[package]]
 name = "locks"
 version = "1.6.6"
+source = "git+https://github.com/PropaSmike/smashline?tag=clone-engine-beta.1#4915215d63272d56ea56072e08522f807279a748"
 dependencies = [
  "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs)",
 ]
@@ -568,6 +571,7 @@ dependencies = [
 [[package]]
 name = "smashline"
 version = "0.1.0"
+source = "git+https://github.com/PropaSmike/smashline?tag=clone-engine-beta.1#4915215d63272d56ea56072e08522f807279a748"
 dependencies = [
  "acmd-engine",
  "locks",
@@ -579,6 +583,7 @@ dependencies = [
 [[package]]
 name = "smashline-macro"
 version = "0.1.0"
+source = "git+https://github.com/PropaSmike/smashline?tag=clone-engine-beta.1#4915215d63272d56ea56072e08522f807279a748"
 dependencies = [
  "proc-macro-crate",
  "proc-macro-error",

@@ -1840,6 +1840,78 @@ fn is_pocketer_kind(kind: i32) -> bool {
         || kind == *smash::lib::lua_const::FIGHTER_KIND_SHIZUE
 }
 
+const POCKET_SLOT_EMPTY: i32 = 0x5000_0000;
+
+fn pocket_slot_is_empty(kind: i32) -> bool {
+    kind == POCKET_SLOT_EMPTY || kind < 0
+}
+
+#[cfg(test)]
+mod pocket_tests {
+    use super::{is_pocketer_kind, pocket_slot_is_empty};
+
+    #[test]
+    fn an_empty_pocket_is_battle_object_id_invalid() {
+        assert_eq!(super::POCKET_SLOT_EMPTY, 0x5000_0000);
+        assert_eq!(
+            super::POCKET_SLOT_EMPTY,
+            *smash::lib::lua_const::BATTLE_OBJECT_ID_INVALID
+        );
+        assert!(pocket_slot_is_empty(super::POCKET_SLOT_EMPTY));
+    }
+
+    #[test]
+    fn neither_zero_nor_a_real_kind_reads_as_empty() {
+        assert!(!pocket_slot_is_empty(0));
+        assert!(pocket_slot_is_empty(-1));
+    }
+
+    #[test]
+    fn item_kind_assist_is_zero_and_must_not_read_as_empty() {
+        assert_eq!(*smash::lib::lua_const::ITEM_KIND_ASSIST, 0);
+        assert!(!pocket_slot_is_empty(
+            *smash::lib::lua_const::ITEM_KIND_ASSIST
+        ));
+    }
+
+    #[test]
+    fn a_real_clone_base_kind_is_never_empty() {
+        assert!(!pocket_slot_is_empty(0x3F));
+        assert!(!pocket_slot_is_empty(0x45));
+    }
+
+    #[test]
+    fn both_pocketers_are_recognised() {
+        assert!(is_pocketer_kind(
+            *smash::lib::lua_const::FIGHTER_KIND_MURABITO
+        ));
+        assert!(is_pocketer_kind(
+            *smash::lib::lua_const::FIGHTER_KIND_SHIZUE
+        ));
+    }
+
+    #[test]
+    fn isabelle_inherits_villagers_status_and_work_space() {
+        use smash::lib::lua_const::*;
+        assert_eq!(
+            *FIGHTER_SHIZUE_INSTANCE_WORK_ID_INT_START,
+            *FIGHTER_MURABITO_INSTANCE_WORK_ID_INT_TERM
+        );
+        assert_eq!(
+            *FIGHTER_SHIZUE_INSTANCE_WORK_ID_FLOAT_START,
+            *FIGHTER_MURABITO_INSTANCE_WORK_ID_FLOAT_TERM
+        );
+        assert!(*FIGHTER_SHIZUE_STATUS_KIND_PREV >= *FIGHTER_MURABITO_STATUS_KIND_NUM - 1);
+        assert!(
+            *FIGHTER_MURABITO_INSTANCE_WORK_ID_INT_SPECIAL_N_OBJECT_KIND
+                < *FIGHTER_SHIZUE_INSTANCE_WORK_ID_INT_START
+        );
+        assert!(
+            super::MURABITO_STATUS_SPECIAL_N_TAKE_OUT < *FIGHTER_SHIZUE_STATUS_KIND_SPECIAL_S_START
+        );
+    }
+}
+
 #[cfg(feature = "css_slot")]
 const POCKET_OBJECT_KIND: i32 = 0x1000_00C5;
 
@@ -1925,17 +1997,28 @@ unsafe extern "C" fn pocket_watch_tick(agent: &mut smash::lua2cpp::L2CFighterBas
 
     article_owners::sweep(|object_id| smash::app::sv_battle_object::is_active(object_id));
 
-    item_clones::note_live_clones();
     item_clones::sweep_live(|object_id| smash::app::sv_battle_object::is_active(object_id));
+    POCKET_OWNER_ID[entry as usize].store(
+        core::ptr::read_volatile((boma as usize + BOMA_BATTLE_OBJECT_ID) as *const u32),
+        core::sync::atomic::Ordering::Relaxed,
+    );
+    let (have, pickable) = item_clones::pocket_contact_object_ids(boma as *mut u8);
+    let contact = [
+        have,
+        pickable,
+        POCKET_PREVIOUS_HAVE[entry as usize].swap(have, core::sync::atomic::Ordering::Relaxed),
+        POCKET_PREVIOUS_PICKABLE[entry as usize]
+            .swap(pickable, core::sync::atomic::Ordering::Relaxed),
+    ];
     let held = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_KIND);
-    pocket_item_tick(boma, entry as usize, held);
+    pocket_item_tick(boma, entry as usize, held, contact);
     let previous =
         POCKET_PREVIOUS[entry as usize].swap(held, core::sync::atomic::Ordering::Relaxed);
     if held == previous {
         return;
     }
 
-    if held <= 0 {
+    if pocket_slot_is_empty(held) {
         POCKET_LATCH[entry as usize].store(-1, core::sync::atomic::Ordering::Relaxed);
         return;
     }
@@ -1947,12 +2030,6 @@ unsafe extern "C" fn pocket_watch_tick(agent: &mut smash::lua2cpp::L2CFighterBas
         dbg_log!("[artowner] #{n} pocket watch entry={entry} took wkind={held} -> clone {owner}");
     }
 }
-
-#[cfg(feature = "css_slot")]
-const POCKET_OBJECT_ID: i32 = 0x1000_00C7;
-
-#[cfg(feature = "css_slot")]
-const POCKET_OBJECT_CATEGORY: i32 = 0x1000_00C3;
 
 #[cfg(feature = "css_slot")]
 const MURABITO_STATUS_SPECIAL_N_TAKE_OUT: i32 = 0x1E4;
@@ -1969,54 +2046,189 @@ static POCKET_ITEM_PREVIOUS: [core::sync::atomic::AtomicI32; 8] =
 static POCKET_ITEM_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+const POCKET_TICKET_MAX_AGE: u32 = 30;
+
+#[cfg(feature = "css_slot")]
+static POCKET_TICKET_AGE: [core::sync::atomic::AtomicU32; 8] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_OWNER_ID: [core::sync::atomic::AtomicU32; 8] = [const {
+    core::sync::atomic::AtomicU32::new(article_probes::INVALID_BATTLE_OBJECT_ID)
+}; 8];
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn pocket_release_claim(base_kind: i32) -> Option<i32> {
+    for entry in 0..8usize {
+        let latched = POCKET_ITEM_LATCH[entry].load(core::sync::atomic::Ordering::Relaxed);
+        if latched < 0 || item_clones::clone_base_kind(latched) != Some(base_kind) {
+            continue;
+        }
+        let owner_id = POCKET_OWNER_ID[entry].load(core::sync::atomic::Ordering::Relaxed);
+        if owner_id == article_probes::INVALID_BATTLE_OBJECT_ID
+            || !smash::app::sv_battle_object::is_active(owner_id)
+        {
+            continue;
+        }
+        let boma = smash::app::sv_battle_object::module_accessor(owner_id);
+        if boma.is_null()
+            || smash::app::lua_bind::StatusModule::status_kind(boma)
+                != MURABITO_STATUS_SPECIAL_N_TAKE_OUT
+        {
+            continue;
+        }
+        POCKET_ITEM_LATCH[entry].store(-1, core::sync::atomic::Ordering::Relaxed);
+        POCKET_TICKET_AGE[entry].store(0, core::sync::atomic::Ordering::Relaxed);
+        return Some(latched);
+    }
+    None
+}
+
+#[cfg(not(feature = "css_slot"))]
+pub(crate) unsafe fn pocket_release_claim(base_kind: i32) -> Option<i32> {
+    let _ = base_kind;
+    None
+}
+
+#[cfg(feature = "css_slot")]
+static POCKET_PREVIOUS_HAVE: [core::sync::atomic::AtomicU32; 8] =
+    [const { core::sync::atomic::AtomicU32::new(u32::MAX) }; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_PREVIOUS_PICKABLE: [core::sync::atomic::AtomicU32; 8] =
+    [const { core::sync::atomic::AtomicU32::new(u32::MAX) }; 8];
+
+#[cfg(feature = "css_slot")]
+const POCKET_CANDIDATES: usize = 8;
+
+#[cfg(feature = "css_slot")]
+static POCKET_CANDIDATE_OBJECT: [[core::sync::atomic::AtomicU32; POCKET_CANDIDATES]; 8] = [const {
+    [const { core::sync::atomic::AtomicU32::new(u32::MAX) }; POCKET_CANDIDATES]
+}; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_CANDIDATE_KIND: [[core::sync::atomic::AtomicI32; POCKET_CANDIDATES]; 8] =
+    [const { [const { core::sync::atomic::AtomicI32::new(-1) }; POCKET_CANDIDATES] }; 8];
+
+#[cfg(feature = "css_slot")]
+static POCKET_CANDIDATE_COUNT: [core::sync::atomic::AtomicUsize; 8] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
+fn arm_pocket_candidates(entry: usize, base_kind: i32) -> usize {
+    let mut census = [(u32::MAX, -1i32); POCKET_CANDIDATES];
+    let count = item_clones::live_clones_with_base(base_kind, &mut census);
+    for (index, slot) in census.iter().enumerate() {
+        let (object_id, public_kind) = if index < count {
+            *slot
+        } else {
+            (u32::MAX, -1)
+        };
+        POCKET_CANDIDATE_OBJECT[entry][index].store(object_id, core::sync::atomic::Ordering::Relaxed);
+        POCKET_CANDIDATE_KIND[entry][index].store(public_kind, core::sync::atomic::Ordering::Relaxed);
+    }
+    POCKET_CANDIDATE_COUNT[entry].store(count, core::sync::atomic::Ordering::Release);
+    count
+}
+
+#[cfg(feature = "css_slot")]
+fn clear_pocket_candidates(entry: usize) {
+    POCKET_CANDIDATE_COUNT[entry].store(0, core::sync::atomic::Ordering::Release);
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn poll_pocket_candidates(entry: usize) -> Option<i32> {
+    let count = POCKET_CANDIDATE_COUNT[entry].load(core::sync::atomic::Ordering::Acquire);
+    for index in 0..count {
+        let object_id =
+            POCKET_CANDIDATE_OBJECT[entry][index].load(core::sync::atomic::Ordering::Relaxed);
+        if object_id == u32::MAX || smash::app::sv_battle_object::is_active(object_id) {
+            continue;
+        }
+        POCKET_CANDIDATE_OBJECT[entry][index].store(u32::MAX, core::sync::atomic::Ordering::Relaxed);
+        let public_kind =
+            POCKET_CANDIDATE_KIND[entry][index].load(core::sync::atomic::Ordering::Relaxed);
+        return (public_kind >= 0).then_some(public_kind);
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
 unsafe fn pocket_item_tick(
     boma: *mut smash::app::BattleObjectModuleAccessor,
     entry: usize,
     held: i32,
+    contact: [u32; 4],
 ) {
     let previous = POCKET_ITEM_PREVIOUS[entry].swap(held, core::sync::atomic::Ordering::Relaxed);
     let latched = POCKET_ITEM_LATCH[entry].load(core::sync::atomic::Ordering::Relaxed);
 
-    if held == 0 {
-        if latched >= 0 {
+    if pocket_slot_is_empty(held) {
+        clear_pocket_candidates(entry);
+        if latched < 0 {
+            return;
+        }
+        if !pocket_slot_is_empty(previous) {
+            POCKET_ITEM_LATCH[entry].store(-1, core::sync::atomic::Ordering::Relaxed);
+            POCKET_TICKET_AGE[entry].store(0, core::sync::atomic::Ordering::Relaxed);
+            if !item_clones::pocket_ticket_pending(latched) {
+                item_clones::queue_pocket_ticket(latched);
+            }
+            return;
+        }
+        let age = POCKET_TICKET_AGE[entry].fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+        if age >= POCKET_TICKET_MAX_AGE {
             POCKET_ITEM_LATCH[entry].store(-1, core::sync::atomic::Ordering::Relaxed);
             item_clones::drop_pocket_ticket(latched);
-            let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            if n < 24 {
-                dbg_log!("[pocketclone] #{n} entry={entry} emptied, released clone {latched:#x}");
-            }
         }
         return;
     }
 
     if held != previous {
-        let object_id = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_ID) as u32;
-        let category = smash::app::lua_bind::WorkModule::get_int(boma, POCKET_OBJECT_CATEGORY);
-        let live = item_clones::live_kind_by_object_id(object_id);
-        let retired = item_clones::recently_retired_clone(held);
-        let vanished = item_clones::vanished_clone_with_base(held);
-        let clone = live.or(vanished).or(retired);
+        POCKET_TICKET_AGE[entry].store(0, core::sync::atomic::Ordering::Relaxed);
+        let contacted = contact
+            .iter()
+            .find_map(|&object_id| item_clones::clone_kind_of_object(object_id, held));
+        let vanished = if contacted.is_some() {
+            None
+        } else {
+            item_clones::claim_retired_clone(held)
+        };
+        let clone = contacted.or(vanished);
         POCKET_ITEM_LATCH[entry].store(clone.unwrap_or(-1), core::sync::atomic::Ordering::Relaxed);
-        let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n < 24 {
-            dbg_log!(
-                "[pocketclone] #{n} entry={entry} stored kind={held:#x} category={category} live={live:?} vanished={vanished:?} retired={retired:?} clone={clone:?}"
-            );
+        match clone {
+            Some(public_kind) => {
+                clear_pocket_candidates(entry);
+                if POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 16 {
+                    dbg_log!("[pocketclone] pocketed clone {public_kind:#x} (base {held:#x})");
+                }
+            }
+            None if arm_pocket_candidates(entry, held) > 0 => {
+                if POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 16 {
+                    dbg_log!(
+                        "[pocketclone] a clone item on base {held:#x} is live but the pocketed object could not be identified; it will come back as the base item"
+                    );
+                }
+            }
+            None => {}
         }
         return;
     }
 
     if latched < 0 {
+        let Some(public_kind) = poll_pocket_candidates(entry) else {
+            return;
+        };
+        POCKET_ITEM_LATCH[entry].store(public_kind, core::sync::atomic::Ordering::Relaxed);
+        clear_pocket_candidates(entry);
+        if POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 16 {
+            dbg_log!("[pocketclone] pocketed clone {public_kind:#x} (base {held:#x}), identified late");
+        }
         return;
     }
 
     let status = smash::app::lua_bind::StatusModule::status_kind(boma);
-    let fighter = smash::app::utility::get_kind(&mut *boma);
-    let releasing = if fighter == *smash::lib::lua_const::FIGHTER_KIND_MURABITO {
-        status == MURABITO_STATUS_SPECIAL_N_TAKE_OUT
-    } else {
-        true
-    };
+    let releasing = status == MURABITO_STATUS_SPECIAL_N_TAKE_OUT;
     if !releasing {
         item_clones::drop_pocket_ticket(latched);
         return;
@@ -2024,13 +2236,7 @@ unsafe fn pocket_item_tick(
     if item_clones::pocket_ticket_pending(latched) {
         return;
     }
-    let armed = item_clones::queue_pocket_ticket(latched);
-    let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 24 {
-        dbg_log!(
-            "[pocketclone] #{n} entry={entry} fighter={fighter} status={status:#x} arming clone {latched:#x} armed={armed}"
-        );
-    }
+    item_clones::queue_pocket_ticket(latched);
 }
 
 #[cfg(feature = "css_slot")]
@@ -2215,21 +2421,6 @@ unsafe fn entry_of_fighter_boma(candidate: usize) -> Option<usize> {
         .position(|slot| slot.load(core::sync::atomic::Ordering::SeqCst) == candidate)
 }
 
-#[cfg(feature = "css_slot")]
-pub(crate) unsafe fn entry_of_fighter_object(fighter: usize) -> Option<u8> {
-    if fighter == 0 {
-        return None;
-    }
-    let mut offset = 0usize;
-    while offset < 0x200 {
-        let value = core::ptr::read_volatile((fighter + offset) as *const usize);
-        if let Some(entry) = entry_of_fighter_boma(value) {
-            return Some(entry as u8);
-        }
-        offset += 8;
-    }
-    None
-}
 
 #[cfg(feature = "css_slot")]
 pub(crate) unsafe fn entry_of_fighter_boma_public(candidate: usize) -> Option<usize> {

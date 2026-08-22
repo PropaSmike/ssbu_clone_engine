@@ -919,7 +919,8 @@ pub(crate) fn live_kind_by_object_id(object_id: u32) -> Option<i32> {
 struct RetiredItem {
     public_kind: AtomicI32,
     base_kind: AtomicI32,
-    sequence: AtomicU32,
+    generation: AtomicU32,
+    claimed: AtomicBool,
 }
 
 impl RetiredItem {
@@ -927,14 +928,23 @@ impl RetiredItem {
         Self {
             public_kind: AtomicI32::new(-1),
             base_kind: AtomicI32::new(-1),
-            sequence: AtomicU32::new(0),
+            generation: AtomicU32::new(0),
+            claimed: AtomicBool::new(true),
         }
     }
 }
 
 static RETIRED: [RetiredItem; 16] = [const { RetiredItem::new() }; 16];
-static RETIRED_SEQUENCE: AtomicU32 = AtomicU32::new(1);
 static RETIRED_CURSOR: AtomicUsize = AtomicUsize::new(0);
+static RETIRED_GENERATION: AtomicU32 = AtomicU32::new(0);
+
+const RETIRED_CLAIM_WINDOW: u32 = 4;
+
+static SWEEP_LOG: AtomicU32 = AtomicU32::new(0);
+
+fn open_retirement_window() {
+    RETIRED_GENERATION.fetch_add(1, Ordering::AcqRel);
+}
 
 fn remember_retired(public_kind: i32, base_kind: i32) {
     if public_kind < 0 {
@@ -942,89 +952,114 @@ fn remember_retired(public_kind: i32, base_kind: i32) {
     }
     let index = RETIRED_CURSOR.fetch_add(1, Ordering::Relaxed) % RETIRED.len();
     let entry = &RETIRED[index];
+    entry.claimed.store(true, Ordering::Release);
     entry.public_kind.store(public_kind, Ordering::Relaxed);
     entry.base_kind.store(base_kind, Ordering::Relaxed);
-    entry.sequence.store(
-        RETIRED_SEQUENCE.fetch_add(1, Ordering::Relaxed),
-        Ordering::Release,
+    entry.generation.store(
+        RETIRED_GENERATION.load(Ordering::Acquire),
+        Ordering::Relaxed,
     );
+    entry.claimed.store(false, Ordering::Release);
 }
 
-pub(crate) fn recently_retired_clone(base_kind: i32) -> Option<i32> {
-    let mut best: Option<(i32, u32)> = None;
-    for entry in &RETIRED {
-        if entry.base_kind.load(Ordering::Acquire) != base_kind {
-            continue;
-        }
-        let public_kind = entry.public_kind.load(Ordering::Relaxed);
-        if public_kind < 0 {
-            continue;
-        }
-        let sequence = entry.sequence.load(Ordering::Relaxed);
-        if best.map_or(true, |(_, current)| {
-            sequence.wrapping_sub(current) as i32 > 0
-        }) {
-            best = Some((public_kind, sequence));
-        }
-    }
-    best.map(|(public_kind, _)| public_kind)
-}
-
-struct SeenClone {
-    base_kind: AtomicI32,
-    public_kind: AtomicI32,
-}
-
-impl SeenClone {
-    const fn new() -> Self {
-        Self {
-            base_kind: AtomicI32::new(-1),
-            public_kind: AtomicI32::new(-1),
-        }
-    }
-}
-
-static SEEN_CLONES: [SeenClone; 16] = [const { SeenClone::new() }; 16];
-
-fn is_live_public(public_kind: i32) -> bool {
-    LIVE.iter().any(|slot| {
-        slot.state.load(Ordering::Acquire) == 2
-            && slot.public_kind.load(Ordering::Relaxed) == public_kind
-    })
-}
-
-pub(crate) fn note_live_clones() {
+pub(crate) fn live_clones_with_base(base_kind: i32, out: &mut [(u32, i32)]) -> usize {
+    let mut count = 0;
     for slot in &LIVE {
-        if slot.state.load(Ordering::Acquire) != 2 {
-            continue;
+        if count == out.len() {
+            break;
         }
-        let public_kind = slot.public_kind.load(Ordering::Relaxed);
-        let base_kind = slot.base_kind.load(Ordering::Relaxed);
-        if public_kind < 0 || base_kind < 0 {
-            continue;
-        }
-        if SEEN_CLONES
-            .iter()
-            .any(|seen| seen.public_kind.load(Ordering::Acquire) == public_kind)
+        if slot.state.load(Ordering::Acquire) != 2
+            || slot.base_kind.load(Ordering::Relaxed) != base_kind
         {
             continue;
         }
-        for seen in &SEEN_CLONES {
-            if seen
-                .public_kind
-                .compare_exchange(-1, public_kind, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                seen.base_kind.store(base_kind, Ordering::Release);
-                break;
-            }
+        let object_id = slot.object_id.load(Ordering::Relaxed);
+        let public_kind = slot.public_kind.load(Ordering::Relaxed);
+        if object_id == u32::MAX || public_kind < 0 {
+            continue;
         }
+        out[count] = (object_id, public_kind);
+        count += 1;
+    }
+    count
+}
+
+pub(crate) fn claim_retired_clone(base_kind: i32) -> Option<i32> {
+    let now = RETIRED_GENERATION.load(Ordering::Acquire);
+    let mut best: Option<(usize, u32)> = None;
+    for (index, entry) in RETIRED.iter().enumerate() {
+        if entry.claimed.load(Ordering::Acquire)
+            || entry.base_kind.load(Ordering::Relaxed) != base_kind
+            || entry.public_kind.load(Ordering::Relaxed) < 0
+        {
+            continue;
+        }
+        let generation = entry.generation.load(Ordering::Relaxed);
+        if now.wrapping_sub(generation) > RETIRED_CLAIM_WINDOW {
+            continue;
+        }
+        if best.map_or(true, |(_, newest)| {
+            generation.wrapping_sub(newest) as i32 >= 0
+        }) {
+            best = Some((index, generation));
+        }
+    }
+    let (index, _) = best?;
+    RETIRED[index]
+        .claimed
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .ok()?;
+    Some(RETIRED[index].public_kind.load(Ordering::Relaxed))
+}
+
+#[cfg(test)]
+mod retired_window_tests {
+    use super::{claim_retired_clone, open_retirement_window, remember_retired};
+    use std::sync::Mutex;
+
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn a_clone_that_vanished_in_this_window_is_claimable_once() {
+        let _serial = SERIAL.lock().unwrap();
+        open_retirement_window();
+        remember_retired(0x36b, 0x7001);
+        assert_eq!(claim_retired_clone(0x7001), Some(0x36b));
+        assert_eq!(claim_retired_clone(0x7001), None);
+    }
+
+    #[test]
+    fn a_base_kind_no_clone_vanished_under_resolves_to_nothing() {
+        let _serial = SERIAL.lock().unwrap();
+        open_retirement_window();
+        remember_retired(0x36b, 0x7002);
+        assert_eq!(claim_retired_clone(0x7012), None);
+    }
+
+    #[test]
+    fn a_clone_that_vanished_long_ago_is_out_of_the_window() {
+        let _serial = SERIAL.lock().unwrap();
+        open_retirement_window();
+        remember_retired(0x36a, 0x7003);
+        for _ in 0..=super::RETIRED_CLAIM_WINDOW {
+            open_retirement_window();
+        }
+        assert_eq!(claim_retired_clone(0x7003), None);
+    }
+
+    #[test]
+    fn the_newest_of_two_vanishings_wins() {
+        let _serial = SERIAL.lock().unwrap();
+        open_retirement_window();
+        remember_retired(0x36a, 0x7004);
+        open_retirement_window();
+        remember_retired(0x36c, 0x7004);
+        assert_eq!(claim_retired_clone(0x7004), Some(0x36c));
     }
 }
 
-static SWEEP_LOG: AtomicU32 = AtomicU32::new(0);
-
 pub(crate) fn sweep_live(is_active: impl Fn(u32) -> bool) {
+    open_retirement_window();
     for slot in &LIVE {
         if slot.state.load(Ordering::Acquire) != 2 {
             continue;
@@ -1054,14 +1089,8 @@ pub(crate) fn sweep_live(is_active: impl Fn(u32) -> bool) {
     }
 }
 
-pub(crate) fn vanished_clone_with_base(base_kind: i32) -> Option<i32> {
-    SEEN_CLONES.iter().find_map(|seen| {
-        let public_kind = seen.public_kind.load(Ordering::Acquire);
-        if public_kind < 0 || seen.base_kind.load(Ordering::Acquire) != base_kind {
-            return None;
-        }
-        (!is_live_public(public_kind)).then_some(public_kind)
-    })
+pub(crate) fn clone_base_kind(public_kind: i32) -> Option<i32> {
+    definition(public_kind).map(|view| view.base_kind)
 }
 
 fn remove_live(object: usize, object_id: u32) -> Option<i32> {
@@ -1182,6 +1211,42 @@ pub unsafe extern "C" fn clone_engine_item_kind_pickable_v1(boma: *mut u8) -> i3
     publish_kind(reported, native_get_pickable_item_object_id(boma))
 }
 
+const ITEM_MODULE_OFFSET: usize = 0xC8;
+const ITEM_MODULE_ENTRIES: usize = 0x18;
+
+unsafe fn item_module_is_ready(boma: *mut u8) -> bool {
+    if boma.is_null() {
+        return false;
+    }
+    let module = core::ptr::read_volatile(boma.add(ITEM_MODULE_OFFSET) as *const usize);
+    if module == 0 || core::ptr::read_volatile(module as *const usize) == 0 {
+        return false;
+    }
+    let entries = core::ptr::read_volatile((module + ITEM_MODULE_ENTRIES) as *const usize);
+    if entries == 0 {
+        return false;
+    }
+    core::ptr::read_volatile((entries + 8) as *const usize) != 0
+}
+
+pub(crate) unsafe fn pocket_contact_object_ids(boma: *mut u8) -> (u32, u32) {
+    if LIVE_COUNT.load(Ordering::Acquire) == 0 || !item_module_is_ready(boma) {
+        return (u32::MAX, u32::MAX);
+    }
+    (
+        native_get_have_item_id(boma, 0),
+        native_get_pickable_item_object_id(boma),
+    )
+}
+
+pub(crate) fn clone_kind_of_object(object_id: u32, base_kind: i32) -> Option<i32> {
+    if object_id == u32::MAX || object_id == crate::article_probes::INVALID_BATTLE_OBJECT_ID {
+        return None;
+    }
+    let public_kind = live_kind_by_object_id(object_id)?;
+    (definition(public_kind)?.base_kind == base_kind).then_some(public_kind)
+}
+
 #[skyline::hook(offset = OFF_ITEM_LOWER_CREATOR)]
 unsafe fn item_lower_creator_bridge(
     manager: *mut u8,
@@ -1195,7 +1260,11 @@ unsafe fn item_lower_creator_bridge(
     }
 
     let raw_kind = (descriptor.add(0x20) as *const i32).read_unaligned();
-    if let Some((definition, source)) = take_spawn_ticket(raw_kind) {
+    let claimed = take_spawn_ticket(raw_kind).or_else(|| {
+        let public_kind = crate::pocket_release_claim(raw_kind)?;
+        Some((definition(public_kind)?, ItemSpawnSource::Direct))
+    });
+    if let Some((definition, source)) = claimed {
         REGISTRATION_CLOSED.store(true, Ordering::Release);
         BACKEND_STATUS.fetch_or(STATUS_REGISTRATION_CLOSED, Ordering::AcqRel);
         let armed = arm_request_with_context(definition, -1, source);

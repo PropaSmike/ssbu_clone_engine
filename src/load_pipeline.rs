@@ -505,7 +505,6 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
     name_hash: u64,
 ) {
     crate::css_registration::record_entry_owner_object(entry_id, id);
-    crate::css_registration::record_entry_fighter_object(entry_id, object as usize);
     let n = INIT_PROBE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 32 {
         let (cnt, k0, k1, k2) = entry_kind_array(entry_id);
