@@ -591,67 +591,6 @@ pub(crate) unsafe fn change_motion_probe(
 }
 
 #[cfg(feature = "css_slot")]
-static HOLDER_BIND_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
-#[cfg(feature = "css_slot")]
-unsafe fn bind_article_holder(ctx: &skyline::hooks::InlineCtx) {
-    let fighter = ctx.registers[19].x() as usize;
-    let holder = ctx.registers[20].x() as usize;
-    crate::css_registration::record_article_holder(holder, fighter);
-    let n = HOLDER_BIND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 12 {
-        dbg_log!("[holderbind] #{n} holder={holder:#x} fighter={fighter:#x}");
-    }
-}
-
-#[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x650a84, inline)]
-pub(crate) unsafe fn article_holder_bind_a(ctx: &mut skyline::hooks::InlineCtx) {
-    bind_article_holder(ctx);
-}
-
-#[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x650f70, inline)]
-pub(crate) unsafe fn article_holder_bind_b(ctx: &mut skyline::hooks::InlineCtx) {
-    bind_article_holder(ctx);
-}
-
-#[cfg(feature = "css_slot")]
-static HOLDER_SCOPE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
-#[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x3a6270)]
-pub(crate) unsafe fn article_holder_setup_bridge(
-    holder: u64,
-    a1: u64,
-    a2: u64,
-    a3: u64,
-    a4: u64,
-    a5: u64,
-) -> u64 {
-    let entry = crate::css_registration::entry_of_article_holder(holder as usize);
-    let owner_kind = entry.and_then(crate::css_registration::entry_custom_kind);
-
-    let n = HOLDER_SCOPE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 12 {
-        dbg_log!(
-            "[holder] #{n} holder={holder:#x} a1={a1:#x} a2={a2:#x} a3={a3:#x} a4={a4:#x} a5={a5:#x}              entry={entry:?} clone={owner_kind:?} known{:#x?}",
-            (0..2)
-                .map(|e| crate::css_registration::ENTRY_FIGHTER_OBJECT[e]
-                    .load(core::sync::atomic::Ordering::SeqCst))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    match owner_kind {
-        Some(kind) => crate::with_construction_context_public(kind, || {
-            call_original!(holder, a1, a2, a3, a4, a5)
-        }),
-        None => call_original!(holder, a1, a2, a3, a4, a5),
-    }
-}
-
-#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x339fee0)]
 pub(crate) unsafe fn weapon_motion_setup_probe(object: *mut u8) -> u64 {
     if object.is_null() {
@@ -761,9 +700,6 @@ pub(crate) fn install_article_motion_diagnostics() {}
 #[cfg(feature = "css_slot")]
 pub(crate) fn install_article_motion_scope_bridge() {
     skyline::install_hook!(weapon_motion_setup_probe);
-    skyline::install_hook!(article_holder_setup_bridge);
-    skyline::install_hook!(article_holder_bind_a);
-    skyline::install_hook!(article_holder_bind_b);
 }
 
 #[cfg(feature = "css_slot")]

@@ -898,23 +898,119 @@ unsafe fn publish_stand_ins(cells: *mut CloneParamCells, kind: usize) {
     );
 }
 
-static ALL_FILLED: AtomicBool = AtomicBool::new(false);
 static FILLED: [AtomicBool; MAX_CLONE_KINDS] = [const { AtomicBool::new(false) }; MAX_CLONE_KINDS];
+static FILLED_ENTRY: [AtomicUsize; MAX_CLONE_KINDS] =
+    [const { AtomicUsize::new(0) }; MAX_CLONE_KINDS];
+fn settle_fill(index: usize, entry: usize) {
+    FILLED_ENTRY[index].store(entry, Ordering::Release);
+    FILLED[index].store(true, Ordering::Release);
+}
+
+fn reopen_fill(index: usize) {
+    FILLED[index].store(false, Ordering::Release);
+    REQUESTED[index].store(false, Ordering::Release);
+    STALL_REPORTED[index].store(false, Ordering::Release);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FillState {
+    Unchanged,
+    Fresh,
+    Moved,
+}
+
+fn fill_state(filled: bool, previous: usize, entry: usize) -> FillState {
+    if previous == entry {
+        return FillState::Unchanged;
+    }
+    if filled {
+        FillState::Moved
+    } else {
+        FillState::Fresh
+    }
+}
+
+fn revalidate_fill(index: usize, kind: usize, entry: usize) {
+    let previous = FILLED_ENTRY[index].load(Ordering::Acquire);
+    let filled = FILLED[index].load(Ordering::Acquire);
+    match fill_state(filled, previous, entry) {
+        FillState::Unchanged => {}
+        FillState::Fresh => {
+            FILLED_ENTRY[index].store(entry, Ordering::Release);
+            reopen_fill(index);
+        }
+        FillState::Moved => {
+            FILLED_ENTRY[index].store(entry, Ordering::Release);
+            reopen_fill(index);
+            crate::dbg_log_public(&format!(
+                "[itemparam] clone {kind:#x} entry moved {previous:#x} -> {entry:#x}; refilling"
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod refill_tests {
+    use super::{fill_state, reopen_fill, settle_fill, FillState, FILLED, FILLED_ENTRY, REQUESTED,
+        STALL_REPORTED};
+    use core::sync::atomic::Ordering;
+
+    #[test]
+    fn the_same_entry_holds_its_fill() {
+        assert_eq!(fill_state(true, 0x1000, 0x1000), FillState::Unchanged);
+        assert_eq!(fill_state(false, 0x1000, 0x1000), FillState::Unchanged);
+    }
+
+    #[test]
+    fn a_reallocated_entry_is_refilled_even_though_the_kind_was_filled_once() {
+        assert_eq!(
+            fill_state(true, 0x11DF8435C0, 0x11DF833690),
+            FillState::Moved
+        );
+    }
+
+    #[test]
+    fn an_entry_cleared_to_zero_is_reported_as_moved_and_never_written_to() {
+        assert_eq!(fill_state(true, 0x11DF8435C0, 0), FillState::Moved);
+    }
+
+    #[test]
+    fn the_first_entry_of_a_boot_is_adopted_quietly() {
+        assert_eq!(fill_state(false, 0, 0x1000), FillState::Fresh);
+    }
+
+    #[test]
+    fn settling_records_the_entry_it_filled() {
+        let index = 200;
+        settle_fill(index, 0x11DF8435C0);
+        assert!(FILLED[index].load(Ordering::Acquire));
+        assert_eq!(FILLED_ENTRY[index].load(Ordering::Acquire), 0x11DF8435C0);
+    }
+
+    #[test]
+    fn reopening_clears_the_request_and_the_stall_report() {
+        let index = 201;
+        REQUESTED[index].store(true, Ordering::Release);
+        STALL_REPORTED[index].store(true, Ordering::Release);
+        FILLED[index].store(true, Ordering::Release);
+        reopen_fill(index);
+        assert!(!FILLED[index].load(Ordering::Acquire));
+        assert!(!REQUESTED[index].load(Ordering::Acquire));
+        assert!(!STALL_REPORTED[index].load(Ordering::Acquire));
+    }
+}
 
 pub(crate) fn try_fill() {
-    if ALL_FILLED.load(Ordering::Acquire) {
-        return;
-    }
     let count = KIND_COUNT.load(Ordering::Acquire);
-    let mut outstanding = false;
     for index in 0..count {
-        if FILLED[index].load(Ordering::Acquire) {
-            continue;
-        }
         let kind = KINDS[index].load(Ordering::Acquire);
         unsafe {
             let cells = core::ptr::addr_of_mut!(CELLS[index]);
             let entry = core::ptr::read_volatile(core::ptr::addr_of!((*cells).param_entry));
+            revalidate_fill(index, kind, entry);
+            if FILLED[index].load(Ordering::Acquire) {
+                continue;
+            }
             let word = core::ptr::read_volatile(core::ptr::addr_of!((*cells).word));
             LAST_STATE.store(0, Ordering::Release);
             let resident = if entry == 0 {
@@ -933,7 +1029,7 @@ pub(crate) fn try_fill() {
             if let Some(data) = own {
                 if let Ok(root) = fill_entry(entry, data, word) {
                     publish_stand_ins(cells, kind);
-                    FILLED[index].store(true, Ordering::Release);
+                    settle_fill(index, entry);
                     crate::dbg_log_public(&format!(
                         "[itemparam] clone {kind:#x} FILLED via ARCropolis entry={entry:#x}                          data={data:#x} root={root:#x}"
                     ));
@@ -942,7 +1038,6 @@ pub(crate) fn try_fill() {
                 }
             }
             let Some(data) = resident else {
-                outstanding = true;
                 if !STALL_REPORTED[index].swap(true, Ordering::AcqRel) {
                     let seen = LAST_STATE.load(Ordering::Acquire);
                     crate::dbg_log_public(&format!(
@@ -963,7 +1058,7 @@ pub(crate) fn try_fill() {
             match fill_entry(entry, data, word) {
                 Ok(root) => {
                     publish_stand_ins(cells, kind);
-                    FILLED[index].store(true, Ordering::Release);
+                    settle_fill(index, entry);
                     crate::dbg_log_public(&format!(
                         "[itemparam] clone {kind:#x} FILLED entry={entry:#x} data={data:#x}                          root={root:#x} from FilePath {word:#x}"
                     ));
@@ -979,16 +1074,13 @@ pub(crate) fn try_fill() {
                     }
                 }
                 Err(why) => {
-                    FILLED[index].store(true, Ordering::Release);
+                    settle_fill(index, entry);
                     crate::dbg_log_public(&format!(
                         "[itemparam] clone {kind:#x} NOT filled ({why}) entry={entry:#x}                          data={data:#x}"
                     ));
                 }
             }
         }
-    }
-    if !outstanding {
-        ALL_FILLED.store(true, Ordering::Release);
     }
 }
 

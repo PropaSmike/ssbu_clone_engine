@@ -669,14 +669,75 @@ pub(crate) fn register_family(entries: &[CloneResourceRegistration]) -> bool {
     true
 }
 
+#[cfg(test)]
+mod slot_gate_tests {
+    use super::{container_agrees, key_is_base_keyed};
+
+    #[test]
+    fn a_clone_slot_sharing_the_live_container_is_usable() {
+        assert!(container_agrees(0x12039E3C70, 0x12039E3C70));
+    }
+
+    #[test]
+    fn an_unloaded_base_slot_disqualifies_the_clone_slot() {
+        assert!(!container_agrees(0x1209FDD450, 0));
+    }
+
+    #[test]
+    fn a_clone_slot_left_in_another_container_is_refused() {
+        assert!(!container_agrees(0x12039E3C70, 0x1209FDD450));
+    }
+
+    #[test]
+    fn a_clone_slot_with_no_container_is_refused() {
+        assert!(!container_agrees(0, 0x1209FDD450));
+        assert!(!container_agrees(0, 0));
+    }
+
+    #[test]
+    fn a_slot_with_no_container_is_never_reloaded() {
+        assert!(!super::slot_reload_is_safe(0));
+    }
+
+    #[test]
+    fn a_slot_with_a_container_is_reloadable_however_stale_its_flags_are() {
+        assert!(super::slot_reload_is_safe(0x1209FDD450));
+    }
+
+    #[test]
+    fn the_clones_own_key_is_not_base_keyed() {
+        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36A0000));
+        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36A0008));
+    }
+
+    #[test]
+    fn the_bases_key_under_a_clone_redirect_is_base_keyed() {
+        assert!(key_is_base_keyed(0x36A, 0x45, 0x450000));
+        assert!(key_is_base_keyed(0x36A, 0x45, 0x450008));
+    }
+
+    #[test]
+    fn an_unrelated_kinds_key_is_not_base_keyed() {
+        assert!(!key_is_base_keyed(0x36A, 0x45, 0x3F0000));
+    }
+
+    #[test]
+    fn an_unregistered_kind_reports_itself_as_its_own_base_and_never_trips() {
+        assert!(!key_is_base_keyed(0x45, 0x45, 0x450000));
+    }
+}
+
+fn container_agrees(container: usize, native: usize) -> bool {
+    container != 0 && native != 0 && container == native
+}
+
 unsafe fn slot_is_populated(slot: usize, native_slot: usize) -> bool {
     let word = |at: usize, offset: usize| core::ptr::read_volatile((at + offset) as *const usize);
     let container = word(slot, SLOT_CONTAINER_OFFSET);
     if container == 0 {
         return false;
     }
-    let native = word(native_slot, SLOT_CONTAINER_OFFSET);
-    if native == 0 || container != native {
+    if !container_agrees(container, word(native_slot, SLOT_CONTAINER_OFFSET)) {
         return false;
     }
     if !SLOT_DATA_VECTORS
@@ -894,7 +955,13 @@ fn report_decision(public_kind: i32, slot: usize, native_slot: usize, populated:
 
 const DECISION_LOG_LIMIT: usize = 24;
 
+static BASE_RELOAD_ACTIVE: crate::thread_context::ThreadReentrancyFlag =
+    crate::thread_context::ThreadReentrancyFlag::new("base_slot_reload");
+
 fn redirect_target() -> Option<i32> {
+    if BASE_RELOAD_ACTIVE.is_active(unsafe { crate::current_thread_key() }) {
+        return None;
+    }
     let forced = FORCED_CLONE.load(Ordering::Acquire);
     if forced >= 0 {
         return Some(forced);
@@ -957,13 +1024,29 @@ unsafe extern "C" fn descriptor_row(ctx: &mut skyline::hooks::InlineCtx) {
     ctx.registers[ROW_SITE.base_register as usize].set_x(rebased_row_operand(row, kind) as u64);
 }
 
+static PATH_REDIRECT_DECLINED: AtomicUsize = AtomicUsize::new(0);
+const PATH_REDIRECT_DECLINE_REPORTS: usize = 12;
+
+fn decline_path_redirect(public_kind: i32, what: &str) {
+    let seen = PATH_REDIRECT_DECLINED.fetch_add(1, Ordering::Relaxed);
+    if seen < PATH_REDIRECT_DECLINE_REPORTS {
+        crate::dbg_log_public(&format!(
+            "[itemslot] clone {public_kind:#x} {what} redirect declined #{seen}: the game holds the base's slot, so the base's paths stay the base's"
+        ));
+    }
+}
+
 unsafe extern "C" fn path_category(ctx: &mut skyline::hooks::InlineCtx) {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return;
     }
-    let Some((public_kind, _, base_kind, _)) = active_clone_entry() else {
+    let Some((public_kind, _, base_kind, populated)) = active_clone_entry() else {
         return;
     };
+    if !populated {
+        decline_path_redirect(public_kind, "category");
+        return;
+    }
     let incoming = ctx.registers[ITEM_PATH_KIND_REGISTER].x() as u32 as i32;
     if incoming != public_kind && incoming != base_kind {
         return;
@@ -1001,9 +1084,13 @@ unsafe fn apply_basename(ctx: &mut skyline::hooks::InlineCtx, index: usize) {
     let Some(name) = active_basename() else {
         return;
     };
-    let Some((public_kind, _, base_kind, _)) = active_clone_entry() else {
+    let Some((public_kind, _, base_kind, populated)) = active_clone_entry() else {
         return;
     };
+    if !populated {
+        decline_path_redirect(public_kind, "basename");
+        return;
+    }
     let row = ctx.registers[site.row_register as usize].x() as usize;
     match kind_of_descriptor_row(row) {
         Some(kind) if kind == base_kind || kind == public_kind => {}
@@ -1117,10 +1204,32 @@ unsafe fn slot_needs_reload(slot: usize) -> bool {
         .any(|offset| core::ptr::read_volatile((slot + *offset) as *const u8) == 0)
 }
 
+fn slot_reload_is_safe(container: usize) -> bool {
+    container != 0
+}
+
+static UNRELOADABLE_LOG: AtomicUsize = AtomicUsize::new(0);
+const UNRELOADABLE_REPORTS: usize = 12;
+
 unsafe fn reacquire(slot: usize, forced: i32) -> ([u8; 6], [u8; 6]) {
     let before = slot_flags(slot);
+    let container = core::ptr::read_volatile((slot + SLOT_CONTAINER_OFFSET) as *const usize);
+    if !slot_reload_is_safe(container) {
+        let seen = UNRELOADABLE_LOG.fetch_add(1, Ordering::Relaxed);
+        if seen < UNRELOADABLE_REPORTS {
+            crate::dbg_log_public(&format!(
+                "[itembase] slot {slot:#x} has no container; item_acquire dereferences it at 0x1608184, so the reload is skipped"
+            ));
+        }
+        return (before, before);
+    }
     let saved = FORCED_CLONE.swap(forced, Ordering::AcqRel);
-    item_acquire(slot, 0);
+    if forced < 0 {
+        let _base_only = BASE_RELOAD_ACTIVE.enter(crate::current_thread_key());
+        item_acquire(slot, 0);
+    } else {
+        item_acquire(slot, 0);
+    }
     FORCED_CLONE.store(saved, Ordering::Release);
     (before, slot_flags(slot))
 }
@@ -1259,6 +1368,22 @@ unsafe extern "C" fn post_acquire(_ctx: &mut skyline::hooks::InlineCtx) {
     }
 }
 
+static BASE_KEYED_INSERTS: AtomicUsize = AtomicUsize::new(0);
+const BASE_KEYED_INSERT_REPORTS: usize = 24;
+
+fn key_is_base_keyed(public_kind: i32, base_kind: i32, key: u64) -> bool {
+    let keyed = (key >> 16) as u32 as i32;
+    keyed != public_kind && keyed == base_kind
+}
+
+fn insert_is_base_keyed(public_kind: i32, key: u64) -> bool {
+    key_is_base_keyed(
+        public_kind,
+        crate::item_clones::clone_engine_item_base_kind(public_kind),
+        key,
+    )
+}
+
 unsafe extern "C" fn container_insert(ctx: &mut skyline::hooks::InlineCtx) {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return;
@@ -1266,22 +1391,39 @@ unsafe extern "C" fn container_insert(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(public_kind) = redirect_target() else {
         return;
     };
-    static SEEN: AtomicUsize = AtomicUsize::new(0);
-    let seen = SEEN.fetch_add(1, Ordering::Relaxed);
-    if seen >= PATH_PROBE_LIMIT {
-        return;
-    }
     let key = ctx.registers[CONTAINER_INSERT_KEY_REGISTER].x();
+    let base_keyed = insert_is_base_keyed(public_kind, key);
+    static SEEN: AtomicUsize = AtomicUsize::new(0);
+    let seen = if base_keyed {
+        let seen = BASE_KEYED_INSERTS.fetch_add(1, Ordering::Relaxed);
+        if seen >= BASE_KEYED_INSERT_REPORTS {
+            return;
+        }
+        seen
+    } else {
+        let seen = SEEN.fetch_add(1, Ordering::Relaxed);
+        if seen >= PATH_PROBE_LIMIT {
+            return;
+        }
+        seen
+    };
     let index =
         core::ptr::read_volatile(ctx.registers[CONTAINER_INSERT_INDEX_REGISTER].x() as *const u32);
+    let outcome = if index == 0xFF_FFFF {
+        "SKIPPED, no node"
+    } else {
+        "inserted"
+    };
+    if base_keyed {
+        crate::dbg_log_public(&format!(
+            "[itemslot] clone {public_kind:#x} BASE-KEYED insert #{seen}: key={key:#x} (tag {}) index={index:#x} -> {outcome}; the clone's own resources are going in under its base's key",
+            key & 0xFFFF,
+        ));
+        return;
+    }
     crate::dbg_log_public(&format!(
-        "[itemslot] clone {public_kind:#x} insert #{seen}: key={key:#x} (tag {}) index={index:#x} -> {}",
+        "[itemslot] clone {public_kind:#x} insert #{seen}: key={key:#x} (tag {}) index={index:#x} -> {outcome}",
         key & 0xFFFF,
-        if index == 0xFF_FFFF {
-            "SKIPPED, no node"
-        } else {
-            "inserted"
-        }
     ));
 }
 
