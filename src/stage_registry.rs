@@ -29,6 +29,7 @@ pub struct RegisteredStage {
     pub plan: InstallPlan,
     pub installed: bool,
     pub row_registered: bool,
+    pub music: crate::stage_music::MusicRequest,
 }
 
 impl RegisteredStage {
@@ -108,6 +109,17 @@ impl Registry {
         }
     }
 
+    pub fn set_music(&mut self, place_name: &str, music: crate::stage_music::MusicRequest) -> bool {
+        let name = place_name.to_ascii_lowercase();
+        match self.by_name.get(&name).copied() {
+            Some(index) => {
+                self.stages[index].music = music;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn claim_row(&mut self, place_name: &str) -> bool {
         let name = place_name.to_ascii_lowercase();
         match self.by_name.get(&name).copied() {
@@ -155,6 +167,7 @@ impl Registry {
             plan,
             installed: false,
             row_registered: false,
+            music: crate::stage_music::MusicRequest::default(),
         });
         Ok(&self.stages[index])
     }
@@ -667,6 +680,50 @@ pub unsafe extern "C" fn clone_engine_set_stage_behaviour(
     } else {
         skyline::println!(
             "[stagereg] cannot set behaviour for {name}: it has not been allocated on this card"
+        );
+        -5
+    }
+}
+
+#[cfg(not(test))]
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_set_stage_music(
+    place_name: *const core::ffi::c_char,
+    bgm_set: *const core::ffi::c_char,
+    setting_no: i32,
+    selector: bool,
+) -> i32 {
+    if place_name.is_null() {
+        return -1;
+    }
+    let Ok(name) = core::ffi::CStr::from_ptr(place_name).to_str() else {
+        return -2;
+    };
+    if name.is_empty() {
+        return -2;
+    }
+    let set = if bgm_set.is_null() {
+        None
+    } else {
+        match core::ffi::CStr::from_ptr(bgm_set).to_str() {
+            Ok(label) if !label.is_empty() => Some(label.to_ascii_lowercase()),
+            Ok(_) => None,
+            Err(_) => return -2,
+        }
+    };
+    let music = crate::stage_music::MusicRequest {
+        set,
+        setting_no: (setting_no >= 0).then_some(setting_no as i64),
+        selector: Some(selector),
+    };
+    let Ok(mut registry) = registry().lock() else {
+        return -4;
+    };
+    if registry.set_music(name, music) {
+        0
+    } else {
+        skyline::println!(
+            "[stagemusic] cannot set music for {name}: it has not been allocated on this card"
         );
         -5
     }

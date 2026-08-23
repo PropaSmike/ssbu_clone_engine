@@ -78,6 +78,7 @@ mod custom_articles;
 #[cfg(feature = "css_slot")]
 mod fighter_modules;
 mod param_overrides;
+mod stage_alts_bridge;
 mod stage_backend;
 mod stage_bounds;
 mod stage_collision_probe;
@@ -86,6 +87,7 @@ mod stage_csk_table;
 mod stage_db_rows;
 mod stage_dispatch;
 mod stage_ledger;
+mod stage_music;
 mod stage_packs;
 mod stage_pane_table;
 #[cfg(feature = "stage_probe")]
@@ -93,6 +95,7 @@ mod stage_probe;
 mod stage_registration;
 mod stage_registry;
 mod stage_relocation;
+mod stage_sound;
 #[cfg(feature = "stage_select_runtime")]
 mod stage_resolve_probe;
 mod stage_select_cap;
@@ -1746,11 +1749,12 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
         return kind;
     }
     let n = PARAM_KIND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 8 {
+    if n < 12 {
+        let object_id =
+            core::ptr::read_volatile((boma as usize + BOMA_BATTLE_OBJECT_ID) as *const u32);
         dbg_log!(
-            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} caller={lr:#x} text={:#x}..{:#x}",
-            text_base(),
-            text_end()
+            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} object={object_id:#x} csk={:?} caller={lr:#x}",
+            css_registration::csk_entry_custom_kind(entry_id as u8)
         );
     }
     true_kind

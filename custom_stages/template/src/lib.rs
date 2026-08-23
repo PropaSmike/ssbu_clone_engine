@@ -1,8 +1,8 @@
 use clone_engine_api::{
     allocate_stage, compiled_capabilities, register_stage, runtime_capabilities,
-    set_stage_behaviour, stage_capacity, stage_id_for, StageAllocation, StageForm,
-    StageRegistration, CAP_STAGE_CONFIG, CAP_STAGE_CSK, CAP_STAGE_MINT, CAP_STAGE_SELECT_EXTENDED,
-    STAGE_FORM_BATTLEFIELD, STAGE_FORM_NORMAL, STAGE_FORM_OMEGA,
+    set_stage_behaviour, set_stage_music, stage_capacity, stage_id_for, StageAllocation, StageForm,
+    StageMusic, StageRegistration, CAP_STAGE_CONFIG, CAP_STAGE_CSK, CAP_STAGE_MINT,
+    CAP_STAGE_SELECT_EXTENDED, STAGE_FORM_BATTLEFIELD, STAGE_FORM_NORMAL, STAGE_FORM_OMEGA,
 };
 const PLACE: &str = "template_stage";
 const RESOURCE_PLACE: Option<&str> = Some("dk_jungle");
@@ -11,6 +11,11 @@ const SHIPS_BATTLE_TREE: bool = false;
 const ID_NAME: &str = "Template_Stage";
 const FORMS: u32 = STAGE_FORM_NORMAL | STAGE_FORM_OMEGA | STAGE_FORM_BATTLEFIELD;
 const DISP_ORDER: i32 = 118;
+const MUSIC: StageMusic = StageMusic {
+    bgm_set: Some("dk"),
+    setting_no: Some(0),
+    album_selector: false,
+};
 const REQUIRED: u64 = CAP_STAGE_MINT | CAP_STAGE_CONFIG | CAP_STAGE_SELECT_EXTENDED | CAP_STAGE_CSK;
 
 fn install() -> Result<(), String> {
@@ -42,6 +47,7 @@ fn install() -> Result<(), String> {
     if let Some(donor) = BEHAVIOUR_PLACE {
         set_stage_behaviour(PLACE, donor).map_err(|error| format!("behaviour: {error:?}"))?;
     }
+    set_stage_music(PLACE, &MUSIC).map_err(|error| format!("music: {error:?}"))?;
     let ids = [
         stage_id_for(PLACE, StageForm::Normal),
         stage_id_for(PLACE, StageForm::Omega),

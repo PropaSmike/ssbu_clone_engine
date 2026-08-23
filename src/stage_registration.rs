@@ -3,6 +3,7 @@
 mod stage_ledger;
 #[cfg(not(test))]
 use crate::stage_ledger::{hash40, CloneStage, StageResources};
+use crate::stage_music::Music;
 #[cfg(test)]
 use stage_ledger::{hash40, CloneStage, StageResources};
 
@@ -23,11 +24,15 @@ pub struct StageDbRequest {
     pub can_select: bool,
     pub is_dlc: bool,
     pub save_no: i16,
+    pub bgm_set_id: u64,
+    pub bgm_setting_no: u8,
+    pub bgm_selector: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registration {
     pub db: StageDbRequest,
+    pub asset_place: String,
     pub place_hash: u64,
     pub stage_hash: u64,
     pub normal: StageResources,
@@ -40,6 +45,7 @@ pub fn plan(
     stage: &CloneStage,
     ui_series_id: u64,
     disp_order: i32,
+    music: &Music,
 ) -> Result<Registration, RegistrationError> {
     if disp_order > u8::MAX as i32 {
         return Err(RegistrationError::DispOrderTooLarge(disp_order));
@@ -65,7 +71,11 @@ pub fn plan(
             can_select: disp_order >= 0,
             is_dlc: stage.distribution == 1,
             save_no: -1,
+            bgm_set_id: music.set_id,
+            bgm_setting_no: music.setting_no,
+            bgm_selector: music.selector,
         },
+        asset_place: stage.asset_place().to_string(),
         place_hash,
         stage_hash,
         normal: resources.normal,
@@ -79,7 +89,7 @@ pub fn plan(
 pub fn register(registration: &Registration) {
     use the_csk_collection_api::{
         BoolType, CStrCSK, Hash40Map, Hash40Type, ShortType, SignedByteType, StageDatabaseEntry,
-        StringType, UiStageData, UiStageResources,
+        StringType, UiStageData, UiStageResources, UnsignedByteType,
     };
 
     fn resources(source: &StageResources) -> UiStageResources {
@@ -109,9 +119,9 @@ pub fn register(registration: &Registration) {
         is_usable_amiibo: BoolType::Overwrite(true),
         secret_command_id: Hash40Type::Overwrite(0),
         secret_command_id_joycon: Hash40Type::Overwrite(0),
-        bgm_set_id: Hash40Type::Overwrite(0),
-        bgm_setting_no: Default::default(),
-        bgm_selector: BoolType::Overwrite(false),
+        bgm_set_id: Hash40Type::Overwrite(registration.db.bgm_set_id),
+        bgm_setting_no: UnsignedByteType::Overwrite(registration.db.bgm_setting_no),
+        bgm_selector: BoolType::Overwrite(registration.db.bgm_selector),
         is_dlc: BoolType::Overwrite(registration.db.is_dlc),
         is_patch: BoolType::Overwrite(false),
         dlc_chara_id: Hash40Type::Overwrite(0),
@@ -131,17 +141,28 @@ pub fn register(registration: &Registration) {
     );
     the_csk_collection_api::add_stage_db_entry(&entry);
 
+    crate::stage_sound::schedule(&registration.asset_place);
+    crate::stage_alts_bridge::arm();
+
     skyline::println!(
-        "[stagereg] registered {:#x} (place {:#x}) with CSK, disp_order {}",
+        "[stagereg] registered {:#x} (place {:#x}) with CSK, disp_order {}, bgm {:#x} column {}{}",
         registration.stage_hash,
         registration.place_hash,
-        registration.db.disp_order
+        registration.db.disp_order,
+        registration.db.bgm_set_id,
+        registration.db.bgm_setting_no,
+        if registration.db.bgm_selector {
+            ", album selector"
+        } else {
+            ""
+        }
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stage_music::{resolve, MusicRequest};
     use stage_ledger::Form;
 
     fn declared(name: &str, battle_tree: bool) -> CloneStage {
@@ -154,7 +175,7 @@ mod tests {
     #[test]
     fn carries_the_hashes_the_image_proved() {
         let stage = declared("photostage", false);
-        let registration = plan(&stage, 0, 0).unwrap();
+        let registration = plan(&stage, 0, 0, &Music::default()).unwrap();
         assert_eq!(
             registration.normal.effect_load_group_hash,
             hash40("effect/stage/photostage")
@@ -166,7 +187,7 @@ mod tests {
     #[test]
     fn a_value_past_csk_registers_hidden_and_defers() {
         let stage = declared("pumpkin_hill", false);
-        let deferred = plan(&stage, 0, 200).unwrap();
+        let deferred = plan(&stage, 0, 200, &Music::default()).unwrap();
         assert_eq!(deferred.db.disp_order, -1);
         assert_eq!(deferred.deferred_disp_order, Some(200));
         assert!(deferred.db.can_select);
@@ -175,7 +196,7 @@ mod tests {
     #[test]
     fn a_value_csk_can_carry_is_not_deferred() {
         let stage = declared("pumpkin_hill", false);
-        let direct = plan(&stage, 0, 127).unwrap();
+        let direct = plan(&stage, 0, 127, &Music::default()).unwrap();
         assert_eq!(direct.db.disp_order, 127);
         assert_eq!(direct.deferred_disp_order, None);
     }
@@ -184,7 +205,7 @@ mod tests {
     fn refuses_past_what_any_backend_can_express() {
         let stage = declared("pumpkin_hill", false);
         assert_eq!(
-            plan(&stage, 0, 256),
+            plan(&stage, 0, 256, &Music::default()),
             Err(RegistrationError::DispOrderTooLarge(256))
         );
     }
@@ -192,10 +213,10 @@ mod tests {
     #[test]
     fn minus_one_hides_the_stage_and_clears_can_select() {
         let stage = declared("pumpkin_hill", false);
-        let hidden = plan(&stage, 0, -1).unwrap();
+        let hidden = plan(&stage, 0, -1, &Music::default()).unwrap();
         assert_eq!(hidden.db.disp_order, -1);
         assert!(!hidden.db.can_select);
-        let shown = plan(&stage, 0, 0).unwrap();
+        let shown = plan(&stage, 0, 0, &Music::default()).unwrap();
         assert!(shown.db.can_select);
     }
 
@@ -203,34 +224,65 @@ mod tests {
     fn refuses_a_negative_that_is_not_the_hidden_sentinel() {
         let stage = declared("pumpkin_hill", false);
         assert_eq!(
-            plan(&stage, 0, -7),
+            plan(&stage, 0, -7, &Music::default()),
             Err(RegistrationError::NotSelectableAndNotHidden)
         );
     }
 
     #[test]
+    fn the_resolved_music_reaches_the_row() {
+        let stage = declared("pumpkin_hill", false);
+        let music = resolve(
+            &MusicRequest {
+                set: Some("sonic".to_string()),
+                setting_no: Some(1),
+                selector: Some(true),
+            },
+            None,
+        )
+        .unwrap()
+        .music;
+        let registration = plan(&stage, 0, 0, &music).unwrap();
+        assert_eq!(
+            registration.db.bgm_set_id,
+            crate::stage_ledger::hash40("bgmsonic")
+        );
+        assert_eq!(registration.db.bgm_setting_no, 1);
+        assert!(registration.db.bgm_selector);
+    }
+
+    #[test]
+    fn an_unset_music_row_stays_the_silent_default() {
+        let stage = declared("pumpkin_hill", false);
+        let registration = plan(&stage, 0, 0, &Music::default()).unwrap();
+        assert_eq!(registration.db.bgm_set_id, 0);
+        assert_eq!(registration.db.bgm_setting_no, 0);
+        assert!(!registration.db.bgm_selector);
+    }
+
+    #[test]
     fn a_minted_stage_never_claims_a_save_slot() {
         let stage = declared("pumpkin_hill", false);
-        assert_eq!(plan(&stage, 0, 0).unwrap().db.save_no, -1);
+        assert_eq!(plan(&stage, 0, 0, &Music::default()).unwrap().db.save_no, -1);
     }
 
     #[test]
     fn the_label_is_the_enum_name_not_the_place_name() {
         let mut stage = declared("template_stage", false);
         stage.ui_name_id = Some("TemplateStage".into());
-        assert_eq!(plan(&stage, 0, 118).unwrap().db.name_id, "TemplateStage");
+        assert_eq!(plan(&stage, 0, 118, &Music::default()).unwrap().db.name_id, "TemplateStage");
     }
 
     #[test]
     fn an_unset_label_still_falls_back_to_the_place_name() {
         let stage = declared("pumpkin_hill", false);
-        assert_eq!(plan(&stage, 0, 0).unwrap().db.name_id, "pumpkin_hill");
+        assert_eq!(plan(&stage, 0, 0, &Music::default()).unwrap().db.name_id, "pumpkin_hill");
     }
 
     #[test]
     fn the_battle_tree_reaches_the_registration() {
         let stage = declared("pumpkin_hill", true);
-        let registration = plan(&stage, 0, 0).unwrap();
+        let registration = plan(&stage, 0, 0, &Music::default()).unwrap();
         assert_eq!(
             registration.end.stage_load_group_hash,
             hash40("stage/pumpkin_hill/battle")
@@ -239,6 +291,28 @@ mod tests {
             registration.normal.stage_load_group_hash,
             registration.end.stage_load_group_hash
         );
+    }
+}
+
+#[cfg(not(test))]
+pub fn resolve_music(
+    place_name: &str,
+    request: &crate::stage_music::MusicRequest,
+    donor_place: Option<&str>,
+) -> Option<Music> {
+    match crate::stage_music::resolve(request, donor_place) {
+        Ok(resolution) => {
+            for note in &resolution.notes {
+                skyline::println!("[stagemusic] {place_name}: {note}");
+            }
+            Some(resolution.music)
+        }
+        Err(crate::stage_music::MusicError::ColumnOutOfRange(value)) => {
+            skyline::println!(
+                "[stagemusic] refused {place_name}: bgm_setting_no {value} is outside 0..15"
+            );
+            None
+        }
     }
 }
 
@@ -268,6 +342,8 @@ pub unsafe extern "C" fn clone_engine_register_stage(
         }
     }
 
+    let mut request = crate::stage_music::MusicRequest::default();
+    let mut donor = stage.place_name.clone();
     if let Ok(registry) = crate::stage_registry::registry().lock() {
         if let Some(minted) = registry.by_name(&stage.place_name) {
             if minted.asset_place != stage.place_name {
@@ -277,8 +353,14 @@ pub unsafe extern "C" fn clone_engine_register_stage(
                     minted.asset_place
                 );
             }
+            request = minted.music.clone();
+            donor = minted.behaviour_place.clone();
         }
     }
+    let music = match resolve_music(name, &request, Some(&donor)) {
+        Some(music) => music,
+        None => return -6,
+    };
 
     let claimed = crate::stage_registry::registry()
         .lock()
@@ -289,7 +371,7 @@ pub unsafe extern "C" fn clone_engine_register_stage(
         return 0;
     }
 
-    match plan(&stage, ui_series_id, disp_order) {
+    match plan(&stage, ui_series_id, disp_order, &music) {
         Ok(_registration) => {
             skyline::println!(
                 "[stagereg] {name} label will be nam_stg1_{}",

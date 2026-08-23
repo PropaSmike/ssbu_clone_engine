@@ -366,11 +366,16 @@ existing stage.
 | `stage_capacity()` | Remaining places and StageIDs, and whether minting is ready. |
 | `allocate_stage(&StageAllocation)` | Mint a place and its normal, Omega and Battlefield forms. |
 | `set_stage_behaviour(place, donor)` | Choose the vanilla stage class and gimmicks. |
+| `set_stage_music(place, &StageMusic)` | Choose the My Music playlist, its column and the album selector. |
 | `stage_id_for(place, form)` | The StageID of one form this session. |
 | `register_stage(&StageRegistration)` | Publish its name, series, order and stage-select entry. |
 
 Requires `CAP_STAGE_MINT`, `CAP_STAGE_CONFIG`, `CAP_STAGE_SELECT_EXTENDED` and
 `CAP_STAGE_CSK`.
+
+`set_stage_music` runs before `register_stage`, like `set_stage_behaviour`,
+because the row is written once at registration. A `None` field takes the
+behaviour donor's value. See [Stages](wiki/STAGES.md#music).
 
 ## Errors
 

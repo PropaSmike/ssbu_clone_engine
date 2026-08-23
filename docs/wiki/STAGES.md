@@ -20,6 +20,8 @@ ships_battle_tree = false
 series = "mario"
 disp_order = 121
 donor = "battlefield"
+bgm = "smashbtl"
+bgm_setting_no = 0
 ```
 
 `place` is the permanent lowercase asset name. `id_name` supplies the message
@@ -39,6 +41,28 @@ Omit what you do not need. A fully custom stage usually sets only a behavior
 `donor`. Set `content_donor_tree` explicitly whenever you use `content_donor`:
 left to chance, a partly filled directory can mix Normal and Battlefield members
 of the same model.
+
+## Music
+
+```toml
+bgm = "demon"
+bgm_setting_no = 0
+bgm_selector = false
+```
+
+`bgm` names a playlist, by series name or full label: `"demon"` and `"bgmdemon"`
+are the same one. `bgm_setting_no` picks a column inside it, 0 to 15, which is
+how stages sharing a playlist each start on their own track. Most playlists fill
+only column 0, and the boot log warns if the column you picked is empty.
+`bgm_selector` gives the stage an album selector.
+
+Omit all three and the stage takes its behaviour `donor`'s playlist and column.
+With no `donor` and no `bgm`, My Music is empty.
+
+For your own track list, publish a playlist with `playlist_entries` in the CSK
+Collection's JSON under `sd:/ultimate/mods/<pack>/database/` and point `bgm` at
+it. Leave `stage_database_entries` out of that JSON, because the engine writes
+the stage row itself.
 
 ## Forms
 
