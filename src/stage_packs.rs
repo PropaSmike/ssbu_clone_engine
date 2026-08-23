@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::stage_ledger::{CloneStage, Form};
+use crate::stage_music::MusicRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PackDeclaration {
@@ -13,6 +14,9 @@ pub struct PackDeclaration {
     pub disp_order: i32,
     pub donor: Option<String>,
     pub resource_place: Option<String>,
+    pub bgm: Option<String>,
+    pub bgm_setting_no: Option<i64>,
+    pub bgm_selector: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -103,6 +107,9 @@ pub fn parse(text: &str) -> Result<PackDeclaration, ParseError> {
             ("resource_place", Value::Text(text)) => {
                 out.resource_place = Some(text.to_ascii_lowercase())
             }
+            ("bgm", Value::Text(text)) => out.bgm = Some(text.to_ascii_lowercase()),
+            ("bgm_setting_no", Value::Number(value)) => out.bgm_setting_no = Some(value),
+            ("bgm_selector", Value::Flag(flag)) => out.bgm_selector = Some(flag),
             ("ships_battle_tree", Value::Flag(flag)) => out.ships_battle_tree = flag,
             ("disp_order", Value::Number(value)) => out.disp_order = value as i32,
             ("forms", Value::List(items)) => {
@@ -124,7 +131,8 @@ pub fn parse(text: &str) -> Result<PackDeclaration, ParseError> {
             }
             (
                 "place" | "display_name" | "id_name" | "series" | "donor" | "resource_place"
-                | "ships_battle_tree" | "disp_order" | "forms",
+                | "ships_battle_tree" | "disp_order" | "forms" | "bgm" | "bgm_setting_no"
+                | "bgm_selector",
                 _,
             ) => return Err(bad()),
             _ => {}
@@ -151,6 +159,21 @@ impl PackDeclaration {
         stage.ui_name_id = self.id_name.clone();
         stage.resource_place = self.resource_place.clone();
         stage
+    }
+
+    pub fn music_request(&self) -> MusicRequest {
+        MusicRequest {
+            set: self.bgm.clone(),
+            setting_no: self.bgm_setting_no,
+            selector: self.bgm_selector,
+        }
+    }
+
+    pub fn music_donor(&self) -> Option<&str> {
+        self.donor
+            .as_deref()
+            .or(self.resource_place.as_deref())
+            .or(Some(self.place.as_str()))
     }
 }
 
@@ -228,12 +251,24 @@ fn mint(directory: &str, declaration: &PackDeclaration) {
         }
     }
 
+    if let Ok(mut registry) = crate::stage_registry::registry().lock() {
+        registry.set_music(&stage.place_name, declaration.music_request());
+    }
+
     skyline::println!(
         "[stagepack] {directory}: minted {} at place {place}, behaviour {}, disp_order {}",
         stage.place_name,
         declaration.donor.as_deref().unwrap_or("(its own)"),
         declaration.disp_order,
     );
+
+    let Some(music) = crate::stage_registration::resolve_music(
+        &stage.place_name,
+        &declaration.music_request(),
+        declaration.music_donor(),
+    ) else {
+        return;
+    };
 
     if !crate::stage_registry::registry()
         .lock()
@@ -247,6 +282,7 @@ fn mint(directory: &str, declaration: &PackDeclaration) {
         &stage,
         crate::stage_ledger::hash40(&declaration.series),
         declaration.disp_order,
+        &music,
     ) {
         Ok(_registration) => {
             #[cfg(feature = "stage_slot")]
@@ -337,6 +373,54 @@ donor        = "photostage"
             Err(ParseError::BadValue {
                 line: 2,
                 key: "disp_order".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn the_music_keys_reach_the_request() {
+        let pack = parse(
+            r#"
+place          = "demon_mirror"
+bgm            = "demon"
+bgm_setting_no = 0
+bgm_selector   = true
+"#,
+        )
+        .unwrap();
+        assert_eq!(pack.bgm.as_deref(), Some("demon"));
+        assert_eq!(pack.bgm_setting_no, Some(0));
+        assert_eq!(pack.bgm_selector, Some(true));
+        let request = pack.music_request();
+        assert_eq!(request.set.as_deref(), Some("demon"));
+        assert_eq!(request.setting_no, Some(0));
+        assert_eq!(request.selector, Some(true));
+    }
+
+    #[test]
+    fn a_pack_that_names_no_music_borrows_from_its_donor() {
+        let pack = parse(
+            r#"
+place = "demon_mirror"
+donor = "dolly_stadium"
+"#,
+        )
+        .unwrap();
+        assert!(pack.music_request().is_empty());
+        assert_eq!(pack.music_donor(), Some("dolly_stadium"));
+        let music = crate::stage_music::resolve(&pack.music_request(), pack.music_donor())
+            .unwrap()
+            .music;
+        assert_eq!(music.set_label, "bgmdolly");
+    }
+
+    #[test]
+    fn a_mistyped_music_key_is_refused_like_any_other() {
+        assert_eq!(
+            parse("place=\"x\"\nbgm_setting_no = \"0\""),
+            Err(ParseError::BadValue {
+                line: 2,
+                key: "bgm_setting_no".to_string()
             })
         );
     }

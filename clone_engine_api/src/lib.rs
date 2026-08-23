@@ -384,6 +384,13 @@ pub struct StageRegistration<'a> {
     pub display_order: i32,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StageMusic<'a> {
+    pub bgm_set: Option<&'a str>,
+    pub setting_no: Option<u8>,
+    pub album_selector: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ItemFamilyMember<'a> {
     pub item_kind: i32,
@@ -514,6 +521,7 @@ type ItemBackendStatusFn = unsafe extern "C" fn() -> u32;
 type StageCapacityFn = unsafe extern "C" fn(*mut u32, *mut u32) -> i32;
 type StageAllocateFn = unsafe extern "C" fn(*const c_char, *const c_char, bool, u32) -> i32;
 type StageBehaviourFn = unsafe extern "C" fn(*const c_char, *const c_char) -> i32;
+type StageMusicFn = unsafe extern "C" fn(*const c_char, *const c_char, i32, bool) -> i32;
 type StageIdFn = unsafe extern "C" fn(*const c_char, u32) -> i32;
 type StageRegisterFn = unsafe extern "C" fn(*const c_char, *const c_char, bool, u64, i32) -> i32;
 
@@ -568,6 +576,7 @@ static ITEM_BACKEND_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_CAPACITY_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_ALLOCATE_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_BEHAVIOUR_FN: AtomicUsize = AtomicUsize::new(0);
+static STAGE_MUSIC_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_ID_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_REGISTER_FN: AtomicUsize = AtomicUsize::new(0);
 
@@ -1057,6 +1066,29 @@ pub fn set_stage_behaviour(place_name: &str, donor_place: &str) -> Result<(), Er
         .ok_or(Error::EngineUnavailable)?;
     let function: StageBehaviourFn = unsafe { std::mem::transmute(address) };
     let result = unsafe { function(place.as_ptr(), donor.as_ptr()) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn set_stage_music(place_name: &str, music: &StageMusic<'_>) -> Result<(), Error> {
+    let place = CString::new(place_name).map_err(|_| Error::InvalidName)?;
+    let set = match music.bgm_set {
+        Some(label) => Some(CString::new(label).map_err(|_| Error::InvalidName)?),
+        None => None,
+    };
+    let address = resolve(&STAGE_MUSIC_FN, b"clone_engine_set_stage_music\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let function: StageMusicFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe {
+        function(
+            place.as_ptr(),
+            set.as_ref().map_or(std::ptr::null(), |set| set.as_ptr()),
+            music.setting_no.map_or(-1, i32::from),
+            music.album_selector,
+        )
+    };
     if result < 0 {
         return Err(Error::Engine(result));
     }

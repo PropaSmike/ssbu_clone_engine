@@ -9,3 +9,6 @@ donor = "dk_jungle"
 content_donor = "dk_jungle"
 carry_donor_scenery = true
 resource_place = "dk_jungle"
+bgm = "dk"
+bgm_setting_no = 0
+bgm_selector = false
