@@ -3493,6 +3493,11 @@ mod kirby_copy;
 #[cfg(feature = "css_slot")]
 use kirby_copy::*;
 
+#[cfg(feature = "kirby_copy_motions")]
+mod kirby_motions;
+#[cfg(feature = "kirby_copy_motions")]
+mod motion_list;
+
 #[cfg(feature = "css_slot")]
 mod css_registration;
 #[cfg(feature = "css_slot")]
@@ -3576,6 +3581,9 @@ pub fn main() {
 
     #[cfg(feature = "item_ui_backend")]
     item_ui::install();
+
+    #[cfg(feature = "kirby_copy_motions")]
+    kirby_motions::install();
 
     #[cfg(feature = "item_clone_backend")]
     item_packs::load_all();

@@ -494,6 +494,7 @@ type ArticleIndexFn = unsafe extern "C" fn(i32, i32) -> i32;
 type CloneCopyArticleFn =
     unsafe extern "C" fn(i32, *const c_char, i32, *const c_char, *const c_char) -> i32;
 type CopyArticleIndexFn = unsafe extern "C" fn(i32, i32) -> i32;
+type CloneCopyMotionFn = unsafe extern "C" fn(*const CloneCopyMotionV1) -> i32;
 type LogFn = unsafe extern "C" fn(*const u8, usize);
 type ParamOverrideFn = unsafe extern "C" fn(i32, i32, u64, u64, u32, f64) -> i32;
 type ParamIntOverrideFn = unsafe extern "C" fn(i32, i32, u64, u64, i32) -> i32;
@@ -542,6 +543,7 @@ static CLONE_ARTICLE_FOR_FN: AtomicUsize = AtomicUsize::new(0);
 static ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_ARTICLE_FN: AtomicUsize = AtomicUsize::new(0);
 static COPY_ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
+static CLONE_COPY_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
 static LOG_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_INT_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1439,6 +1441,225 @@ pub fn clone_copy_article(
         return Err(Error::Engine(result));
     }
     Ok(result)
+}
+
+pub const COPY_MOTION_SET_GAME_SCRIPT: u32 = 1 << 0;
+pub const COPY_MOTION_SET_FLAGS: u32 = 1 << 1;
+pub const COPY_MOTION_SET_BLEND_FRAMES: u32 = 1 << 2;
+pub const COPY_MOTION_SET_SCRIPTS: u32 = 1 << 3;
+pub const COPY_MOTION_SET_XLU: u32 = 1 << 4;
+pub const COPY_MOTION_SET_CANCEL_FRAME: u32 = 1 << 5;
+pub const COPY_MOTION_SET_NO_STOP_INTP: u32 = 1 << 6;
+pub const COPY_MOTION_SET_ANIMATION_UNK: u32 = 1 << 7;
+pub const COPY_MOTION_NO_EXTRA: u32 = 1 << 8;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CloneCopyMotionV1 {
+    pub api_version: u32,
+    pub struct_size: u32,
+    pub fighter_kind: i32,
+    pub present: u32,
+    pub name: *const c_char,
+    pub template: *const c_char,
+    pub animation: *const c_char,
+    pub game_script: *const c_char,
+    pub script_expression: *const c_char,
+    pub script_sound: *const c_char,
+    pub script_effect: *const c_char,
+    pub motion_flags: u16,
+    pub blend_frames: u8,
+    pub xlu_start: u8,
+    pub xlu_end: u8,
+    pub cancel_frame: u8,
+    pub no_stop_intp: u8,
+    pub animation_unk: u8,
+    pub reserved: [u64; 4],
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MotionFlags(pub u16);
+
+impl MotionFlags {
+    pub const TURN: u16 = 1 << 0;
+    pub const LOOP: u16 = 1 << 1;
+    pub const MOVE: u16 = 1 << 2;
+    pub const FIX_TRANS: u16 = 1 << 3;
+    pub const FIX_ROT: u16 = 1 << 4;
+    pub const FIX_SCALE: u16 = 1 << 5;
+
+    pub const fn none() -> Self {
+        Self(0)
+    }
+
+    pub const fn with(self, bit: u16) -> Self {
+        Self(self.0 | bit)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CopyMotion<'a> {
+    pub name: &'a str,
+    pub animation: &'a str,
+    pub template: Option<&'a str>,
+    pub game_script: Option<&'a str>,
+    pub scripts: Option<[&'a str; 3]>,
+    pub flags: Option<MotionFlags>,
+    pub blend_frames: Option<u8>,
+    pub xlu: Option<(u8, u8)>,
+    pub cancel_frame: Option<u8>,
+    pub no_stop_intp: Option<bool>,
+    pub animation_unk: Option<u8>,
+    pub no_extra: bool,
+}
+
+impl<'a> CopyMotion<'a> {
+    pub const fn new(name: &'a str, animation: &'a str) -> Self {
+        Self {
+            name,
+            animation,
+            template: None,
+            game_script: None,
+            scripts: None,
+            flags: None,
+            blend_frames: None,
+            xlu: None,
+            cancel_frame: None,
+            no_stop_intp: None,
+            animation_unk: None,
+            no_extra: false,
+        }
+    }
+
+    pub const fn template(mut self, template: &'a str) -> Self {
+        self.template = Some(template);
+        self
+    }
+
+    pub const fn game_script(mut self, script: &'a str) -> Self {
+        self.game_script = Some(script);
+        self
+    }
+
+    pub const fn scripts(mut self, sound: &'a str, effect: &'a str, expression: &'a str) -> Self {
+        self.scripts = Some([sound, effect, expression]);
+        self
+    }
+
+    pub const fn flags(mut self, flags: MotionFlags) -> Self {
+        self.flags = Some(flags);
+        self
+    }
+
+    pub const fn blend_frames(mut self, frames: u8) -> Self {
+        self.blend_frames = Some(frames);
+        self
+    }
+
+    pub const fn xlu(mut self, start: u8, end: u8) -> Self {
+        self.xlu = Some((start, end));
+        self
+    }
+
+    pub const fn cancel_frame(mut self, frame: u8) -> Self {
+        self.cancel_frame = Some(frame);
+        self
+    }
+
+    pub const fn no_stop_intp(mut self, value: bool) -> Self {
+        self.no_stop_intp = Some(value);
+        self
+    }
+
+    pub const fn animation_unk(mut self, value: u8) -> Self {
+        self.animation_unk = Some(value);
+        self
+    }
+
+    pub const fn without_extra(mut self) -> Self {
+        self.no_extra = true;
+        self
+    }
+}
+
+pub fn clone_copy_motion(fighter_kind: i32, motion: &CopyMotion<'_>) -> Result<(), Error> {
+    let address = resolve(
+        &CLONE_COPY_MOTION_FN,
+        b"clone_engine_clone_copy_motion_v1\0",
+    )
+    .ok_or(Error::EngineUnavailable)?;
+
+    let owned = |value: &str| CString::new(value).map_err(|_| Error::InvalidName);
+    let name = owned(motion.name)?;
+    let animation = owned(motion.animation)?;
+    let template = motion.template.map(owned).transpose()?;
+    let game_script = motion.game_script.map(owned).transpose()?;
+    let scripts = motion
+        .scripts
+        .map(|scripts| -> Result<[CString; 3], Error> {
+            Ok([owned(scripts[0])?, owned(scripts[1])?, owned(scripts[2])?])
+        })
+        .transpose()?;
+
+    let mut present = 0u32;
+    if game_script.is_some() {
+        present |= COPY_MOTION_SET_GAME_SCRIPT;
+    }
+    if scripts.is_some() {
+        present |= COPY_MOTION_SET_SCRIPTS;
+    }
+    if motion.flags.is_some() {
+        present |= COPY_MOTION_SET_FLAGS;
+    }
+    if motion.blend_frames.is_some() {
+        present |= COPY_MOTION_SET_BLEND_FRAMES;
+    }
+    if motion.xlu.is_some() {
+        present |= COPY_MOTION_SET_XLU;
+    }
+    if motion.cancel_frame.is_some() {
+        present |= COPY_MOTION_SET_CANCEL_FRAME;
+    }
+    if motion.no_stop_intp.is_some() {
+        present |= COPY_MOTION_SET_NO_STOP_INTP;
+    }
+    if motion.animation_unk.is_some() {
+        present |= COPY_MOTION_SET_ANIMATION_UNK;
+    }
+    if motion.no_extra {
+        present |= COPY_MOTION_NO_EXTRA;
+    }
+
+    let null = std::ptr::null();
+    let (xlu_start, xlu_end) = motion.xlu.unwrap_or((0, 0));
+    let registration = CloneCopyMotionV1 {
+        api_version: API_VERSION_V1,
+        struct_size: std::mem::size_of::<CloneCopyMotionV1>() as u32,
+        fighter_kind,
+        present,
+        name: name.as_ptr(),
+        template: template.as_ref().map_or(null, |value| value.as_ptr()),
+        animation: animation.as_ptr(),
+        game_script: game_script.as_ref().map_or(null, |value| value.as_ptr()),
+        script_expression: scripts.as_ref().map_or(null, |value| value[2].as_ptr()),
+        script_sound: scripts.as_ref().map_or(null, |value| value[0].as_ptr()),
+        script_effect: scripts.as_ref().map_or(null, |value| value[1].as_ptr()),
+        motion_flags: motion.flags.unwrap_or_default().0,
+        blend_frames: motion.blend_frames.unwrap_or(0),
+        xlu_start,
+        xlu_end,
+        cancel_frame: motion.cancel_frame.unwrap_or(0),
+        no_stop_intp: u8::from(motion.no_stop_intp.unwrap_or(false)),
+        animation_unk: motion.animation_unk.unwrap_or(0),
+        reserved: [0; 4],
+    };
+
+    let function: CloneCopyMotionFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(&registration) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
 }
 
 pub fn copy_article_index(target_kind: i32, weapon_kind: i32) -> Option<i32> {

@@ -42,7 +42,8 @@ diag_article_baseblob = []
 diag_article_initspoof = []
 true_kind = ["clone_runtime"]
 diag_kind118 = ["true_kind"]
-css_slot = ["dep:the_csk_collection_api"]
+css_slot = ["dep:the_csk_collection_api", "kirby_copy_motions"]
+kirby_copy_motions = []
 stage_slot = ["dep:the_csk_collection_api"]
 stage_mint_places = ["stage_relocate"]
 stage_mint = ["stage_mint_places", "stage_config_bridge"]
@@ -67,6 +68,7 @@ skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git"
 libc = "0.2"
 ninput = { git = "https://github.com/blu-dev/ninput", rev = "af26d4de5bb5f444985193b296ce65fe364e6a33", optional = true }
 arcropolis-api = { git = "https://github.com/Coolsonickirby/arcropolis_api.git", rev = "5d100d3eb48a4591839925f74f7cf2c781f09f15" }
+
 the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api.git", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361", optional = true }
 
 [profile.release]

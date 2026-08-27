@@ -48,7 +48,7 @@ const STDAT_REGISTER_RETURN_OPCODE: u32 = 0x6b1902bf;
 const OFF_STDAT_SCAN_FINISH: usize = 0x25ffc38;
 const STDAT_SCAN_FINISH_OPCODE: u32 = 0x9100e3e0;
 
-const RESOURCE_CATEGORY_BASE: usize = 0xd0;
+const RESOURCE_CATEGORY_BASE: usize = 0xc8;
 const RESOURCE_CATEGORY_STRIDE: usize = 0x30;
 const STDAT_RESOURCE_CATEGORY: usize = 3;
 const REPORT_STDAT_CANDIDATES: u32 = 12;
@@ -201,6 +201,9 @@ unsafe fn stdat_category_vector(aggregate: usize) -> (usize, usize, i64) {
         aggregate + RESOURCE_CATEGORY_BASE + STDAT_RESOURCE_CATEGORY * RESOURCE_CATEGORY_STRIDE;
     let begin = core::ptr::read_volatile(vector as *const usize);
     let end = core::ptr::read_volatile((vector + 8) as *const usize);
+    if begin == 0 || end < begin {
+        return (begin, end, -1);
+    }
     let bytes = end as i64 - begin as i64;
     let len = if bytes >= 0 && bytes % 4 == 0 {
         bytes / 4
@@ -673,8 +676,9 @@ mod tests {
         assert_eq!(STDAT_SCAN_FINISH_OPCODE, 0x9100e3e0);
         assert_eq!(
             RESOURCE_CATEGORY_BASE + STDAT_RESOURCE_CATEGORY * RESOURCE_CATEGORY_STRIDE,
-            0x160
+            0x158
         );
+        assert_eq!(RESOURCE_CATEGORY_BASE + 8, 0xd0);
     }
 
     #[test]

@@ -760,7 +760,7 @@ fn active_clone() -> Option<(usize, i32)> {
 }
 
 fn active_clone_entry() -> Option<(i32, usize, i32, bool)> {
-    let forced = FORCED_CLONE.load(Ordering::Acquire);
+    let forced = forced_clone();
     let public_kind = redirect_target()?;
     let resources = resources().read().ok()?;
     let resource = resources
@@ -781,14 +781,21 @@ fn active_clone_entry() -> Option<(i32, usize, i32, bool)> {
     Some((public_kind, slot, resource.base_kind, populated))
 }
 
-static FORCED_CLONE: AtomicI32 = AtomicI32::new(-1);
+static FORCED_CLONE: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new("item_forced_clone");
+
+fn forced_clone() -> i32 {
+    FORCED_CLONE
+        .active(unsafe { crate::current_thread_key() })
+        .unwrap_or(-1)
+}
 
 pub(crate) fn force_clone(public_kind: i32) {
-    FORCED_CLONE.store(public_kind, Ordering::Release);
+    FORCED_CLONE.set(unsafe { crate::current_thread_key() }, public_kind);
 }
 
 pub(crate) fn clear_forced_clone() {
-    FORCED_CLONE.store(-1, Ordering::Release);
+    FORCED_CLONE.clear(unsafe { crate::current_thread_key() });
 }
 
 unsafe fn report_slot_difference(manager: usize, base_kind: i32, clone_slot: usize) {
@@ -896,9 +903,9 @@ unsafe fn load_clone_slots() {
             let value = core::ptr::read_volatile((native + *offset) as *const u8);
             core::ptr::write_volatile((slot + *offset) as *mut u8, value);
         }
-        FORCED_CLONE.store(public_kind, Ordering::Release);
-        item_populate(manager, base_kind, 1);
-        FORCED_CLONE.store(-1, Ordering::Release);
+        FORCED_CLONE.scope(crate::current_thread_key(), public_kind, || {
+            item_populate(manager, base_kind, 1)
+        });
         let word = |offset: usize| core::ptr::read_volatile((slot + offset) as *const u32);
         let quad = |offset: usize| core::ptr::read_volatile((slot + offset) as *const usize);
         crate::dbg_log_public(&format!(
@@ -962,7 +969,7 @@ fn redirect_target() -> Option<i32> {
     if BASE_RELOAD_ACTIVE.is_active(unsafe { crate::current_thread_key() }) {
         return None;
     }
-    let forced = FORCED_CLONE.load(Ordering::Acquire);
+    let forced = forced_clone();
     if forced >= 0 {
         return Some(forced);
     }
@@ -1223,14 +1230,12 @@ unsafe fn reacquire(slot: usize, forced: i32) -> ([u8; 6], [u8; 6]) {
         }
         return (before, before);
     }
-    let saved = FORCED_CLONE.swap(forced, Ordering::AcqRel);
     if forced < 0 {
         let _base_only = BASE_RELOAD_ACTIVE.enter(crate::current_thread_key());
         item_acquire(slot, 0);
     } else {
-        item_acquire(slot, 0);
+        FORCED_CLONE.scope(crate::current_thread_key(), forced, || item_acquire(slot, 0));
     }
-    FORCED_CLONE.store(saved, Ordering::Release);
     (before, slot_flags(slot))
 }
 
@@ -1321,9 +1326,9 @@ unsafe extern "C" fn post_acquire(_ctx: &mut skyline::hooks::InlineCtx) {
     crate::dbg_log_public(&format!(
         "[itemslot] post-acquire clone {public_kind:#x}: acquiring slot {slot:#x}"
     ));
-    FORCED_CLONE.store(public_kind, Ordering::Release);
-    item_acquire(slot, 0);
-    FORCED_CLONE.store(-1, Ordering::Release);
+    FORCED_CLONE.scope(crate::current_thread_key(), public_kind, || {
+        item_acquire(slot, 0)
+    });
     let word = |offset: usize| core::ptr::read_volatile((slot + offset) as *const u32);
     let quad = |offset: usize| core::ptr::read_volatile((slot + offset) as *const usize);
     crate::dbg_log_public(&format!(
@@ -1555,9 +1560,11 @@ pub(crate) fn install() {
             let text = crate::text_base();
 
             let mut installed = 0usize;
+            let mut attempted = 0usize;
             let mut failed: Vec<usize> = Vec::new();
 
             let mut arm = |offset: usize, original: u32, hook: InlineHook| {
+                attempted += 1;
                 skyline::hooks::A64InlineHook(
                     (text + offset) as *const libc::c_void,
                     hook as *const () as *const libc::c_void,
@@ -1586,8 +1593,7 @@ pub(crate) fn install() {
             arm(ACQUIRE_MISS, ACQUIRE_MISS_EXPECTED, acquire_miss);
             arm(ACQUIRE_HIT, ACQUIRE_HIT_EXPECTED, acquire_hit);
 
-            let total =
-                11 + BASENAME_SITES.len() + SLOT_SITES.len() + SIBLING_SITES.len();
+            let total = attempted;
             HOOKS_INSTALLED.store(installed > 0, Ordering::Release);
             ROUTER_READY.store(failed.is_empty() && installed == total, Ordering::Release);
             crate::dbg_log_public(&format!(

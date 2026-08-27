@@ -221,6 +221,60 @@ pub fn load_all() {
     }
 }
 
+pub fn stdat_carries_data(bytes: &[u8]) -> bool {
+    if bytes.len() < 16 || &bytes[0..8] != b"paracobn" {
+        return false;
+    }
+    let word = |at: usize| {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize
+    };
+    let Some(root) = 16usize
+        .checked_add(word(8))
+        .and_then(|at| at.checked_add(word(12)))
+    else {
+        return false;
+    };
+    if root + 5 > bytes.len() || bytes[root] != 12 {
+        return false;
+    }
+    word(root + 1) > 0
+}
+
+#[cfg(all(not(test), feature = "stage_mint"))]
+fn ships_stdat(directory: &str, asset_place: &str) -> bool {
+    fn any_stdat(at: &std::path::Path, depth: usize) -> bool {
+        if depth == 0 {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(at) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if any_stdat(&path, depth - 1) {
+                    return true;
+                }
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("stdat"))
+                && std::fs::read(&path).is_ok_and(|bytes| stdat_carries_data(&bytes))
+            {
+                return true;
+            }
+        }
+        false
+    }
+    any_stdat(
+        &std::path::Path::new(MOD_ROOT)
+            .join(directory)
+            .join("stage")
+            .join(asset_place)
+            .join("normal"),
+        6,
+    )
+}
+
 #[cfg(all(not(test), feature = "stage_mint"))]
 fn mint(directory: &str, declaration: &PackDeclaration) {
     let stage = declaration.to_clone_stage();
@@ -249,6 +303,17 @@ fn mint(directory: &str, declaration: &PackDeclaration) {
         if let Ok(mut registry) = crate::stage_registry::registry().lock() {
             registry.set_behaviour(&stage.place_name, donor);
         }
+    }
+
+    if ships_stdat(directory, stage.asset_place()) {
+        if let Ok(mut registry) = crate::stage_registry::registry().lock() {
+            registry.set_owns_stdat(&stage.place_name, true);
+        }
+        skyline::println!(
+            "[stagepack] {}: ships its own .stdat, so its forms read that and not {}'s",
+            stage.place_name,
+            declaration.donor.as_deref().unwrap_or("its donor"),
+        );
     }
 
     if let Ok(mut registry) = crate::stage_registry::registry().lock() {
@@ -459,3 +524,42 @@ donor = "dolly_stadium"
 
 #[cfg(all(test, feature = "stage_mint"))]
 pub fn load_all() {}
+
+#[cfg(test)]
+mod stdat_tests {
+    use super::stdat_carries_data;
+
+    fn paracobn(hash_bytes: usize, ref_bytes: usize, entries: u32) -> Vec<u8> {
+        let mut out = b"paracobn".to_vec();
+        out.extend_from_slice(&(hash_bytes as u32).to_le_bytes());
+        out.extend_from_slice(&(ref_bytes as u32).to_le_bytes());
+        out.extend(std::iter::repeat(0).take(hash_bytes + ref_bytes));
+        out.push(12);
+        out.extend_from_slice(&entries.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn the_empty_placeholder_shipped_by_tabuu_residence_is_not_data() {
+        let empty = paracobn(8, 0, 0);
+        assert_eq!(empty.len(), 33);
+        assert!(!stdat_carries_data(&empty));
+    }
+
+    #[test]
+    fn a_populated_stdat_is_data() {
+        assert!(stdat_carries_data(&paracobn(8, 0, 1)));
+        assert!(stdat_carries_data(&paracobn(0x7e0, 0x7d8, 24)));
+    }
+
+    #[test]
+    fn anything_that_is_not_a_paracobn_is_refused() {
+        assert!(!stdat_carries_data(b""));
+        assert!(!stdat_carries_data(b"paracobn"));
+        assert!(!stdat_carries_data(&[0u8; 64]));
+        let mut truncated = paracobn(8, 0, 3);
+        truncated.truncate(20);
+        assert!(!stdat_carries_data(&truncated));
+    }
+}

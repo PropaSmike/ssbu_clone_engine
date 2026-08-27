@@ -29,6 +29,7 @@ pub struct RegisteredStage {
     pub plan: InstallPlan,
     pub installed: bool,
     pub row_registered: bool,
+    pub owns_stdat: bool,
     pub music: crate::stage_music::MusicRequest,
 }
 
@@ -109,6 +110,17 @@ impl Registry {
         }
     }
 
+    pub fn set_owns_stdat(&mut self, place_name: &str, owns: bool) -> bool {
+        let name = place_name.to_ascii_lowercase();
+        match self.by_name.get(&name).copied() {
+            Some(index) => {
+                self.stages[index].owns_stdat = owns;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn set_music(&mut self, place_name: &str, music: crate::stage_music::MusicRequest) -> bool {
         let name = place_name.to_ascii_lowercase();
         match self.by_name.get(&name).copied() {
@@ -167,6 +179,7 @@ impl Registry {
             plan,
             installed: false,
             row_registered: false,
+            owns_stdat: false,
             music: crate::stage_music::MusicRequest::default(),
         });
         Ok(&self.stages[index])
@@ -486,6 +499,9 @@ pub unsafe fn install_pending() {
             match donor_id {
                 Some(donor_id) => {
                     let recorded = crate::stage_dispatch::set_donor_kind(*stage_id, donor_id);
+                    if stage.owns_stdat {
+                        crate::stage_dispatch::set_owns_stdat(*stage_id);
+                    }
                     skyline::println!(
                         "[stagedisp] stage id {} will be built as StageID {}{}{}",
                         stage_id,

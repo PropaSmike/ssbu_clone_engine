@@ -1015,6 +1015,75 @@ pub(crate) unsafe fn kirby_copy_kind_list_table(ctx: &mut skyline::hooks::Inline
     }
 }
 
+
+const SEARCH_PATH_NOT_FOUND: u32 = 0xffffff;
+
+#[cfg(all(feature = "css_slot", feature = "kirby_copy_motions"))]
+const MOTION_EXTRA_ANIMATION_PATH_SLOT: usize = 20;
+
+#[cfg(all(feature = "css_slot", feature = "kirby_copy_motions"))]
+const MODULE_ACCESSOR_MOTION_OFFSET: usize = 0x88;
+
+#[cfg(all(feature = "css_slot", feature = "kirby_copy_motions"))]
+#[repr(C)]
+struct HashVector {
+    begin: *const u64,
+    end: *const u64,
+    capacity: *const u64,
+}
+
+#[cfg(all(feature = "css_slot", feature = "kirby_copy_motions"))]
+unsafe fn register_clone_copy_animations(accessor: usize, kind: i32, resource_name: &str) {
+    let hashes = crate::kirby_motions::motion_hashes(kind);
+    if hashes.is_empty() {
+        return;
+    }
+
+    let folder = format!("fighter/kirby/motion/{resource_name}body/c00");
+    let search_index = crate::fighter_modules::search_path_index(&folder);
+    if search_index == SEARCH_PATH_NOT_FOUND {
+        dbg_log!(
+            "[kirbymotion] kind {kind} registered {} motions but '{folder}' is not in the search section",
+            hashes.len()
+        );
+        return;
+    }
+
+    if accessor == 0 {
+        return;
+    }
+    let module = core::ptr::read_volatile((accessor + MODULE_ACCESSOR_MOTION_OFFSET) as *const usize);
+    if module == 0 {
+        return;
+    }
+    let vtable = core::ptr::read_volatile(module as *const usize);
+    if vtable == 0 {
+        return;
+    }
+    let entry = core::ptr::read_volatile(
+        (vtable + MOTION_EXTRA_ANIMATION_PATH_SLOT * 8) as *const usize,
+    );
+    let (base, end) = (text_base(), text_end());
+    if base == 0 || end <= base || entry < base || entry >= end {
+        dbg_log!("[kirbymotion] motion module slot {entry:#x} is outside main; kind {kind} skipped");
+        return;
+    }
+
+    let register: extern "C" fn(usize, *const u32, *const HashVector) =
+        core::mem::transmute(entry);
+    let vector = HashVector {
+        begin: hashes.as_ptr(),
+        end: hashes.as_ptr().add(hashes.len()),
+        capacity: hashes.as_ptr().add(hashes.len()),
+    };
+    register(module, &search_index, &vector);
+
+    dbg_log!(
+        "[kirbymotion] kind {kind} bound {} copy animations from '{folder}' (search {search_index:#x})",
+        hashes.len()
+    );
+}
+
 #[cfg(feature = "css_slot")]
 #[skyline::hook(offset = OFF_KIRBY_COPY_SECOND_NAME_MERGE, inline)]
 pub(crate) unsafe fn kirby_copy_second_name_merge(ctx: &mut skyline::hooks::InlineCtx) {
@@ -1033,6 +1102,12 @@ pub(crate) unsafe fn kirby_copy_second_name_merge(ctx: &mut skyline::hooks::Inli
     if let Some(kind) = kind {
         let definition = clone_definition(kind).unwrap();
         ctx.registers[2].set_x(definition.base_resource_name_cstr.as_ptr() as u64);
+        #[cfg(feature = "kirby_copy_motions")]
+        register_clone_copy_animations(
+            ctx.registers[27].x() as usize,
+            kind,
+            &definition.resource_name,
+        );
         if let Some(n) = kirby_hat_flow_log_index() {
             dbg_log!(
                 "[kirbyhat] #{n} site=body-motion kind={kind} namespace={}body",
