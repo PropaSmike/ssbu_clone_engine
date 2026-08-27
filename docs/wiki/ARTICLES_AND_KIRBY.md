@@ -21,3 +21,17 @@ motion and article files, and sends only the copy of your fighter to your
 scripts.
 
 The fighter template has a working example.
+
+## Copy motions
+
+The copy animates from the base fighter's copy animations. `clone_copy_motion`
+adds animations of your own beside them, so you only ship files for the motions
+you change.
+
+The animation goes in `fighter/kirby/motion/<your resource name>body/c00/`,
+listed in `new-dir-files` under your `kirbycopy/cNN/bodymotion` group, and the
+motion name starts with your resource name so two packs cannot collide. Its ACMD
+belongs on `Agent::new("kirby")`.
+
+The fighter template registers two and ships no animation, because those are
+yours to make. The builder is in the Kirby section of the [API guide](../API.md).

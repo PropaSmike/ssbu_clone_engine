@@ -180,6 +180,36 @@ impl ThreadScopedKind {
         (kind >= 0).then_some(kind)
     }
 
+    pub(crate) fn set(&self, thread: usize, kind: i32) -> bool {
+        if thread == 0 {
+            return false;
+        }
+        if let Some(index) = self.owned_slot(thread) {
+            self.kinds[index].store(kind, Ordering::Release);
+            return true;
+        }
+        for index in 0..SLOTS {
+            if self.threads[index]
+                .compare_exchange(0, thread, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.occupancy.claim();
+                self.kinds[index].store(kind, Ordering::Release);
+                return true;
+            }
+        }
+        self.occupancy.exhaust();
+        false
+    }
+
+    pub(crate) fn clear(&self, thread: usize) {
+        if let Some(index) = self.owned_slot(thread) {
+            self.kinds[index].store(-1, Ordering::Release);
+            self.threads[index].store(0, Ordering::Release);
+            self.occupancy.release();
+        }
+    }
+
     pub(crate) fn enter(&self, thread: usize, kind: i32) -> ScopedKindGuard<'_> {
         if thread == 0 {
             return ScopedKindGuard { restore: None };
@@ -268,6 +298,31 @@ mod tests {
 
     const THREAD_A: usize = 0x1111;
     const THREAD_B: usize = 0x2222;
+
+
+    #[test]
+    fn set_and_clear_are_per_thread_and_do_not_touch_a_sibling() {
+        static TABLE: ThreadScopedKind = ThreadScopedKind::new("set_clear");
+        assert!(TABLE.set(0x11, 0x36a));
+        assert!(TABLE.set(0x22, 0x36b));
+        assert_eq!(TABLE.active(0x11), Some(0x36a));
+        assert_eq!(TABLE.active(0x22), Some(0x36b));
+        TABLE.clear(0x11);
+        assert_eq!(TABLE.active(0x11), None);
+        assert_eq!(TABLE.active(0x22), Some(0x36b));
+        TABLE.clear(0x22);
+        assert_eq!(TABLE.active(0x22), None);
+    }
+
+    #[test]
+    fn set_replaces_without_consuming_a_second_slot() {
+        static TABLE: ThreadScopedKind = ThreadScopedKind::new("set_replace");
+        assert!(TABLE.set(0x33, 1));
+        assert!(TABLE.set(0x33, 2));
+        assert_eq!(TABLE.active(0x33), Some(2));
+        TABLE.clear(0x33);
+        assert_eq!(TABLE.active(0x33), None);
+    }
 
     #[test]
     fn reentrancy_flag_marks_only_the_entering_thread() {

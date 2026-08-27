@@ -215,6 +215,38 @@ has an article of its own, mint it with `clone_copy_article_handle`.
 Do not create empty `fighter/<clone>/kirbycopy/cNN` groups, and do not fill them
 with the base fighter's Kirby files. Both produce a resource-cache failure.
 
+### Copy motions of your own
+
+Kirby's copy animates from the base fighter's copy animations.
+`clone_copy_motion` adds animations of your own beside them:
+
+```rust
+let motion = clone_engine_api::CopyMotion::new(
+    "my_fighter_special_n",
+    "myfighterd00specialn.nuanmb",
+)
+.template("mario_special_n")
+.game_script("game_myfighterspecialn");
+
+clone_engine_api::clone_copy_motion(kind, &motion)?;
+```
+
+`template` names a copy motion your base already has and brings over its
+scripts, flags, blend frames and cancel frame. That includes the ACMD, so a
+motion you gave no scripts to keeps the base fighter's hitboxes. Override them
+with `game_script` and `scripts`, and register those on `Agent::new("kirby")`,
+whose table the motion is looked up in. They do not have to exist in the game
+already. The rest of the builder is `flags`, `blend_frames`, `xlu`,
+`cancel_frame`, `no_stop_intp`, `animation_unk` and `without_extra`.
+
+Ship the animation as
+`fighter/kirby/motion/<your resource name>body/c00/<file>.nuanmb`, list it in
+`new-dir-files` under `fighter/<your resource name>/kirbycopy/cNN/bodymotion`
+for every color, and play it from your copy status by the name you registered.
+
+Your motions are added to the base fighter's, never in place of them. Names must
+be unique across every installed pack, and 256 can be registered in total.
+
 ## Shared hooks
 
 When two movesets need the same game function, the broker installs one hook and

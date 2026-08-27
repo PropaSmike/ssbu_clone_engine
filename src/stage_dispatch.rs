@@ -147,6 +147,38 @@ static DONOR_MINTED: [core::sync::atomic::AtomicU32; DONOR_SLOTS] =
 static DONOR_BASE: [core::sync::atomic::AtomicU32; DONOR_SLOTS] =
     [const { core::sync::atomic::AtomicU32::new(0) }; DONOR_SLOTS];
 
+static DONOR_OWNS_STDAT: [core::sync::atomic::AtomicBool; DONOR_SLOTS] =
+    [const { core::sync::atomic::AtomicBool::new(false) }; DONOR_SLOTS];
+
+pub(crate) fn set_owns_stdat(minted: u32) -> bool {
+    use core::sync::atomic::Ordering;
+    if minted == 0 {
+        return false;
+    }
+    for slot in 0..DONOR_SLOTS {
+        if DONOR_MINTED[slot].load(Ordering::Acquire) == minted {
+            DONOR_OWNS_STDAT[slot].store(true, Ordering::Release);
+            return true;
+        }
+    }
+    false
+}
+
+pub(crate) fn owns_stdat(minted: u32) -> bool {
+    use core::sync::atomic::Ordering;
+    if minted == 0 {
+        return false;
+    }
+    for slot in 0..DONOR_SLOTS {
+        match DONOR_MINTED[slot].load(Ordering::Acquire) {
+            0 => return false,
+            found if found == minted => return DONOR_OWNS_STDAT[slot].load(Ordering::Acquire),
+            _ => {}
+        }
+    }
+    false
+}
+
 pub(crate) fn set_donor_kind(minted: u32, donor: u32) -> bool {
     use core::sync::atomic::Ordering;
     if minted == 0 {
@@ -288,6 +320,14 @@ unsafe fn stage_stdat_metadata_lookup_hook(ctx: &mut skyline::hooks::InlineCtx) 
         return;
     };
     crate::stage_collision_probe::arm_stdat_scan(minted, donor);
+    if owns_stdat(minted) {
+        skyline::println!(
+            "[stagestdatscan] StageID {} keeps its own place for the .stdat scan;              {}'s is not borrowed",
+            minted,
+            donor
+        );
+        return;
+    }
     ctx.registers[9].set_x(donor as u64);
     skyline::println!(
         "[stagestdatscan] use donor StageID {} metadata for StageID {}; source at {:#x} preserved",
@@ -501,6 +541,11 @@ mod tests {
     #[test]
     fn stdat_metadata_bridge_runs_after_the_widened_bound() {
         assert_eq!(STAGE_STDAT_METADATA_LOOKUP, 0x25ff924);
+        assert!(crate::stage_bounds::STAGE_BOUNDS
+            .iter()
+            .any(|bound| bound.address == 0x25ff954
+                && bound.old_value == 26208
+                && bound.new_value == 36864));
         assert_eq!(STAGE_STDAT_METADATA_LOOKUP_OPCODE, 0x5280090a);
         assert_ne!(STAGE_STDAT_METADATA_LOOKUP, 0x25ff91c);
     }
