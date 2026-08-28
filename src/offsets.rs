@@ -73,6 +73,9 @@ pub(crate) const KIRBY_RECORD_SLOT_STRIDE: usize = 0x1748;
 pub(crate) const KIRBY_RECORD_COLOR_STRIDE: usize = 0x2e8;
 pub(crate) const KIRBY_RECORD_MEMBER1_OFFSET: usize = 0x20;
 pub(crate) const KIRBY_RECORD_MODEL_TYPE: u32 = 0x3f;
+pub(crate) const KIRBY_RECORD_MEMBER_OFFSETS: [usize; 4] = [0x20, 0xd0, 0x180, 0x230];
+pub(crate) const KIRBY_RECORD_MEMBER_TYPES: [u32; 4] = [0x3f, 0x44, 0x48, 0x49];
+pub(crate) const KIRBY_RECORD_MEMBER_FLAGS: [u32; 4] = [0, 4, 4, 4];
 
 pub(crate) const KIRBY_FULL_MODEL_BRANCH_KIND: i32 = 0x14;
 

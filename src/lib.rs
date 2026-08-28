@@ -2692,7 +2692,18 @@ fn custom_kirby_copy_name_record(kind: i32) -> Option<usize> {
     name.push(0);
     let name = Box::leak(name.into_boxed_slice()).as_ptr() as usize;
     let empty = b"\0".as_ptr() as usize;
-    let record = Box::leak(Box::new([name, empty, empty, empty])).as_ptr() as usize;
+    let mut slots = [name, empty, empty, empty];
+    for (index, extra) in kirby_copy::copy_models(kind)
+        .iter()
+        .take(clone_engine_api::MAX_COPY_MODELS)
+        .enumerate()
+    {
+        let mut bytes = extra.clone().into_bytes();
+        bytes.push(0);
+        slots[index + 1] = Box::leak(bytes.into_boxed_slice()).as_ptr() as usize;
+        dbg_log!("[kirbynative] kind={kind} copy model slot {} = '{extra}'", index + 1);
+    }
+    let record = Box::leak(Box::new(slots)).as_ptr() as usize;
     records.push((kind, record));
     Some(record)
 }

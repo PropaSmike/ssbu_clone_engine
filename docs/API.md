@@ -215,6 +215,20 @@ has an article of its own, mint it with `clone_copy_article_handle`.
 Do not create empty `fighter/<clone>/kirbycopy/cNN` groups, and do not fill them
 with the base fighter's Kirby files. Both produce a resource-cache failure.
 
+### Extra copy models
+
+A copy gets one model, `copy_<your resource name>_fitkirby`. Vanilla allows up
+to three more.
+Declare yours the same way:
+
+```rust
+clone_engine_api::clone_copy_model(kind, "wawa_kirby_model")?;
+```
+
+Each is a directory of its own under `fighter/kirby/model/`, shipped and
+declared like the first. A mesh or bone in a model you did not declare is never
+loaded, so everything your copy animation drives has to live in one of these.
+
 ### Copy motions of your own
 
 Kirby's copy animates from the base fighter's copy animations.

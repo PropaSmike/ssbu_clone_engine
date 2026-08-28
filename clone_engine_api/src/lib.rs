@@ -544,6 +544,7 @@ static ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_ARTICLE_FN: AtomicUsize = AtomicUsize::new(0);
 static COPY_ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
+static CLONE_COPY_MODEL_FN: AtomicUsize = AtomicUsize::new(0);
 static LOG_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_INT_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1441,6 +1442,40 @@ pub fn clone_copy_article(
         return Err(Error::Engine(result));
     }
     Ok(result)
+}
+
+pub const MAX_COPY_MODELS: usize = 3;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CloneCopyModelV1 {
+    pub api_version: u32,
+    pub struct_size: u32,
+    pub fighter_kind: i32,
+    pub reserved0: u32,
+    pub directory: *const c_char,
+    pub reserved: [u64; 4],
+}
+
+pub fn clone_copy_model(fighter_kind: i32, directory: &str) -> Result<(), Error> {
+    let address = resolve(&CLONE_COPY_MODEL_FN, b"clone_engine_clone_copy_model_v1\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let directory = CString::new(directory).map_err(|_| Error::InvalidName)?;
+    let registration = CloneCopyModelV1 {
+        api_version: API_VERSION_V1,
+        struct_size: core::mem::size_of::<CloneCopyModelV1>() as u32,
+        fighter_kind,
+        reserved0: 0,
+        directory: directory.as_ptr(),
+        reserved: [0; 4],
+    };
+    let function: unsafe extern "C" fn(*const CloneCopyModelV1) -> i32 =
+        unsafe { core::mem::transmute(address) };
+    let result = unsafe { function(&registration) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
 }
 
 pub const COPY_MOTION_SET_GAME_SCRIPT: u32 = 1 << 0;
