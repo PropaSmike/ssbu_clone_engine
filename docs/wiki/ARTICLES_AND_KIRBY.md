@@ -22,6 +22,10 @@ scripts.
 
 The fighter template has a working example.
 
+The copy gets one model. If your hat is several pieces, or its meshes and bones
+are split up, declare the extra models with `clone_copy_model`, up to three.
+Anything in a model you did not declare is never loaded.
+
 ## Copy motions
 
 The copy animates from the base fighter's copy animations. `clone_copy_motion`

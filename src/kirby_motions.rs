@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::motion_list::{hash40, parse, serialize, Animation, Motion, MotionList};
+use std::collections::HashSet;
 use std::sync::{OnceLock, RwLock};
 
 pub(crate) const KIRBY_MOTION_LIST_PATHS: [&str; 8] = [
@@ -138,8 +139,31 @@ pub(crate) fn rebuild(original: &[u8], records: &[CopyMotionRecord]) -> Option<V
     let mut list = parse(original).ok()?;
     let outcome = apply(&mut list, records);
     let bytes = serialize(&list).ok()?;
+    note_outcome(&outcome);
     log_outcome(&outcome, list.entries.len());
     Some(bytes)
+}
+
+fn refused() -> &'static RwLock<HashSet<String>> {
+    static REFUSED: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+    REFUSED.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn note_outcome(outcome: &[(String, Result<(), Rejected>)]) {
+    let Ok(mut held) = refused().write() else {
+        return;
+    };
+    for (name, result) in outcome {
+        if result.is_err() {
+            held.insert(name.clone());
+        } else {
+            held.remove(name);
+        }
+    }
+}
+
+pub(crate) fn refused_names() -> HashSet<String> {
+    refused().read().map(|held| held.clone()).unwrap_or_default()
 }
 
 fn records() -> &'static RwLock<Vec<CopyMotionRecord>> {
@@ -152,11 +176,13 @@ pub(crate) fn registered() -> Vec<CopyMotionRecord> {
 }
 
 pub(crate) fn motion_hashes(fighter_kind: i32) -> Vec<u64> {
+    let refused = refused_names();
     records()
         .read()
         .map(|held| {
             held.iter()
                 .filter(|known| known.fighter_kind == fighter_kind)
+                .filter(|known| !refused.contains(&known.name))
                 .filter_map(|known| hash40(&known.name))
                 .collect()
         })
@@ -294,6 +320,9 @@ mod live {
     }
 
     extern "C" fn serve(hash: u64, buffer: *mut u8, length: usize, out_size: &mut usize) -> bool {
+        if buffer.is_null() || length == 0 {
+            return false;
+        }
         let entries = registered();
         if entries.is_empty() {
             return false;
@@ -524,6 +553,30 @@ mod tests {
         );
         assert!(owns_motions(4242));
         assert!(!owns_motions(4243));
+    }
+
+    #[test]
+    fn a_refused_motion_is_never_bound_to_the_copy() {
+        let list = list_with_template();
+        let original = serialize(&list).unwrap();
+
+        let mut landed = CopyMotionRecord::new(4444, "bound_special_n", "boundd00specialn.nuanmb");
+        landed.template = Some("donkey_special_n".to_string());
+        let mut dropped =
+            CopyMotionRecord::new(4444, "unbound_special_n", "unboundd00specialn.nuanmb");
+        dropped.template = Some("nobody_special_n".to_string());
+        assert_eq!(record(landed.clone()), Ok(()));
+        assert_eq!(record(dropped.clone()), Ok(()));
+
+        assert_eq!(motion_hashes(4444).len(), 2);
+
+        assert!(rebuild(&original, &[landed, dropped]).is_some());
+
+        assert_eq!(
+            motion_hashes(4444),
+            vec![hash40("bound_special_n").unwrap()]
+        );
+        assert!(refused_names().contains("unbound_special_n"));
     }
 
     #[test]

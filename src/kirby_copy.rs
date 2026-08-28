@@ -28,6 +28,69 @@ pub(crate) static KIRBY_REMOVAL_CONTEXT_KIND: core::sync::atomic::AtomicI32 =
     core::sync::atomic::AtomicI32::new(-1);
 
 #[cfg(feature = "css_slot")]
+fn copy_model_registry() -> &'static std::sync::RwLock<Vec<(i32, String)>> {
+    static MODELS: OnceLock<std::sync::RwLock<Vec<(i32, String)>>> = OnceLock::new();
+    MODELS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn copy_models(fighter_kind: i32) -> Vec<String> {
+    copy_model_registry()
+        .read()
+        .map(|held| {
+            held.iter()
+                .filter(|(known, _)| *known == fighter_kind)
+                .map(|(_, directory)| directory.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(feature = "css_slot")]
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_clone_copy_model_v1(
+    registration: *const clone_engine_api::CloneCopyModelV1,
+) -> i32 {
+    if registration.is_null() {
+        return clone_engine_api::ERROR_NULL;
+    }
+    let registration = &*registration;
+    if registration.api_version != clone_engine_api::API_VERSION_V1 {
+        return clone_engine_api::ERROR_VERSION;
+    }
+    if (registration.struct_size as usize)
+        < core::mem::size_of::<clone_engine_api::CloneCopyModelV1>()
+    {
+        return clone_engine_api::ERROR_STRUCT_SIZE;
+    }
+    if registration.directory.is_null() {
+        return clone_engine_api::ERROR_NAME;
+    }
+    let Ok(directory) = core::ffi::CStr::from_ptr(registration.directory).to_str() else {
+        return clone_engine_api::ERROR_NAME;
+    };
+    let kind = registration.fighter_kind;
+    let Ok(mut held) = copy_model_registry().write() else {
+        return clone_engine_api::ERROR_UNSUPPORTED;
+    };
+    if held.iter().filter(|(known, _)| *known == kind).count()
+        >= clone_engine_api::MAX_COPY_MODELS
+    {
+        dbg_log!("[kirbyrec] kind {kind} already has {} copy models; '{directory}' refused", clone_engine_api::MAX_COPY_MODELS);
+        return clone_engine_api::ERROR_UNSUPPORTED;
+    }
+    if held
+        .iter()
+        .any(|(known, name)| *known == kind && name == directory)
+    {
+        return clone_engine_api::ERROR_DUPLICATE;
+    }
+    held.push((kind, directory.to_string()));
+    dbg_log!("[kirbyrec] kind {kind} registered copy model '{directory}'");
+    0
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) fn active_kirby_copy_kind() -> Option<i32> {
     let kind = KIRBY_COPY_CONTEXT.active(unsafe { current_thread_key() })?;
     clone_definition(kind).map(|_| kind)
@@ -696,7 +759,13 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
 
     let live_record = kirby_record_find(sub, kind);
     if live_record != 0 {
-        return (live_record, kirby_record_model_pair_mask(live_record));
+        let live_mask = kirby_record_model_pair_mask(live_record);
+        if !(0..8).contains(&color) || live_mask & (1 << color) != 0 {
+            return (live_record, live_mask);
+        }
+        dbg_log!(
+            "[kirbyrec] kind={kind} colour {color} missing from live record {live_record:#x} colors={live_mask:#x}; building it"
+        );
     }
 
     let Some(lock_owned) = kirby_record_build_acquire() else {
@@ -755,13 +824,20 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
     }
 
     let resource_name = definition.resource_name.as_bytes();
-    let mut name = [0u8; 48];
+    let mut names = [[0u8; 48]; 4];
     let mut length = 0usize;
     for chunk in [b"copy_" as &[u8], resource_name, b"_fitkirby"] {
-        name[length..length + chunk.len()].copy_from_slice(chunk);
+        if length + chunk.len() >= names[0].len() {
+            dbg_log!(
+                "[kirbyrec] kind={kind} resource name is too long for a copy model name; record not built"
+            );
+            kirby_record_build_release(lock_owned);
+            return (0, 0);
+        }
+        names[0][length..length + chunk.len()].copy_from_slice(chunk);
         length += chunk.len();
     }
-    let own = String::from_utf8_lossy(&name[..length]).into_owned();
+    let own = String::from_utf8_lossy(&names[0][..length]).into_owned();
     if !crate::fighter_modules::path_exists(&format!(
         "fighter/kirby/model/{own}/c{:02}/model.numdlb",
         color
@@ -773,33 +849,56 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
         );
     }
 
+    for (index, extra) in copy_models(kind)
+        .iter()
+        .take(clone_engine_api::MAX_COPY_MODELS)
+        .enumerate()
+    {
+        let bytes = extra.as_bytes();
+        if bytes.len() >= names[index + 1].len() {
+            dbg_log!("[kirbyrec] kind={kind} copy model '{extra}' is too long; skipped");
+            continue;
+        }
+        names[index + 1][..bytes.len()].copy_from_slice(bytes);
+        if !crate::fighter_modules::path_exists(&format!(
+            "fighter/kirby/model/{extra}/c{color:02}/model.numdlb"
+        )) {
+            dbg_log!(
+                "[kirbyrec] kind={kind} declares copy model '{extra}' but ships no \
+                 'fighter/kirby/model/{extra}/c{color:02}'"
+            );
+        }
+    }
+
     let colorrec = slot as usize + color as usize * KIRBY_RECORD_COLOR_STRIDE;
-    let member1 = (colorrec + KIRBY_RECORD_MEMBER1_OFFSET) as u64;
     let member_builder: extern "C" fn(u64, u32, u32, i32, u64, *const u8, u32, u32) =
         core::mem::transmute(tb + OFF_KIRBY_COPY_MEMBER_BUILDER);
     let member_builder_2: extern "C" fn(u64, u32, u32, u64, *const u8, u32) =
         core::mem::transmute(tb + OFF_KIRBY_COPY_MEMBER_BUILDER_2);
 
-    if *((colorrec + KIRBY_RECORD_MEMBER1_OFFSET) as *const u64) == 0 {
-        member_builder(
+    for index in 0..KIRBY_RECORD_MEMBER_OFFSETS.len() {
+        let member = (colorrec + KIRBY_RECORD_MEMBER_OFFSETS[index]) as u64;
+        if *(member as *const u64) == 0 {
+            member_builder(
+                sub,
+                kind as u32,
+                color,
+                0,
+                member,
+                names[index].as_ptr(),
+                KIRBY_RECORD_MEMBER_TYPES[index],
+                KIRBY_RECORD_MEMBER_FLAGS[index],
+            );
+        }
+        member_builder_2(
             sub,
             kind as u32,
             color,
-            0,
-            member1,
-            name.as_ptr(),
-            KIRBY_RECORD_MODEL_TYPE,
-            0,
+            member,
+            names[index].as_ptr(),
+            KIRBY_RECORD_MEMBER_TYPES[index],
         );
     }
-    member_builder_2(
-        sub,
-        kind as u32,
-        color,
-        member1,
-        name.as_ptr(),
-        KIRBY_RECORD_MODEL_TYPE,
-    );
 
     let model_resource = *((colorrec + 0x20) as *const u64);
     let model_owner = *((colorrec + 0x28) as *const u64);
@@ -842,7 +941,7 @@ pub(crate) unsafe fn kirby_copy_resource_transfer(
         }
         if n < 24 {
             dbg_log!(
-                "[kirbycopy] #{n} full-model transfer bypass (record unavailable) kind={kind} record={record:#x} colors={pair_mask:#x} resource={resource:#x}"
+                "[kirbycopy] #{n} full-model transfer skipped kind={kind} record={record:#x} colors={pair_mask:#x} resource={resource:#x} color={color}"
             );
         }
         return;
@@ -921,10 +1020,11 @@ pub(crate) unsafe fn kirby_copy_model_name(ctx: &mut skyline::hooks::InlineCtx) 
         }
     };
     let target_kind = if (0..8).contains(&target_entry) {
-        entry_custom_kind(target_entry as u8)
+        validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-model-name")
     } else {
         None
-    };
+    }
+    .or_else(active_kirby_copy_kind);
     let site_n = KIRBY_MODEL_SITE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if site_n < 32 {
         dbg_log!(
@@ -1052,12 +1152,15 @@ unsafe fn register_clone_copy_animations(accessor: usize, kind: i32, resource_na
     if accessor == 0 {
         return;
     }
+    if (accessor as u64) < LOWEST_PLAUSIBLE_POINTER {
+        return;
+    }
     let module = core::ptr::read_volatile((accessor + MODULE_ACCESSOR_MOTION_OFFSET) as *const usize);
-    if module == 0 {
+    if (module as u64) < LOWEST_PLAUSIBLE_POINTER {
         return;
     }
     let vtable = core::ptr::read_volatile(module as *const usize);
-    if vtable == 0 {
+    if (vtable as u64) < LOWEST_PLAUSIBLE_POINTER {
         return;
     }
     let entry = core::ptr::read_volatile(
@@ -1320,7 +1423,7 @@ pub(crate) unsafe fn kirby_copy_setup_probe(
     let base_kind = x2 as i32;
     let target_entry = x1 as i32;
     let target_clone_kind = if (0..8).contains(&target_entry) {
-        entry_custom_kind(target_entry as u8).filter(|kind| {
+        validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-setup").filter(|kind| {
             clone_definition(*kind)
                 .map(|definition| definition.base_kind == base_kind)
                 .unwrap_or(false)
@@ -1454,12 +1557,105 @@ pub(crate) static KIRBY_CLONE_COPY_KIND: core::sync::atomic::AtomicI32 =
     core::sync::atomic::AtomicI32::new(-1);
 
 #[cfg(feature = "css_slot")]
+pub(crate) const STATUS_MODULE_OFFSET: usize = 0x40;
+#[cfg(feature = "css_slot")]
+pub(crate) const STATUS_MODULE_SCRIPT_COUNT: usize = 0x88;
+#[cfg(feature = "css_slot")]
+pub(crate) const STATUS_MODULE_SCRIPT_ARRAY: usize = 0x90;
+
+#[cfg(feature = "css_slot")]
+pub(crate) static KIRBY_STATUS_TABLE_STATE: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(u64::MAX);
+#[cfg(feature = "css_slot")]
+pub(crate) static KIRBY_STATUS_TABLE_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) const STATUS_MODULE_CURRENT_KIND: usize = 0x98;
+#[cfg(feature = "css_slot")]
+pub(crate) const LOWEST_PLAUSIBLE_POINTER: u64 = 0x1_0000_0000;
+#[cfg(feature = "css_slot")]
+pub(crate) const STATUS_TABLE_MAX_SCRIPTS: u64 = 8192;
+
+#[cfg(feature = "css_slot")]
+pub(crate) static KIRBY_STATUS_TORN_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+#[cfg(feature = "css_slot")]
+pub(crate) static KIRBY_STATUS_LAST_KIND: core::sync::atomic::AtomicI32 =
+    core::sync::atomic::AtomicI32::new(-2);
+
+#[cfg(feature = "css_slot")]
+unsafe fn probe_kirby_status_table(boma: u64) {
+    if boma < LOWEST_PLAUSIBLE_POINTER {
+        return;
+    }
+    let module = *((boma as usize + STATUS_MODULE_OFFSET) as *const u64);
+    if module < LOWEST_PLAUSIBLE_POINTER {
+        return;
+    }
+    let array = *((module as usize + STATUS_MODULE_SCRIPT_ARRAY) as *const u64);
+    let count = *((module as usize + STATUS_MODULE_SCRIPT_COUNT) as *const u64);
+    if *((module as usize + STATUS_MODULE_SCRIPT_ARRAY) as *const u64) != array {
+        return;
+    }
+    if array < LOWEST_PLAUSIBLE_POINTER || count == 0 || count > STATUS_TABLE_MAX_SCRIPTS {
+        return;
+    }
+
+    let current = *((module as usize + STATUS_MODULE_CURRENT_KIND) as *const i32);
+    let previous = KIRBY_STATUS_LAST_KIND.swap(current, core::sync::atomic::Ordering::Relaxed);
+    if current != previous && current >= 0 && (current as u64) < count {
+        let entry = *((array as usize + current as usize * 8) as *const u64);
+        if entry != 0 && entry < LOWEST_PLAUSIBLE_POINTER {
+            let torn = KIRBY_STATUS_TORN_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if torn < 8 {
+                dbg_log!(
+                    "[kirbytable] TORN #{torn} boma={boma:#x} module={module:#x} status={current:#x} entry={entry:#x} scripts={count:#x} array={array:#x}"
+                );
+            }
+        }
+    }
+
+    let state = array ^ count.rotate_left(32);
+    if KIRBY_STATUS_TABLE_STATE.swap(state, core::sync::atomic::Ordering::Relaxed) == state {
+        return;
+    }
+    let n = KIRBY_STATUS_TABLE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n >= 24 {
+        return;
+    }
+    dbg_log!(
+        "[kirbytable] #{n} boma={boma:#x} module={module:#x} scripts={count:#x} array={array:#x}"
+    );
+
+    let Ok(families) = armed_kirby_copy_families().read() else {
+        return;
+    };
+    for (kind, first) in families.iter() {
+        let first = *first;
+        if first < 0 {
+            continue;
+        }
+        let reachable = (first as u64) < count;
+        let script = if reachable {
+            *((array as usize + first as usize * 8) as *const u64)
+        } else {
+            0
+        };
+        dbg_log!(
+            "[kirbytable] #{n} kind={kind} family={first:#x} reachable={reachable} script={script:#x}"
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = OFF_KIRBY_PER_FIGHTER_FRAME)]
 pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
     if x1 != 0 {
         let boma = *((x1 as usize + 0x20) as *const u64);
         if boma != 0 {
+            probe_kirby_status_table(boma);
             let work = *((boma as usize + 0x50) as *const u64);
             if work != 0 {
                 let vt = *(work as *const u64);
@@ -1471,7 +1667,7 @@ pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3
                 let kind = get_int(work, 0x1000_00FC) as u32;
                 let target_entry = get_int(work, 0x1000_00FD) as u32 as i32;
                 let target_kind = if (0..8).contains(&target_entry) {
-                    entry_custom_kind(target_entry as u8)
+                    validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-poll")
                 } else {
                     None
                 };
@@ -1644,7 +1840,7 @@ pub(crate) unsafe fn kirby_copy_routed_status(boma: u64, native_status: u64) -> 
     if !(0..8).contains(&target_entry) {
         return None;
     }
-    let kind = entry_custom_kind(target_entry as u8)?;
+    let kind = validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-family")?;
     clone_definition(kind)?;
     let first_status = armed_kirby_copy_families()
         .read()
