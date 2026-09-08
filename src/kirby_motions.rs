@@ -17,7 +17,7 @@ pub(crate) const KIRBY_MOTION_LIST_PATHS: [&str; 8] = [
 
 pub(crate) const VANILLA_LIST_BYTES: usize = 99_580;
 pub(crate) const BYTES_PER_MOTION: usize = 128;
-pub(crate) const MAX_MOTIONS: usize = 256;
+pub(crate) const MAX_MOTIONS: usize = 1024;
 
 pub(crate) const fn callback_capacity() -> usize {
     VANILLA_LIST_BYTES + BYTES_PER_MOTION * MAX_MOTIONS
@@ -533,6 +533,38 @@ mod tests {
     fn rebuild_refuses_a_file_it_cannot_parse() {
         let entry = CopyMotionRecord::new(121, "any_special_n", "anyd00specialn.nuanmb");
         assert!(rebuild(&[0u8; 64], std::slice::from_ref(&entry)).is_none());
+    }
+
+    #[test]
+    fn the_worst_case_entry_fits_the_per_motion_allowance() {
+        let mut list = empty_list();
+        list.insert(
+            hash40("worst_case").unwrap(),
+            Motion {
+                game_script: hash40("game_worstcase").unwrap(),
+                flags: 0,
+                blend_frames: 0,
+                animations: (0..crate::motion_list::MAX_ANIMATIONS)
+                    .map(|index| Animation {
+                        name: hash40(&format!("worstcased0{index}.nuanmb")).unwrap(),
+                        unk: 0,
+                    })
+                    .collect(),
+                scripts: vec![
+                    hash40("expression_worstcase").unwrap(),
+                    hash40("sound_worstcase").unwrap(),
+                    hash40("effect_worstcase").unwrap(),
+                ],
+                extra: Some(Extra {
+                    xlu_start: 0,
+                    xlu_end: 0,
+                    cancel_frame: 0,
+                    no_stop_intp: false,
+                }),
+            },
+        );
+        let bytes = serialize(&list).unwrap();
+        assert!(bytes.len() - crate::motion_list::HEADER_BYTES <= BYTES_PER_MOTION);
     }
 
     #[test]

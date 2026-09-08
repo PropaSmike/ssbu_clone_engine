@@ -90,6 +90,25 @@ unsafe fn table_string(table: usize, index: usize) -> Option<&'static CStr> {
     (!pointer.is_null()).then(|| CStr::from_ptr(pointer))
 }
 
+pub fn fighter_kind_from_name_prefix(name: &str) -> Option<i32> {
+    let mut best: Option<(usize, i32)> = None;
+    for index in 0..FIGHTER_NAME_COUNT {
+        let Some(entry) = (unsafe { table_string(LOWERCASE_FIGHTER_NAMES, index) }) else {
+            continue;
+        };
+        let Ok(entry) = entry.to_str() else {
+            continue;
+        };
+        if entry.is_empty() || !name.starts_with(entry) {
+            continue;
+        }
+        if best.is_none_or(|(len, _)| entry.len() > len) {
+            best = Some((entry.len(), index as i32));
+        }
+    }
+    best.map(|(_, kind)| kind)
+}
+
 unsafe fn fighter_kind_from_name(name: &CStr) -> Option<i32> {
     (0..FIGHTER_NAME_COUNT)
         .find(|index| {
@@ -234,6 +253,18 @@ pub fn custom_weapon_source_kind(weapon_kind: i32) -> Option<i32> {
         .map(|article| article.source_weapon_kind)
 }
 
+pub fn param_source_owner_kind(weapon_kind: i32) -> Option<i32> {
+    let source_owner = source_weapon_owner_kind(weapon_kind)?;
+    crate::fighter_params::kind_params_have_real_data(source_owner).then_some(source_owner)
+}
+
+pub fn param_lookup_weapon_name(weapon_kind: i32) -> Option<&'static [u8]> {
+    if param_source_owner_kind(weapon_kind).is_some() {
+        return source_weapon_name(weapon_kind).map(|name| name.to_bytes_with_nul());
+    }
+    custom_weapon_name(weapon_kind)
+}
+
 pub fn source_weapon_name(weapon_kind: i32) -> Option<&'static CStr> {
     let source = custom_weapon_source_kind(weapon_kind)?;
     unsafe { table_string(LOWERCASE_WEAPON_NAMES, source as usize) }
@@ -264,6 +295,87 @@ pub fn custom_weapon_owner_category(weapon_kind: i32) -> Option<*const c_char> {
     let source = custom_weapon_source_kind(weapon_kind)?;
     unsafe { table_string(WEAPON_OWNER_CATEGORIES, source as usize) }
         .map(|category| category.as_ptr())
+}
+
+const PARAM_RECORD_BASE: u32 = 0x60;
+const PARAM_RECORD_STRIDE: u32 = 0x38;
+const PARAM_RECORD_PAYLOAD: u32 = 0x10;
+const PAYLOAD_SCAN_WORDS: usize = 0x100;
+const TEXT_LIMIT: usize = 0x39c7e90;
+
+pub fn callback_payload_offsets(callback: *const u8, owner_kind: i32) -> Vec<u32> {
+    let mut offsets = Vec::new();
+    if callback.is_null() || owner_kind < 0 {
+        return offsets;
+    }
+    let payload = PARAM_RECORD_BASE + owner_kind as u32 * PARAM_RECORD_STRIDE + PARAM_RECORD_PAYLOAD;
+    if payload % 8 != 0 || payload >= 0x8000 {
+        return offsets;
+    }
+    let Some(relative) = (callback as usize).checked_sub(text_base()) else {
+        return offsets;
+    };
+    if relative + PAYLOAD_SCAN_WORDS * 4 >= TEXT_LIMIT {
+        return offsets;
+    }
+    let words = unsafe { core::slice::from_raw_parts(callback as *const u32, PAYLOAD_SCAN_WORDS) };
+
+    let is_ldr64 = |word: u32| word & 0xFFC0_0000 == 0xF940_0000;
+    let mut holder = None;
+    for word in words.iter().copied() {
+        if is_ldr64(word) && (word >> 10) & 0xFFF == payload / 8 {
+            holder = Some(word & 0x1F);
+            continue;
+        }
+        let Some(base) = holder else { continue };
+        if is_ldr64(word) && (word >> 5) & 0x1F == base {
+            let offset = ((word >> 10) & 0xFFF) * 8;
+            if !offsets.contains(&offset) {
+                offsets.push(offset);
+            }
+        }
+    }
+    offsets
+}
+
+pub fn vanilla_weapon_owner_kind(weapon_kind: i32) -> Option<i32> {
+    if weapon_kind < 0 || weapon_kind as usize >= WEAPON_NAME_COUNT {
+        return None;
+    }
+    let slot = (text_base() + WEAPON_OWNER_KINDS + weapon_kind as usize * 4) as *const i32;
+    let owner = unsafe { core::ptr::read_volatile(slot) };
+    (owner >= 0).then_some(owner)
+}
+
+pub fn resource_owners_for_source_owner(source_owner_kind: i32) -> Vec<&'static [u8]> {
+    let Ok(registry) = registry().read() else {
+        return Vec::new();
+    };
+    let mut owners: Vec<&'static [u8]> = Vec::new();
+    for article in registry
+        .iter()
+        .filter(|article| article.source_owner_kind == source_owner_kind)
+    {
+        if !owners.contains(&article.resource_owner_name) {
+            owners.push(article.resource_owner_name);
+        }
+    }
+    owners
+}
+
+pub fn inherited_child_owner(weapon_kind: i32) -> Option<(i32, i32)> {
+    if is_custom_weapon_kind(weapon_kind) {
+        return None;
+    }
+    let owner = vanilla_weapon_owner_kind(weapon_kind)?;
+    registry()
+        .read()
+        .ok()?
+        .iter()
+        .find(|article| {
+            article.source_owner_kind == owner && article.source_weapon_kind != weapon_kind
+        })
+        .map(|article| (owner, article.destination_kind))
 }
 
 pub fn custom_weapon_owner_kind(weapon_kind: i32) -> Option<i32> {

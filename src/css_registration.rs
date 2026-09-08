@@ -23,8 +23,24 @@ pub(crate) static CSK_GET_UI_CHARA_FROM_ENTRY: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(feature = "css_slot")]
+pub(crate) const ENTRY_SELECTION_UNOBSERVED: i32 = i32::MIN;
+
+#[cfg(feature = "css_slot")]
 pub(crate) static CSS_CUSTOM_ENTRY_KINDS: [core::sync::atomic::AtomicI32; 8] =
-    [const { core::sync::atomic::AtomicI32::new(-1) }; 8];
+    [const { core::sync::atomic::AtomicI32::new(ENTRY_SELECTION_UNOBSERVED) }; 8];
+
+#[cfg(feature = "css_slot")]
+static ENTRY_RECOVERY_REFUSED_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn entry_selection_observed(entry_id: u8) -> bool {
+    if entry_id >= 8 {
+        return false;
+    }
+    CSS_CUSTOM_ENTRY_KINDS[entry_id as usize].load(core::sync::atomic::Ordering::SeqCst)
+        != ENTRY_SELECTION_UNOBSERVED
+}
 
 #[cfg(feature = "css_slot")]
 pub(crate) const NO_OWNER_OBJECT: u32 = u32::MAX;
@@ -136,6 +152,15 @@ pub(crate) fn validated_entry_custom_kind(
         if input_kind != 0 {
             return None;
         }
+        if record.is_some() && entry_selection_observed(entry_id) {
+            let n = ENTRY_RECOVERY_REFUSED_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 8 {
+                dbg_log!(
+                    "[csscache] entry={entry_id} REFUSED recovery site={site}: the CSS selection writer already reported this entry and it was not a clone, so its record holds a stale or vanilla selection"
+                );
+            }
+            return None;
+        }
         if let Some(source) = record {
             if let Some(definition) = unsafe { record_clone_definition(source) } {
                 let costume = unsafe { core::ptr::read_volatile(source.add(ENTRY_RECORD_COSTUME)) };
@@ -143,6 +168,20 @@ pub(crate) fn validated_entry_custom_kind(
                     && u16::from(costume)
                         < u16::from(definition.color_start)
                             + u16::from(definition.css_color_count());
+                if !in_range {
+                    let n =
+                        ENTRY_RECOVERY_REFUSED_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                    if n < 8 {
+                        dbg_log!(
+                            "[csscache] entry={entry_id} REFUSED recovery site={site}: ui_chara matches kind {} but costume {costume} is outside its CSS colours {}..{}, so the record holds the vanilla donor",
+                            definition.kind,
+                            definition.color_start,
+                            u16::from(definition.color_start)
+                                + u16::from(definition.css_color_count())
+                        );
+                    }
+                    return None;
+                }
                 cache_custom_entry_selection(entry_id as i32, Some(definition.kind));
                 dbg_log!(
                     "[csscache] recovered entry={entry_id} kind={} from record ui_chara costume={costume} in_range={in_range} site={site}",
@@ -537,6 +576,25 @@ pub(crate) static CSS_ROSTER_ENTRY_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+pub(crate) static CSS_VANILLA_ENTRY_KINDS: [core::sync::atomic::AtomicI32; 8] = [
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+    core::sync::atomic::AtomicI32::new(-1),
+];
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn vanilla_kind_in_match(kind: i32) -> bool {
+    CSS_VANILLA_ENTRY_KINDS
+        .iter()
+        .any(|slot| slot.load(core::sync::atomic::Ordering::SeqCst) == kind)
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = OFF_MATCH_ENTRY_EXPAND_OUTER_CALL, inline)]
 pub(crate) unsafe fn match_entry_expand_outer_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
     bridge_custom_entry_expander_input(ctx, "outer@66dd14", &CSS_ENTRY_OUTER_COUNT);
@@ -559,6 +617,11 @@ pub(crate) unsafe fn construction_roster_expand_call_hook(ctx: &mut skyline::hoo
     let input_kind = ctx.registers[0].x() as i32;
     let selected_kind = validated_entry_custom_kind(entry_id, input_kind, None, "roster@14ec248");
     let selected_mask = custom_entry_mask();
+    CSS_VANILLA_ENTRY_KINDS[entry_id as usize].store(
+        if selected_kind.is_some() { -1 } else { input_kind },
+        core::sync::atomic::Ordering::SeqCst,
+    );
+    crate::finalsmash_residency::refresh_suppression();
     let n = CSS_ROSTER_ENTRY_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if let Some(custom_kind) = selected_kind {
         ctx.registers[0].set_x(custom_kind as u64);
@@ -705,7 +768,7 @@ mod owner_object_tests {
             slot.store(NO_OWNER_OBJECT, core::sync::atomic::Ordering::SeqCst);
         }
         for slot in CSS_CUSTOM_ENTRY_KINDS.iter() {
-            slot.store(-1, core::sync::atomic::Ordering::SeqCst);
+            slot.store(ENTRY_SELECTION_UNOBSERVED, core::sync::atomic::Ordering::SeqCst);
         }
     }
 

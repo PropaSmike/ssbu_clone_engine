@@ -23,18 +23,12 @@ pub(crate) const OFF_KIRBY_COPY_CALLBACK_KIND_1: usize = 0xba3e0c;
 pub(crate) const OFF_KIRBY_COPY_CALLBACK_KIND_2: usize = 0xba400c;
 pub(crate) const OFF_KIRBY_COPY_CALLBACK_KIND_3: usize = 0xba405c;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_TRANSFER: usize = 0x6de830;
-pub(crate) const OFF_KIRBY_COPY_RESOURCE_KIND: usize = 0xba4424;
 pub(crate) const OFF_KIRBY_COPY_MODEL_NAME_TABLE: usize = 0xba4488;
 pub(crate) const OFF_KIRBY_COPY_MODEL_NAME: usize = 0xba448c;
 pub(crate) const OFF_KIRBY_COPY_HANDLE_PROBE: usize = 0xba44b0;
 pub(crate) const OFF_KIRBY_COPY_MODEL_CHANGER_ENTRY: usize = 0xba4090;
-pub(crate) const OFF_KIRBY_COPY_VISUAL_KIND_PROMOTE: usize = 0xba4190;
 pub(crate) const OFF_KIRBY_COPY_MODEL_REMOVE_RESULT: usize = 0xba41f4;
-pub(crate) const OFF_KIRBY_COPY_FULL_MODEL_GATE: usize = 0xba4198;
-pub(crate) const OFF_KIRBY_COPY_FULL_MODEL_REMOVE_GATE: usize = 0xba4210;
 pub(crate) const OFF_KIRBY_COPY_SPECIAL_INSTALL: usize = 0xba4254;
-pub(crate) const OFF_KIRBY_COPY_MODEL_BASE_KIND: usize = 0xba4514;
-pub(crate) const OFF_KIRBY_COPY_BASE_MODEL_PAIR: usize = 0xba4524;
 pub(crate) const OFF_KIRBY_COPY_KIND_LIST_TABLE: usize = 0xba4d7c;
 pub(crate) const OFF_KIRBY_COPY_SECOND_NAME_MERGE: usize = 0xba4e9c;
 pub(crate) const OFF_KIRBY_COPY_BODYMOTION_HANDLE: usize = 0xba4ec4;
@@ -55,6 +49,7 @@ pub(crate) const OFF_KIRBY_COPY_DIR_NAME_MERGE: usize = 0x17f0058;
 pub(crate) const KIRBY_COPY_NAME_TABLE: usize = 0x509ece0;
 pub(crate) const KIRBY_COPY_NAME_COUNT: i32 = 94;
 pub(crate) const OFF_KIRBY_COPY_RECORD_LOOKUP_KIND: usize = 0x341b164;
+pub(crate) const OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY: usize = 0x17f0a10;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_0: usize = 0xba1884;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_1: usize = 0xba18c8;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_2: usize = 0xba1908;
@@ -77,7 +72,6 @@ pub(crate) const KIRBY_RECORD_MEMBER_OFFSETS: [usize; 4] = [0x20, 0xd0, 0x180, 0
 pub(crate) const KIRBY_RECORD_MEMBER_TYPES: [u32; 4] = [0x3f, 0x44, 0x48, 0x49];
 pub(crate) const KIRBY_RECORD_MEMBER_FLAGS: [u32; 4] = [0, 4, 4, 4];
 
-pub(crate) const KIRBY_FULL_MODEL_BRANCH_KIND: i32 = 0x14;
 
 pub(crate) const OFF_KIRBY_COPY_HAT_SYNC: usize = 0xb9a160;
 
@@ -165,3 +159,12 @@ pub(crate) const OFF_MOTION_FRAME_IMPL: usize = 0x205cc70;
 
 #[cfg(any(feature = "diag_article", feature = "css_slot"))]
 pub(crate) const ARTICLE_MODULE_OFF: usize = 0x98;
+
+
+pub(crate) const OFF_KIRBY_COPY_RESOURCE_KIND: usize = 0xba4424;
+pub(crate) const OFF_KIRBY_COPY_VISUAL_KIND_PROMOTE: usize = 0xba4190;
+pub(crate) const OFF_KIRBY_COPY_FULL_MODEL_GATE: usize = 0xba4198;
+pub(crate) const OFF_KIRBY_COPY_FULL_MODEL_REMOVE_GATE: usize = 0xba4210;
+pub(crate) const OFF_KIRBY_COPY_MODEL_BASE_KIND: usize = 0xba4514;
+pub(crate) const OFF_KIRBY_COPY_BASE_MODEL_PAIR: usize = 0xba4524;
+pub(crate) const KIRBY_FULL_MODEL_BRANCH_KIND: i32 = 0x14;

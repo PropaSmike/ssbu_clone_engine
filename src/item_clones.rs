@@ -35,7 +35,7 @@ const OFF_ITEM_GET_PICKABLE_ITEM_KIND: usize = 0x2098D60;
 const OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID: usize = 0x2098D40;
 const OFF_ITEM_DEACTIVATE: usize = 0x15D4570;
 const OFF_BATTLE_OBJECT_UPDATE: usize = 0x3A84E0;
-const BATTLE_OBJECT_MODULE_TABLE: usize = 0x20;
+pub(crate) const BATTLE_OBJECT_MODULE_TABLE: usize = 0x20;
 
 const ITEM_NRO_DISPATCHER: usize = 0x480;
 const ITEM_NRO_DISPATCHER_WORDS: [u32; 5] =
@@ -192,6 +192,48 @@ fn category_from_descriptor(meta: ItemDescriptorMeta) -> ItemCategory {
     } else {
         ItemCategory::Item
     }
+}
+
+
+const BASE_OWNER_SLOTS: usize = 64;
+static BASE_OWNER_ITEM: [AtomicI32; BASE_OWNER_SLOTS] =
+    [const { AtomicI32::new(-1) }; BASE_OWNER_SLOTS];
+static BASE_OWNER_FIGHTER: [AtomicI32; BASE_OWNER_SLOTS] =
+    [const { AtomicI32::new(-1) }; BASE_OWNER_SLOTS];
+
+pub(crate) fn remember_base_item_owner(base_item_kind: i32, fighter_kind: i32) {
+    for index in 0..BASE_OWNER_SLOTS {
+        let held = BASE_OWNER_ITEM[index].load(Ordering::Relaxed);
+        if held == base_item_kind {
+            return;
+        }
+        if held == -1
+            && BASE_OWNER_ITEM[index]
+                .compare_exchange(-1, base_item_kind, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
+            BASE_OWNER_FIGHTER[index].store(fighter_kind, Ordering::Release);
+            return;
+        }
+    }
+}
+
+fn declared_base_item_owner(base_item_kind: i32) -> Option<i32> {
+    (0..BASE_OWNER_SLOTS).find_map(|index| {
+        (BASE_OWNER_ITEM[index].load(Ordering::Acquire) == base_item_kind)
+            .then(|| BASE_OWNER_FIGHTER[index].load(Ordering::Acquire))
+            .filter(|kind| *kind >= 0)
+    })
+}
+
+pub(crate) fn base_item_owner(base_item_kind: i32) -> Option<i32> {
+    if let Some(owner) = declared_base_item_owner(base_item_kind) {
+        return Some(owner);
+    }
+    let name = unsafe { base_resource_name(base_item_kind) }?;
+    let owner = crate::custom_articles::fighter_kind_from_name_prefix(name.to_str().ok()?)?;
+    remember_base_item_owner(base_item_kind, owner);
+    Some(owner)
 }
 
 fn owner_class_matches_category(meta: ItemDescriptorMeta, category: ItemCategory) -> bool {
@@ -647,6 +689,7 @@ pub(crate) unsafe fn live_identity_of_object(object: usize) -> Option<(i32, i32)
 
 #[skyline::hook(offset = OFF_BATTLE_OBJECT_UPDATE)]
 unsafe fn battle_object_update(object: *mut u8) {
+    crate::block_grid::sample();
     if LIVE_COUNT.load(Ordering::Acquire) == 0 {
         call_original!(object);
         return;
@@ -656,7 +699,8 @@ unsafe fn battle_object_update(object: *mut u8) {
     crate::item_params::report_common_params();
     #[cfg(feature = "item_selftest")]
     report_status_constants();
-    let scope = live_identity_of_object(object as usize).and_then(|(public, base)| {
+    let identity = live_identity_of_object(object as usize);
+    let scope = identity.and_then(|(public, base)| {
         let scope = crate::item_params::enter_runtime_clone(public, base);
         if scope.is_some() {
             static ANNOUNCED: AtomicBool = AtomicBool::new(false);
@@ -671,6 +715,14 @@ unsafe fn battle_object_update(object: *mut u8) {
     call_original!(object);
     if let Some(index) = scope {
         crate::item_params::leave_runtime_clone(index);
+    }
+    if let Some((_, base)) = identity {
+        crate::block_grid::note_live_block(object as usize, base);
+    }
+    #[cfg(feature = "diag_item_work")]
+    match live_identity_of_object(object as usize) {
+        Some((public, base)) => crate::item_work_probe::observe(object as usize, public, base),
+        None => crate::item_work_probe::observe_vanilla(object as usize),
     }
 }
 
@@ -1304,6 +1356,10 @@ unsafe fn item_lower_creator_bridge(
     let construct_scope = pending_index.and_then(|index| {
         let public = PENDING[index].public_kind.load(Ordering::Acquire);
         let base = PENDING[index].base_kind.load(Ordering::Acquire);
+        #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+        if let Some(owner) = base_item_owner(base) {
+            crate::fighter_params::ensure_kind_params_loaded(owner);
+        }
         let scope = crate::item_params::enter_runtime_clone(public, base);
         let live = crate::item_params::common_row(base)
             .map(|row| core::ptr::read_volatile(row.byte_add(0x18)))
@@ -1354,7 +1410,7 @@ pub(crate) fn item_nro_base() -> usize {
     ITEM_NRO_BASE.load(Ordering::Acquire)
 }
 
-unsafe fn const_table() -> Option<usize> {
+pub(crate) unsafe fn const_table() -> Option<usize> {
     let base = item_nro_base();
     if base == 0 {
         return None;
@@ -1980,6 +2036,11 @@ fn commit_item_definitions(mut staged: Vec<ItemCloneDefinition>) -> i32 {
             definition.agent_name.to_string_lossy(),
         ));
     }
+    for definition in &staged {
+        crate::block_grid::note_registered_base_kind(definition.base_kind);
+        #[cfg(feature = "css_slot")]
+        crate::owner_effects::note_registered_base_kind(definition.base_kind);
+    }
     existing.extend(staged);
     RESULT_OK
 }
@@ -2430,6 +2491,61 @@ pub extern "C" fn clone_engine_item_common_set(item_kind: i32, field: u64, value
 }
 
 #[no_mangle]
+pub extern "C" fn clone_engine_item_owner_param_set_f32(
+    item_kind: i32,
+    owner_kind: i32,
+    offset: u32,
+    value: f32,
+) -> i32 {
+    clone_engine_item_owner_param_set_bits(item_kind, owner_kind, offset, value.to_bits())
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_item_owner_param_set_i32(
+    item_kind: i32,
+    owner_kind: i32,
+    offset: u32,
+    value: i32,
+) -> i32 {
+    clone_engine_item_owner_param_set_bits(item_kind, owner_kind, offset, value as u32)
+}
+
+fn clone_engine_item_owner_param_set_bits(
+    item_kind: i32,
+    owner_kind: i32,
+    offset: u32,
+    bits: u32,
+) -> i32 {
+    if definition(item_kind).is_none() {
+        return ERROR_CUSTOM_KIND;
+    }
+    if !(0..crate::fighter_params::PARAM_NATIVE_KINDS).contains(&owner_kind) {
+        log(format!(
+            "[itemclone] item_owner_param_set refused public={item_kind:#x} owner={owner_kind}:              the owner must be one of the {} native fighter kinds",
+            crate::fighter_params::PARAM_NATIVE_KINDS
+        ));
+        return ERROR_UNSUPPORTED;
+    }
+    if !crate::item_params::owner_offset_valid(offset) {
+        log(format!(
+            "[itemclone] item_owner_param_set refused public={item_kind:#x} owner={owner_kind}              +{offset:#x}: the offset must be 4-byte aligned and below {:#x}",
+            crate::item_params::OWNER_PAYLOAD_BYTES
+        ));
+        return ERROR_UNSUPPORTED;
+    }
+    match crate::item_params::register_owner_override(item_kind, owner_kind, offset, bits) {
+        true => {
+            log(format!(
+                "[itemclone] item_owner_param_set public={item_kind:#x} owner={owner_kind}                  +{offset:#x} = {bits:#x} ({} override(s) for this item)",
+                crate::item_params::owner_override_count(item_kind)
+            ));
+            RESULT_OK
+        }
+        false => ERROR_BACKEND_UNAVAILABLE,
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn clone_engine_item_common_has(field: u64) -> i32 {
     crate::item_params::common_field_offset(field).is_some() as i32
 }
@@ -2584,4 +2700,6 @@ pub fn install() {
     }
     #[cfg(feature = "item_selftest")]
     selftest::register();
+    #[cfg(feature = "diag_item_work")]
+    crate::item_work_probe::install();
 }

@@ -8,7 +8,9 @@ A custom item gets its own kind and its own:
 - common float parameters, changed for your item only;
 - Training menu cell, with a name, help text and optional icon.
 
-A custom item's effects and sounds come from its base item's banks. Start from
+A custom item's effects and sounds come from its base item's banks. If the base
+item belongs to a fighter, that fighter's effect bank is loaded as well, so the
+item keeps its effects with the fighter absent from the match. Start from
 [`custom_items/template`](../../custom_items/template/).
 
 ## A content-only pack needs no plugin
@@ -59,6 +61,32 @@ ItemModule::have_item(boma, smash::app::ItemKind(WAWA.raw()), 0, 0, false, false
 least `FIRST_CUSTOM_ITEM_KIND` (0x36A) and unique across every custom item the
 user has installed, and neither you nor the engine can enforce that for a
 number two packs hardcoded.
+
+## An item whose parameters live on a fighter
+
+A few vanilla items keep parameters in a fighter's `vl.prc` rather than in their
+own `param.prc`. Steve's blocks are the usual example: lifetime and break damage
+are Steve's fighter parameters. Clone from one of those and your item reads the
+same value, so changing it would change the fighter.
+
+Give your item its own copy instead. Pass your kind, the owner fighter's kind, a
+4 byte aligned offset below `0x4000` into that fighter's parameters, and the
+value:
+
+```rust
+clone_engine_api::item_owner_param_set_i32(BLOCK.raw(), 0x58, 0x518, 600)?;
+clone_engine_api::item_owner_param_set_f32(BLOCK.raw(), 0x58, 0x520, 0.0)?;
+```
+
+Do it once at startup. The override applies only while your item is read, so the
+fighter and any vanilla copy of the item are untouched.
+
+Set every parameter that decides the same outcome. A Steve block ends on
+whichever comes first, `life` frames or `auto_damage` wearing it down, so a
+longer `life` on its own changes nothing.
+
+[`custom_items/fighter_owned_template`](../../custom_items/fighter_owned_template/)
+is a working example of exactly this.
 
 ## File layout
 

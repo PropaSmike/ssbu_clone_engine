@@ -13,6 +13,19 @@ resolve the index immediately before you use it and never fall back to zero.
 
 Weapon callbacks belong to the owner, so gate them with `is_owned_by_kind`.
 
+## Articles with collision
+
+Four vanilla articles carry an `.lvd` file for their collision. Cloning one needs
+no extra registration, but the file name is not yours to change: put it in your
+own article directory under the base article's original file name.
+
+```text
+fighter/<your fighter>/model/<your article name>/c00/<base article name>.lvd
+```
+
+Rename the file to match your directory and the article loads with no collision
+at all.
+
 ## Kirby copies
 
 Your fighter can ship its own Kirby copy status scripts and either an ordinary

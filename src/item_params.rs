@@ -1116,6 +1116,105 @@ static SAVE_VALUE: [[AtomicU32; MAX_COMMON_SAVES]; MAX_RUNTIME_SCOPES] =
 static SAVE_COUNT: [AtomicUsize; MAX_RUNTIME_SCOPES] =
     [const { AtomicUsize::new(0) }; MAX_RUNTIME_SCOPES];
 
+struct OwnerOverride {
+    public_kind: i32,
+    owner_kind: i32,
+    offset: u32,
+    bits: u32,
+}
+
+fn owner_overrides() -> &'static RwLock<Vec<OwnerOverride>> {
+    static OVERRIDES: OnceLock<RwLock<Vec<OwnerOverride>>> = OnceLock::new();
+    OVERRIDES.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+const MAX_OWNER_SAVES: usize = 64;
+pub(crate) const OWNER_PAYLOAD_BYTES: u32 = 0x4000;
+static OWNER_SAVE_ADDRESS: [[AtomicUsize; MAX_OWNER_SAVES]; MAX_RUNTIME_SCOPES] =
+    [const { [const { AtomicUsize::new(0) }; MAX_OWNER_SAVES] }; MAX_RUNTIME_SCOPES];
+static OWNER_SAVE_BITS: [[AtomicU32; MAX_OWNER_SAVES]; MAX_RUNTIME_SCOPES] =
+    [const { [const { AtomicU32::new(0) }; MAX_OWNER_SAVES] }; MAX_RUNTIME_SCOPES];
+static OWNER_SAVE_COUNT: [AtomicUsize; MAX_RUNTIME_SCOPES] =
+    [const { AtomicUsize::new(0) }; MAX_RUNTIME_SCOPES];
+
+pub(crate) fn owner_offset_valid(offset: u32) -> bool {
+    offset % 4 == 0 && offset < OWNER_PAYLOAD_BYTES
+}
+
+pub(crate) fn register_owner_override(
+    public_kind: i32,
+    owner_kind: i32,
+    offset: u32,
+    bits: u32,
+) -> bool {
+    if !owner_offset_valid(offset) {
+        return false;
+    }
+    let Ok(mut overrides) = owner_overrides().write() else {
+        return false;
+    };
+    match overrides.iter_mut().find(|e| {
+        e.public_kind == public_kind && e.owner_kind == owner_kind && e.offset == offset
+    }) {
+        Some(existing) => existing.bits = bits,
+        None => overrides.push(OwnerOverride {
+            public_kind,
+            owner_kind,
+            offset,
+            bits,
+        }),
+    }
+    true
+}
+
+unsafe fn apply_owner_overrides(scope: usize, public_kind: i32) {
+    OWNER_SAVE_COUNT[scope].store(0, Ordering::Relaxed);
+    let Ok(overrides) = owner_overrides().read() else {
+        return;
+    };
+    if overrides.is_empty() {
+        return;
+    }
+    let mut saved = 0usize;
+    for entry in overrides.iter().filter(|e| e.public_kind == public_kind) {
+        if saved >= MAX_OWNER_SAVES {
+            break;
+        }
+        if !owner_offset_valid(entry.offset) {
+            continue;
+        }
+        let Some(payload) = crate::fighter_params::payload_of(entry.owner_kind) else {
+            continue;
+        };
+        let field = (payload + entry.offset as usize) as *mut u32;
+        OWNER_SAVE_ADDRESS[scope][saved].store(field as usize, Ordering::Relaxed);
+        OWNER_SAVE_BITS[scope][saved]
+            .store(core::ptr::read_volatile(field), Ordering::Relaxed);
+        core::ptr::write_volatile(field, entry.bits);
+        saved += 1;
+    }
+    OWNER_SAVE_COUNT[scope].store(saved, Ordering::Release);
+}
+
+unsafe fn restore_owner_overrides(scope: usize) {
+    let saved = OWNER_SAVE_COUNT[scope].swap(0, Ordering::AcqRel);
+    for slot in 0..saved.min(MAX_OWNER_SAVES) {
+        let address = OWNER_SAVE_ADDRESS[scope][slot].swap(0, Ordering::Relaxed);
+        if address == 0 {
+            continue;
+        }
+        let bits = OWNER_SAVE_BITS[scope][slot].load(Ordering::Relaxed);
+        core::ptr::write_volatile(address as *mut u32, bits);
+    }
+}
+
+pub(crate) fn owner_override_count(public_kind: i32) -> usize {
+    owner_overrides()
+        .read()
+        .map(|held| held.iter().filter(|e| e.public_kind == public_kind).count())
+        .unwrap_or(0)
+}
+
 pub(crate) unsafe fn common_row(kind: i32) -> Option<*mut f32> {
     if kind < 0 || kind as u64 >= NATIVE_KIND_TERM {
         return None;
@@ -1235,6 +1334,7 @@ pub(crate) fn enter_runtime_clone(public_kind: i32, base_kind: i32) -> Option<us
         SCOPE_PUBLIC[index].store(public_kind, Ordering::Relaxed);
         SCOPE_BASE[index].store(base_kind, Ordering::Relaxed);
         unsafe { apply_common_overrides(index, public_kind, base_kind) };
+        unsafe { apply_owner_overrides(index, public_kind) };
         return Some(index);
     }
     None
@@ -1244,6 +1344,7 @@ pub(crate) fn leave_runtime_clone(index: usize) {
     if index >= MAX_RUNTIME_SCOPES {
         return;
     }
+    unsafe { restore_owner_overrides(index) };
     unsafe { restore_common_overrides(index, SCOPE_BASE[index].load(Ordering::Relaxed)) };
     SCOPE_PUBLIC[index].store(-1, Ordering::Relaxed);
     SCOPE_BASE[index].store(-1, Ordering::Relaxed);

@@ -62,6 +62,9 @@ in assets or configuration; use names such as
 - [Simple item template](custom_items/template/): independent item
   identity, model, motion, local/common parameters, ACMD, status, and Training
   UI cell.
+- [Fighter owned item template](custom_items/fighter_owned_template/): an item
+  whose parameters live on a fighter instead of in its own `param.prc`, given
+  its own values without touching that fighter.
 - [Stage template](custom_stages/template/): independent normal,
   Omega, and Battlefield forms, stage-select entry, parameters, collision,
   effects, sound, and camera resources.

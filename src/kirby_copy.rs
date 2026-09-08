@@ -213,20 +213,16 @@ pub(crate) unsafe fn kirby_copy_visual_kind_promote(ctx: &mut skyline::hooks::In
     } else {
         *(row as *const i32)
     };
-    if row == 0 || row_kind != definition.base_kind {
-        if let Some(n) = kirby_hat_flow_log_index() {
-            dbg_log!(
-                "[kirbyhat] #{n} site=post-row-promote fallback kind={before} target={kind} link={link:#x} row={row:#x} row_kind={row_kind}"
-            );
-        }
+    if link == 0 {
         return;
     }
+    let cached = row != 0 && row_kind == definition.base_kind;
 
     ctx.registers[20].set_x(kind as u32 as u64);
     *((link as usize + 0x17398) as *mut i32) = kind;
     if let Some(n) = kirby_hat_flow_log_index() {
         dbg_log!(
-            "[kirbyhat] #{n} site=post-row-promote kind={before}->{kind} link={link:#x} row={row:#x} row_kind={row_kind} previous_store={kind}"
+            "[kirbyhat] #{n} site=post-row-promote kind={before}->{kind} link={link:#x} row={row:#x} row_kind={row_kind} cached={cached} previous_store={kind}"
         );
     }
 }
@@ -283,10 +279,14 @@ pub(crate) unsafe fn kirby_copy_full_model_gate(ctx: &mut skyline::hooks::Inline
     let Some(kind) = active_kirby_copy_kind() else {
         return;
     };
-    if !clone_definition(kind).is_some_and(|definition| definition.kirby_copy_full_model) {
+    let Some(definition) = clone_definition(kind) else {
+        return;
+    };
+    if !definition.kirby_copy_full_model {
         return;
     }
-    if ctx.registers[20].x() as u32 as i32 != kind {
+    let routed = ctx.registers[20].x() as u32 as i32;
+    if routed != kind && routed != definition.base_kind {
         return;
     }
 
@@ -309,7 +309,7 @@ pub(crate) unsafe fn kirby_copy_full_model_gate(ctx: &mut skyline::hooks::Inline
     if pending == 0 && source == 0 {
         if let Some(n) = kirby_hat_flow_log_index() {
             dbg_log!(
-                "[kirbyhat] #{n} site=full-model-gate fallback kind={kind} fighter={fighter:#x} resource={resource:#x} pending=0 source=0"
+                "[kirbyhat] #{n} site=full-model-gate fallback routed={routed} kind={kind} fighter={fighter:#x} resource={resource:#x} pending=0 source=0"
             );
         }
         return;
@@ -318,7 +318,7 @@ pub(crate) unsafe fn kirby_copy_full_model_gate(ctx: &mut skyline::hooks::Inline
     ctx.registers[20].set_x(KIRBY_FULL_MODEL_BRANCH_KIND as u32 as u64);
     if let Some(n) = kirby_hat_flow_log_index() {
         dbg_log!(
-            "[kirbyhat] #{n} site=full-model-gate kind={kind}->{} resource={resource:#x} pending={pending:#x} source={source:#x}",
+            "[kirbyhat] #{n} site=full-model-gate routed={routed} kind={kind}->{} resource={resource:#x} pending={pending:#x} source={source:#x}",
             KIRBY_FULL_MODEL_BRANCH_KIND
         );
     }
@@ -421,6 +421,43 @@ pub(crate) unsafe fn kirby_copy_record_lookup_kind(ctx: &mut skyline::hooks::Inl
         return;
     };
     dbg_log!("[kirbyhat] #{n} site=record-lookup target_kind={kind} lookup_kind={before}->{kind}");
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY, inline)]
+pub(crate) unsafe fn kirby_copy_record_search_kind(ctx: &mut skyline::hooks::InlineCtx) {
+    let Some(kind) = active_kirby_copy_kind() else {
+        return;
+    };
+    let Some(definition) = clone_definition(kind) else {
+        return;
+    };
+    let before = ctx.registers[1].x() as u32 as i32;
+    if before != definition.base_kind {
+        return;
+    }
+    let container = ctx.registers[0].x();
+    if container < LOWEST_PLAUSIBLE_POINTER {
+        return;
+    }
+    if kirby_record_find(container, before) != 0 {
+        return;
+    }
+    let clone_record = kirby_record_find(container, kind);
+    if clone_record == 0 {
+        if let Some(n) = kirby_hat_flow_log_index() {
+            dbg_log!(
+                "[kirbyhat] #{n} site=record-search MISS kind={before} target={kind} container={container:#x}"
+            );
+        }
+        return;
+    }
+    ctx.registers[1].set_x(kind as u32 as u64);
+    if let Some(n) = kirby_hat_flow_log_index() {
+        dbg_log!(
+            "[kirbyhat] #{n} site=record-search kind={before}->{kind} container={container:#x} record={clone_record:#x}"
+        );
+    }
 }
 
 #[cfg(feature = "css_slot")]
@@ -677,6 +714,24 @@ fn kirby_record_build_release(owned: bool) {
     KIRBY_RECORD_BUILD_LOCK.store(false, Ordering::Release);
 }
 
+#[cfg(feature = "css_slot")]
+unsafe fn module_vtable_target(module: usize, slot: usize) -> usize {
+    if (module as u64) < LOWEST_PLAUSIBLE_POINTER {
+        return 0;
+    }
+    let vtable = core::ptr::read_volatile(module as *const usize);
+    if vtable < LOWEST_PLAUSIBLE_IMAGE_POINTER {
+        return 0;
+    }
+    let target = core::ptr::read_volatile((vtable + slot) as *const usize);
+    if target < crate::text_base_public() {
+        return 0;
+    }
+    target
+}
+
+#[cfg(feature = "css_slot")]
+const MODEL_MODULE_BOMA_OFFSET: usize = 0x78;
 #[cfg(feature = "css_slot")]
 pub(crate) unsafe fn kirby_record_find(container: u64, kind: i32) -> u64 {
     if container == 0 {
@@ -1156,19 +1211,12 @@ unsafe fn register_clone_copy_animations(accessor: usize, kind: i32, resource_na
         return;
     }
     let module = core::ptr::read_volatile((accessor + MODULE_ACCESSOR_MOTION_OFFSET) as *const usize);
-    if (module as u64) < LOWEST_PLAUSIBLE_POINTER {
-        return;
-    }
-    let vtable = core::ptr::read_volatile(module as *const usize);
-    if (vtable as u64) < LOWEST_PLAUSIBLE_POINTER {
-        return;
-    }
-    let entry = core::ptr::read_volatile(
-        (vtable + MOTION_EXTRA_ANIMATION_PATH_SLOT * 8) as *const usize,
-    );
+    let entry = module_vtable_target(module, MOTION_EXTRA_ANIMATION_PATH_SLOT * 8);
     let (base, end) = (text_base(), text_end());
-    if base == 0 || end <= base || entry < base || entry >= end {
-        dbg_log!("[kirbymotion] motion module slot {entry:#x} is outside main; kind {kind} skipped");
+    if entry == 0 || base == 0 || end <= base || entry < base || entry >= end {
+        dbg_log!(
+            "[kirbymotion] kind {kind} skipped: accessor={accessor:#x} module={module:#x} slot={entry:#x} is not inside main"
+        );
         return;
     }
 
@@ -1575,6 +1623,8 @@ pub(crate) const STATUS_MODULE_CURRENT_KIND: usize = 0x98;
 #[cfg(feature = "css_slot")]
 pub(crate) const LOWEST_PLAUSIBLE_POINTER: u64 = 0x1_0000_0000;
 #[cfg(feature = "css_slot")]
+pub(crate) const LOWEST_PLAUSIBLE_IMAGE_POINTER: usize = 0x1_0000;
+#[cfg(feature = "css_slot")]
 pub(crate) const STATUS_TABLE_MAX_SCRIPTS: u64 = 8192;
 
 #[cfg(feature = "css_slot")]
@@ -1874,8 +1924,53 @@ pub(crate) unsafe fn kirby_copy_routed_status(boma: u64, native_status: u64) -> 
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_STATUS_SET_KIND_INTERRUPT)]
-pub(crate) unsafe fn kirby_copy_dispatch_status(boma: u64, status: u64) -> u64 {
+const STATUS_MODULE_BOMA_OFFSET: usize = 0x40;
+#[cfg(feature = "css_slot")]
+const STATUS_SET_KIND_INTERRUPT_SLOT: usize = 0x120;
+
+#[cfg(feature = "css_slot")]
+unsafe fn set_status_kind_interrupt_native(boma: u64, status: u64) -> u64 {
+    let module =
+        core::ptr::read_volatile((boma as usize + STATUS_MODULE_BOMA_OFFSET) as *const usize);
+    let target = module_vtable_target(module, STATUS_SET_KIND_INTERRUPT_SLOT);
+    if target == 0 {
+        return 0;
+    }
+    let native: unsafe extern "C" fn(usize, u64) -> u64 = core::mem::transmute(target);
+    native(module, status)
+}
+
+#[cfg(feature = "css_slot")]
+static KIRBY_INTERRUPT_STUB_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn install_status_interrupt_stub() -> bool {
+    let site = crate::text_base() + OFF_STATUS_SET_KIND_INTERRUPT;
+    let handler = kirby_copy_dispatch_status as usize as u64;
+    let mut bytes = [0u8; 16];
+    bytes[0..4].copy_from_slice(&0x5800_0051u32.to_le_bytes());
+    bytes[4..8].copy_from_slice(&0xD61F_0220u32.to_le_bytes());
+    bytes[8..16].copy_from_slice(&handler.to_le_bytes());
+    let wrote = crate::text_patch::write_bytes(site, &bytes);
+    let mut live = [0u8; 16];
+    for (index, slot) in live.iter_mut().enumerate() {
+        *slot = core::ptr::read_volatile((site + index) as *const u8);
+    }
+    if live == bytes {
+        dbg_log_public(&format!(
+            "[kirbyfam] status-interrupt stub verified live by read-back at {site:#x}: handler {handler:#x}"
+        ));
+        return wrote;
+    }
+    dbg_log_public(&format!(
+        "[kirbyfam] status-interrupt stub REFUSED at {site:#x}; copy status routing is inert"
+    ));
+    false
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe extern "C" fn kirby_copy_dispatch_status(boma: u64, status: u64) -> u64 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
     core::arch::asm!("mov {}, x30", out(reg) lr);
@@ -1886,13 +1981,20 @@ pub(crate) unsafe fn kirby_copy_dispatch_status(boma: u64, status: u64) -> u64 {
     let base = KIRBY_NRO_BASE.load(core::sync::atomic::Ordering::Relaxed);
     let in_dispatcher =
         base != 0 && (base + KIRBY_NRO_DISPATCH_START..base + KIRBY_NRO_DISPATCH_END).contains(&lr);
+    let n = KIRBY_INTERRUPT_STUB_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 48 {
+        let nro_rel = if base != 0 { lr.wrapping_sub(base) } else { 0 };
+        dbg_log_public(&format!(
+            "[kirbyfam] #{n} interrupt-stub boma={boma:#x} status={status:#x} lr={lr:#x} nrorel={nro_rel:#x} in_dispatcher={in_dispatcher}"
+        ));
+    }
     if !in_dispatcher {
-        return call_original!(boma, status);
+        return set_status_kind_interrupt_native(boma, status);
     }
 
     match kirby_copy_routed_status(boma, status) {
-        Some(first_status) => call_original!(boma, first_status as u64),
-        None => call_original!(boma, status),
+        Some(first_status) => set_status_kind_interrupt_native(boma, first_status as u64),
+        None => set_status_kind_interrupt_native(boma, status),
     }
 }
 
@@ -2272,7 +2374,8 @@ pub(crate) fn install_custom_kirby_copy_hooks() {
         kirby_copy_special_install_probe,
         kirby_copy_resource_transfer,
         kirby_copy_transfer_lookup,
-        kirby_copy_record_lookup_kind
+        kirby_copy_record_lookup_kind,
+        kirby_copy_record_search_kind
     );
     skyline::install_hooks!(weapon_preload_probe, resource_slot_probe);
     skyline::install_hooks!(kirby_copy_setup_probe);

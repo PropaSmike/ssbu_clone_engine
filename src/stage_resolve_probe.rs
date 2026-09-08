@@ -6,8 +6,6 @@ pub const OFF_PLACE_FORM_SCAN: usize = 0x1739df0;
 
 pub const OFF_STAGE_SELECT_TO_ID: usize = 0x33117b0;
 
-pub const OFF_MATCH_START_PATH: usize = 0x2311000;
-
 pub const OFF_PANEL_LIST_COUNT: usize = 0x1B30FB0;
 pub const PANEL_LIST_COUNT_OPCODE: u32 = 0x1B097D03;
 
@@ -141,27 +139,6 @@ unsafe fn stage_select_to_id_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     if SELECT_REPORTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < REPORT_LIMIT {
         skyline::println!(
             "[stageselect] select->id(x0={:#x}, x1={:#x}, x2={:#x}, x3={:#x}) = {} ({:#x})",
-            x0,
-            x1,
-            x2,
-            x3,
-            result as i32,
-            result,
-        );
-    }
-    result
-}
-
-#[cfg(not(test))]
-static MATCH_REPORTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-#[cfg(not(test))]
-#[skyline::hook(offset = OFF_MATCH_START_PATH)]
-unsafe fn match_start_path_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
-    let result = call_original!(x0, x1, x2, x3);
-    if MATCH_REPORTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < REPORT_LIMIT {
-        skyline::println!(
-            "[stagematch] match-start(x0={:#x}, x1={:#x}, x2={:#x}, x3={:#x}) = {} ({:#x})",
             x0,
             x1,
             x2,
@@ -309,7 +286,6 @@ pub fn install() {
     skyline::install_hook!(stage_name_resolver_probe);
     skyline::install_hook!(place_form_scan_probe);
     skyline::install_hook!(stage_select_to_id_probe);
-    skyline::install_hook!(match_start_path_probe);
     skyline::println!(
         "[stageresolve] probes armed: {:#x} place-hash, {:#x} stage-name, {:#x} place+form, {:#x} LIVE select->id",
         OFF_PLACE_HASH_RESOLVER,

@@ -355,6 +355,9 @@ const PATH_CATEGORY_SITE: usize = 0x17E1258;
 const PATH_CATEGORY_EXPECTED: u32 = 0x7100245F;
 
 const OFF_ITEM_POPULATE: usize = 0x160AC80;
+const ITEM_KIND_CONFIG_TABLE: usize = 0x5070FD0;
+const ITEM_KIND_CONFIG_STRIDE: usize = 0x20;
+const ITEM_KIND_CONFIG_ON_DEMAND: u8 = 2;
 const OFF_ITEM_ACQUIRE: usize = 0x1607FC0;
 const ITEM_MANAGER_GLOBAL: usize = 0x52C3498;
 const ITEM_RESOURCE_MANAGER_GLOBAL: usize = 0x5323680;
@@ -871,6 +874,14 @@ fn item_populate(manager: usize, kind: i32, flag: u32);
 #[skyline::from_offset(OFF_ITEM_ACQUIRE)]
 fn item_acquire(slot: usize, flag: u32);
 
+unsafe fn base_kind_is_on_demand(base_kind: i32) -> bool {
+    if !(0..NATIVE_ITEM_KIND_COUNT as i32).contains(&base_kind) {
+        return false;
+    }
+    let entry = crate::text_base() + ITEM_KIND_CONFIG_TABLE + base_kind as usize * ITEM_KIND_CONFIG_STRIDE;
+    core::ptr::read_volatile(entry as *const u8) & ITEM_KIND_CONFIG_ON_DEMAND != 0
+}
+
 unsafe fn load_clone_slots() {
     let manager = item_manager();
     if manager == 0 {
@@ -899,6 +910,14 @@ unsafe fn load_clone_slots() {
         CloneSlot::init(slot as *mut u8);
         core::ptr::write_volatile((slot + SLOT_KEY_OFFSET) as *mut u32, public_kind as u32);
         let native = manager + base_kind as usize * SLOT_STRIDE + SLOT_BASE_OFFSET;
+        if base_kind_is_on_demand(base_kind) {
+            let before = core::ptr::read_volatile((native + SLOT_CONTAINER_OFFSET) as *const usize);
+            item_populate(manager, base_kind, 0);
+            let after = core::ptr::read_volatile((native + SLOT_CONTAINER_OFFSET) as *const usize);
+            crate::dbg_log_public(&format!(
+                "[itemslot] base {base_kind:#x} is on-demand for clone {public_kind:#x}; populated with flag 0, container {before:#x} -> {after:#x}"
+            ));
+        }
         for offset in SLOT_CONFIG_BYTES {
             let value = core::ptr::read_volatile((native + *offset) as *const u8);
             core::ptr::write_volatile((slot + *offset) as *mut u8, value);
@@ -908,6 +927,16 @@ unsafe fn load_clone_slots() {
         });
         let word = |offset: usize| core::ptr::read_volatile((slot + offset) as *const u32);
         let quad = |offset: usize| core::ptr::read_volatile((slot + offset) as *const usize);
+        let nquad = |offset: usize| core::ptr::read_volatile((native + offset) as *const usize);
+        crate::dbg_log_public(&format!(
+            "[itemslot] base {base_kind:#x} native slot {native:#x} container={:#x} flags={:#x} vec30=({:#x},{:#x}) vec50=({:#x},{:#x})",
+            nquad(SLOT_CONTAINER_OFFSET),
+            core::ptr::read_volatile((native + 0x0C) as *const u32),
+            nquad(0x30),
+            nquad(0x38),
+            nquad(0x50),
+            nquad(0x58),
+        ));
         crate::dbg_log_public(&format!(
             "[itemslot] forced load: clone {public_kind:#x} (base {base_kind:#x}) slot {slot:#x} \
              refcount={:#x} key={:#x} flags={:#x} container={:#x} vec18=({:#x},{:#x}) \
@@ -1465,6 +1494,8 @@ unsafe extern "C" fn match_load_tail(ctx: &mut skyline::hooks::InlineCtx) {
         return;
     }
     load_clone_slots();
+    #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+    crate::fighter_params::forget_foreign_loads();
     crate::item_params::report("match-load");
 }
 

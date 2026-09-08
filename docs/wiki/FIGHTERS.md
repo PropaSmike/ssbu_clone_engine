@@ -38,6 +38,24 @@ Then gate your callbacks on it: `is_kind` for the fighter, `is_owned_by_kind`
 for weapons and articles. A callback that runs without a gate runs for the
 vanilla base too.
 
+## Final Smash backgrounds
+
+27 fighters bring their own background scene with their Final Smash. If you clone
+one of them you get it for free, with the base fighter absent from the match, and
+there is nothing to register.
+
+To ship your own instead, put it at
+`fighter/<your resource name>/finalsmash/shared/`, matching the layout of the
+base fighter's tree. Your files are used when they are there, and the base
+fighter's load when they are not.
+
+If the background comes up black, the boot log says which fighter was resolved
+and how many of its models were found:
+
+```
+[fsload] kind 20 (falco) finalsmash directory Some(15204), 2 of 2 model probes resolved, 0 missing
+```
+
 ## Order of registration
 
 [`custom_fighters/template`](../../custom_fighters/template/) does this in

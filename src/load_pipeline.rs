@@ -36,6 +36,85 @@ pub(crate) static INIT_PROBE_LOG: core::sync::atomic::AtomicU32 =
 pub(crate) static INIT_BRIDGE_GUARDS: [core::sync::atomic::AtomicBool; 8] =
     [const { core::sync::atomic::AtomicBool::new(false) }; 8];
 
+static INIT_BRIDGE_OWNERS: [core::sync::atomic::AtomicUsize; 8] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; 8];
+
+static INIT_BRIDGE_BUSY_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+const INIT_BRIDGE_SPIN_LIMIT: u32 = 100_000;
+
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+unsafe fn init_bridge_acquire(entry_id: i32) -> Option<bool> {
+    use core::sync::atomic::Ordering;
+
+    if !(0..8).contains(&entry_id) {
+        return Some(false);
+    }
+    let index = entry_id as usize;
+    let thread = current_thread_key();
+    if thread != 0 && INIT_BRIDGE_OWNERS[index].load(Ordering::Acquire) == thread {
+        return Some(false);
+    }
+    for _ in 0..INIT_BRIDGE_SPIN_LIMIT {
+        if INIT_BRIDGE_GUARDS[index]
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            INIT_BRIDGE_OWNERS[index].store(thread, Ordering::Release);
+            return Some(true);
+        }
+        core::hint::spin_loop();
+    }
+    if INIT_BRIDGE_BUSY_LOG.fetch_add(1, Ordering::Relaxed) < 4 {
+        dbg_log!(
+            "[initbridge] entry={entry_id} guard held elsewhere for the whole spin budget; forwarding WITHOUT the kind-array bridge rather than blocking construction"
+        );
+    }
+    None
+}
+
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+fn init_bridge_release(entry_id: i32, owned: Option<bool>) {
+    use core::sync::atomic::Ordering;
+
+    if owned != Some(true) || !(0..8).contains(&entry_id) {
+        return;
+    }
+    let index = entry_id as usize;
+    INIT_BRIDGE_OWNERS[index].store(0, Ordering::Release);
+    INIT_BRIDGE_GUARDS[index].store(false, Ordering::Release);
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) unsafe fn resource_record_for_entry(entry_id: i32) -> Option<usize> {
+    let entry = usize::try_from(entry_id).ok().filter(|entry| *entry < 8)?;
+    let root = *((text_base() + 0x5323680) as *const usize);
+    if root == 0 {
+        return None;
+    }
+    let record = *((root + entry * 8 + 0xe8) as *const usize);
+    (record != 0).then_some(record)
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) unsafe fn resolve_resource_directory(
+    record: usize,
+    base_kind: i32,
+    kind_type: i32,
+) -> Option<i32> {
+    type Resolve = unsafe extern "C" fn(*mut i32, usize, i32, i32);
+    let resolve: Resolve =
+        core::mem::transmute(text_base() + crate::offsets::OFF_FIGHTER_RESOURCE_PATH_RESOLVE);
+    let mut out: i32 = -1;
+    resolve(&mut out as *mut i32, record, base_kind, kind_type);
+    (out >= 0 && out != RESOURCE_INDEX_NOT_FOUND).then_some(out)
+}
+
+pub(crate) unsafe fn resolve_param_directory(record: usize, base_kind: i32) -> Option<i32> {
+    resolve_resource_directory(record, base_kind, 12)
+}
+
 #[cfg(feature = "clone_runtime")]
 pub(crate) unsafe fn entry_for_resource_record(record: usize) -> Option<usize> {
     if record == 0 {
@@ -64,6 +143,81 @@ pub(crate) static SCOPED_RESOURCE_PATH_LOG: core::sync::atomic::AtomicU32 =
 ))]
 pub(crate) static CAMERA_RESOURCE_PATH_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+const PARAM_PATH_SLOTS: usize = 64;
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+static PARAM_PATH_CACHE: [[core::sync::atomic::AtomicI32; 2]; PARAM_PATH_SLOTS] = [const {
+    [
+        core::sync::atomic::AtomicI32::new(RESOURCE_INDEX_NOT_FOUND),
+        core::sync::atomic::AtomicI32::new(RESOURCE_INDEX_NOT_FOUND),
+    ]
+}; PARAM_PATH_SLOTS];
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) static PARAM_PATH_FALLBACK_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+fn param_path_slot(kind: i32, path_type: i32) -> Option<&'static core::sync::atomic::AtomicI32> {
+    let column = match path_type {
+        12 => 0usize,
+        13 => 1usize,
+        _ => return None,
+    };
+    let row = usize::try_from(kind.checked_sub(FIRST_CUSTOM_KIND)?).ok()?;
+    PARAM_PATH_CACHE.get(row).map(|entry| &entry[column])
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+fn remember_param_path(kind: i32, path_type: i32, index: i32) {
+    if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
+        return;
+    }
+    if let Some(slot) = param_path_slot(kind, path_type) {
+        slot.store(index, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+static BASE_PARAM_PATH: [core::sync::atomic::AtomicI32;
+    crate::fighter_params::PARAM_NATIVE_KINDS as usize] =
+    [const { core::sync::atomic::AtomicI32::new(RESOURCE_INDEX_NOT_FOUND) };
+        crate::fighter_params::PARAM_NATIVE_KINDS as usize];
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+fn remember_base_param_path(base_kind: i32, index: i32) {
+    if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
+        return;
+    }
+    if let Some(slot) = usize::try_from(base_kind)
+        .ok()
+        .and_then(|row| BASE_PARAM_PATH.get(row))
+    {
+        slot.store(index, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) fn remembered_base_param_path(base_kind: i32) -> Option<i32> {
+    let index = usize::try_from(base_kind)
+        .ok()
+        .and_then(|row| BASE_PARAM_PATH.get(row))?
+        .load(core::sync::atomic::Ordering::Relaxed);
+    (index >= 0 && index != RESOURCE_INDEX_NOT_FOUND).then_some(index)
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) fn remembered_clone_param_path(clone_kind: i32) -> Option<i32> {
+    remembered_param_path(clone_kind, 12)
+}
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+fn remembered_param_path(kind: i32, path_type: i32) -> Option<i32> {
+    let index = param_path_slot(kind, path_type)?.load(core::sync::atomic::Ordering::Relaxed);
+    (index >= 0 && index != RESOURCE_INDEX_NOT_FOUND).then_some(index)
+}
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 #[inline(always)]
@@ -403,6 +557,9 @@ pub(crate) unsafe fn fighter_scoped_resource_path_hook(
         }
         let mut base_index: i32 = -1;
         call_original!(&mut base_index as *mut i32, record, kind, path_type);
+        if path_type == 12 {
+            remember_base_param_path(definition.base_kind, base_index);
+        }
         if path_type == 20 {
             arm_pending_effect_kind(definition.kind, base_index);
         }
@@ -418,12 +575,42 @@ pub(crate) unsafe fn fighter_scoped_resource_path_hook(
             core::ptr::read_volatile(out)
         };
 
-        if !out.is_null()
-            && (custom_index == RESOURCE_INDEX_NOT_FOUND || custom_index < 0)
-            && base_index != RESOURCE_INDEX_NOT_FOUND
-            && base_index >= 0
-        {
-            core::ptr::write_volatile(out, base_index);
+        let clone_missed = custom_index == RESOURCE_INDEX_NOT_FOUND || custom_index < 0;
+
+        if !clone_missed {
+            remember_param_path(definition.kind, path_type, custom_index);
+        }
+
+        let recovered = if clone_missed {
+            remembered_param_path(definition.kind, path_type)
+        } else {
+            None
+        };
+
+        if !out.is_null() {
+            if let Some(index) = recovered {
+                core::ptr::write_volatile(out, index);
+                let seen = PARAM_PATH_FALLBACK_LOG
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                if seen < 16 {
+                    dbg_log_public(&format!(
+                        "[clonepath] WARNING {} ships no type={path_type} directory for this costume; recovered its own index {index:#x} instead of the base's {base_index:#x}. Ship fighter/{}/param/*.prc under EVERY cNN key.",
+                        definition.resource_name, definition.resource_name
+                    ));
+                }
+            } else if clone_missed && base_index != RESOURCE_INDEX_NOT_FOUND && base_index >= 0 {
+                core::ptr::write_volatile(out, base_index);
+                if matches!(path_type, 12 | 13) {
+                    let seen = PARAM_PATH_FALLBACK_LOG
+                        .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                    if seen < 16 {
+                        dbg_log_public(&format!(
+                            "[clonepath] WARNING {} type={path_type} params fell back to the BASE fighter's directory {base_index:#x}; this clone runs on the base's vl.prc for every list field.",
+                            definition.resource_name
+                        ));
+                    }
+                }
+            }
         }
 
         if n < 48 {
@@ -515,24 +702,11 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
     }
     if let Some(base) = clone_base(kind) {
         let spoof_hash = base_name_hash(base).unwrap_or(name_hash);
-        let guard = if (0..8).contains(&entry_id) {
-            let guard = &INIT_BRIDGE_GUARDS[entry_id as usize];
-            while guard
-                .compare_exchange_weak(
-                    false,
-                    true,
-                    core::sync::atomic::Ordering::Acquire,
-                    core::sync::atomic::Ordering::Relaxed,
-                )
-                .is_err()
-            {
-                core::hint::spin_loop();
-            }
-            Some(guard)
-        } else {
-            None
+        let guard = init_bridge_acquire(entry_id);
+        let patched = match guard {
+            Some(_) => entry_kind_slot(entry_id, kind),
+            None => None,
         };
-        let patched = entry_kind_slot(entry_id, kind);
         if let Some((slot, idx, count)) = patched {
             dbg_log!(
                 "[initbridge] #{n} kind {kind}->{base} name {name_hash:#x}->{spoof_hash:#x} \
@@ -546,20 +720,75 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
             );
         }
 
+        let params = crate::fighter_params::enter_clone_window(kind, base, entry_id);
         with_construction_context(kind, || {
             call_original!(object, id, base, entry_id, spoof_hash)
         });
+        crate::fighter_params::leave_window(params);
         if let Some((slot, _, _)) = patched {
             *slot = kind;
         }
-        if let Some(guard) = guard {
-            guard.store(false, core::sync::atomic::Ordering::Release);
-        }
+        init_bridge_release(entry_id, guard);
         dbg_log!("[initbridge] #{n} EXIT restored entry={entry_id} kind={kind}");
     } else {
-        call_original!(object, id, kind, entry_id, name_hash);
+        let params = crate::fighter_params::enter_vanilla_window(kind, entry_id);
+        crate::with_vanilla_construction_context(kind, || {
+            call_original!(object, id, kind, entry_id, name_hash)
+        });
+        crate::fighter_params::leave_window(params);
     }
 }
+
+
+pub(crate) const OFF_FIGHTER_POST_INIT_WORK_QUERY: usize = 0xcd98a0;
+
+#[skyline::hook(offset = OFF_FIGHTER_POST_INIT_WORK_QUERY)]
+pub(crate) unsafe fn post_init_work_query_probe(helper: *mut u8, fighter: *mut u8) -> u64 {
+    if fighter.is_null() {
+        return call_original!(helper, fighter);
+    }
+    let object = fighter as usize;
+    let kind = core::ptr::read_volatile((object + 0xc) as *const i32);
+    if !KIND_TABLE_KINDS.contains(&kind) {
+        return call_original!(helper, fighter);
+    }
+    let entry_id = core::ptr::read_volatile((object + 0x10) as *const i32);
+
+    let held = crate::fighter_params::borrow_vanilla_resident(kind);
+    if let Some((_, replaced, resident_table, vanilla_table)) = held {
+        let logged = KIND_TABLE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if logged < 8 {
+            crate::dbg_log_public(&format!(
+                "[kindtable] kind={kind} entry={entry_id} resident payload {:#x} table {resident_table:#x} is not usable; lending the base fighter's own payload with table {vanilla_table:#x} for this call",
+                replaced.payload()
+            ));
+        }
+    } else if crate::fighter_params::resident_kind_table(kind).1 == 0 {
+        let refusals = KIND_TABLE_REFUSED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if refusals < 8 {
+            let (payload, _) = crate::fighter_params::resident_kind_table(kind);
+            crate::dbg_log_public(&format!(
+                "[kindtable] REFUSED #{refusals} kind={kind} entry={entry_id} payload {payload:#x} has no kind table and no usable substitute; the query that would fault is skipped"
+            ));
+        }
+        return 0;
+    }
+
+    let result = call_original!(helper, fighter);
+    if let Some(held) = held {
+        crate::fighter_params::release_vanilla_resident(held);
+    }
+    result
+}
+
+const KIND_TABLE_KINDS: [i32; 2] = [0x15, 0x16];
+
+static KIND_TABLE_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+static KIND_TABLE_REFUSED: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
 
 #[cfg(feature = "true_kind")]
 pub(crate) const OFF_ENTRY_BLOCK_INSTALL: usize = 0x653240;
@@ -1545,7 +1774,7 @@ pub(crate) unsafe fn camera_record_value_guard(object: *mut u8) -> f32 {
         if record != 0 && blob == 0 {
             if !CAMERA_ROUTE_DISABLED.swap(true, core::sync::atomic::Ordering::Relaxed) {
                 dbg_log!(
-                    "[camaccess] clone camera has no curves; type 39 routing DISABLED for the                      rest of the session - later cameras fall back to the base fighter's, which                      is the configuration that has always worked"
+                    "[camaccess] clone camera has no curves; type 39 routing DISABLED for the rest of the session - later cameras fall back to the base fighter's, which is the configuration that has always worked"
                 );
             }
             return 0.0;
@@ -1559,18 +1788,34 @@ pub(crate) static VICTORY_CAMERA_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+static VICTORY_CAMERA_DECLINE_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 #[skyline::hook(offset = 0x60d6ac, inline)]
 pub(crate) unsafe fn victory_camera_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let record = ctx.registers[20].x() as usize;
     let kind = ctx.registers[1].x() as i32;
 
-    let Some(definition) = entry_for_resource_record(record)
+    let scanned = entry_for_resource_record(record);
+    let Some(definition) = scanned
         .and_then(|entry| entry_custom_kind(entry as u8))
         .and_then(clone_definition)
         .filter(|definition| kind == definition.base_kind)
     else {
         return;
     };
+
+    if crate::active_vanilla_construction_kind() == Some(kind) {
+        let n = VICTORY_CAMERA_DECLINE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 16 {
+            crate::dbg_log_public(&format!(
+                "[vcamera] declined kind={kind}->{} for the REAL base fighter under construction (record {record:#x} scanned as entry {scanned:?})",
+                definition.kind
+            ));
+        }
+        return;
+    }
 
     ctx.registers[1].set_x(definition.kind as u64);
     let n = VICTORY_CAMERA_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
