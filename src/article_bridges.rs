@@ -7,8 +7,26 @@ macro_rules! custom_article_name_hooks {
             #[skyline::hook(offset = $offset, inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[$src].x() as i32;
-                if let Some(value) = $lookup(weapon_kind) {
+                let game = ctx.registers[$dst].x() as *const u8;
+                let chosen = $lookup(weapon_kind);
+                if let Some(value) = chosen {
                     ctx.registers[$dst].set_x(value.as_ptr() as u64);
+                }
+                if weapon_kind >= INHERITED_KIND_LOG_FLOOR {
+                    static NAME_LOG: core::sync::atomic::AtomicU32 =
+                        core::sync::atomic::AtomicU32::new(0);
+                    if NAME_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
+                        dbg_log!(
+                            "[articlename] {:#x}: weapon {weapon_kind} game name {:?} ours {:?}",
+                            $offset as usize,
+                            (!game.is_null())
+                                .then(|| core::ffi::CStr::from_ptr(game).to_str().ok())
+                                .flatten(),
+                            chosen.and_then(|value| core::ffi::CStr::from_bytes_until_nul(value)
+                                .ok()
+                                .and_then(|name| name.to_str().ok()))
+                        );
+                    }
                 }
             }
         )*
@@ -85,7 +103,7 @@ custom_article_agent_gate_hooks! {
 }
 
 custom_article_name_hooks! {
-    install_custom_article_weapon_name_hooks, custom_articles::custom_weapon_name;
+    install_custom_article_weapon_name_hooks, custom_articles::param_lookup_weapon_name;
     custom_weapon_name_param(21, 27, 0x33b6830);
     custom_weapon_name_map_collision(21, 2, 0x33b69f0);
     custom_weapon_name_visibility(21, 2, 0x33b6d14);
@@ -99,8 +117,20 @@ macro_rules! custom_article_owner_kind_hooks {
             #[skyline::hook(offset = $offset, inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[$src].x() as i32;
-                if let Some(owner) = $lookup(weapon_kind) {
+                let game_owner = ctx.registers[$dst].x() as i32;
+                let ours = $lookup(weapon_kind);
+                if let Some(owner) = ours {
                     ctx.registers[$dst].set_x(owner as u64);
+                }
+                if weapon_kind >= INHERITED_KIND_LOG_FLOOR {
+                    static OWNER_LOG: core::sync::atomic::AtomicU32 =
+                        core::sync::atomic::AtomicU32::new(0);
+                    if OWNER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                        dbg_log!(
+                            "[articleowner] {:#x}: weapon kind {weapon_kind} game owner                              {game_owner} ours {ours:?}",
+                            $offset as usize
+                        );
+                    }
                 }
             }
         )*
@@ -112,8 +142,27 @@ macro_rules! custom_article_owner_kind_hooks {
     };
 }
 
+#[cfg(feature = "css_slot")]
+fn weapon_owner_kind_for_params(weapon_kind: i32) -> Option<i32> {
+    if let Some(source_owner) = custom_articles::source_weapon_owner_kind(weapon_kind) {
+        unsafe { crate::fighter_params::ensure_kind_params_loaded(source_owner) };
+        if crate::fighter_params::kind_params_have_real_data(source_owner) {
+            return Some(source_owner);
+        }
+    }
+    if let Some(owner) = custom_articles::custom_weapon_owner_kind(weapon_kind) {
+        return Some(owner);
+    }
+    let (source_owner, destination) = custom_articles::inherited_child_owner(weapon_kind)?;
+    unsafe { crate::fighter_params::ensure_kind_params_loaded(source_owner) };
+    if crate::fighter_params::kind_params_have_real_data(source_owner) {
+        return None;
+    }
+    crate::fighter_params::kind_params_are_foreign(source_owner).then_some(destination)
+}
+
 custom_article_owner_kind_hooks! {
-    install_custom_article_owner_kind_hooks, custom_articles::custom_weapon_owner_kind;
+    install_custom_article_owner_kind_hooks, weapon_owner_kind_for_params;
     custom_weapon_owner_kind_param(21, 26, 0x33b6628);
 }
 
@@ -126,11 +175,74 @@ custom_article_owner_kind_hooks! {
 }
 
 #[cfg(feature = "css_slot")]
+const WEAPON_RECORD_SLOTS: usize = 64;
+
+const ARTICLE_SPEC_DESCRIPTOR_SLOT: u64 = 0x1b8;
+const FIGHTER_PARAM_SINGLETON: u64 = 0x52bb3b0;
+const INHERITED_KIND_LOG_FLOOR: i32 = 280;
+
+const FIGHTER_PARAM_RECORD_BASE: u64 = 0x60;
+const FIGHTER_PARAM_RECORD_STRIDE: u64 = 0x38;
+const FIGHTER_PARAM_RECORD_PAYLOAD: u64 = 0x10;
+const HORIZON_TLS_THREAD: u64 = 0x1f8;
+const HORIZON_THREAD_HANDLE: u64 = 0x1b0;
+
+#[cfg(feature = "css_slot")]
+static WEAPON_RECORD_KIND: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
+    [const { core::sync::atomic::AtomicI32::new(-1) }; WEAPON_RECORD_SLOTS];
+
+#[cfg(feature = "css_slot")]
+static WEAPON_RECORD_RESULT: [core::sync::atomic::AtomicU64; WEAPON_RECORD_SLOTS] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; WEAPON_RECORD_SLOTS];
+
+#[cfg(feature = "css_slot")]
+static WEAPON_RECORD_REBIAS_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+static WEAPON_RECORD_VANILLA_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+fn weapon_record_slot(weapon_kind: i32) -> Option<usize> {
+    use core::sync::atomic::Ordering;
+    for index in 0..WEAPON_RECORD_SLOTS {
+        let held = WEAPON_RECORD_KIND[index].load(Ordering::Relaxed);
+        if held == weapon_kind {
+            return Some(index);
+        }
+        if held == -1
+            && WEAPON_RECORD_KIND[index]
+                .compare_exchange(-1, weapon_kind, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
+            return Some(index);
+        }
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
+std::thread_local! {
+    static BUILDER_KIND: core::cell::Cell<i32> = const { core::cell::Cell::new(-1) };
+}
+
+#[cfg(feature = "css_slot")]
+fn note_builder_kind(kind: i32) {
+    let _ = BUILDER_KIND.try_with(|slot| slot.set(kind));
+}
+
+#[cfg(feature = "css_slot")]
+fn current_builder_kind() -> i32 {
+    BUILDER_KIND.try_with(|slot| slot.get()).unwrap_or(-1)
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x33b5f44, inline)]
 pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks::InlineCtx) {
     const WEAPON_RECORD_STRIDE: i64 = 0xe8;
 
     let weapon_kind = ctx.registers[24].x() as i32;
+    note_builder_kind(weapon_kind);
 
     {
         static SEEN: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
@@ -164,21 +276,419 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
         return;
     };
 
+    if let Some(vanilla) = crate::active_vanilla_construction_kind() {
+        let n = WEAPON_RECORD_VANILLA_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 16 {
+            crate::dbg_log_public(&format!(
+                "[articlerecord] weapon kind {weapon_kind} belongs to vanilla fighter {vanilla}                  under construction; leaving its own record alone (would have used source {source})"
+            ));
+        }
+        return;
+    }
+
     if let Some(owner) = custom_articles::source_weapon_owner_kind(weapon_kind) {
         fighter_modules::ensure_loaded(owner, 3000);
     }
 
     let bias = (source as i64 - weapon_kind as i64) * WEAPON_RECORD_STRIDE;
     let base = ctx.registers[25].x();
-    ctx.registers[25].set_x(base.wrapping_add(bias as u64));
+    let slot = weapon_record_slot(weapon_kind);
+
+    if let Some(index) = slot {
+        let produced = WEAPON_RECORD_RESULT[index].load(core::sync::atomic::Ordering::Relaxed);
+        if produced != 0 && base == produced {
+            let n = WEAPON_RECORD_REBIAS_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 8 {
+                crate::dbg_log_public(&format!(
+                    "[articlerecord] weapon kind {weapon_kind} re-entered with an ALREADY biased                      record {base:#x}; skipping the second bias (would have produced {:#x})",
+                    base.wrapping_add(bias as u64)
+                ));
+            }
+            return;
+        }
+    }
+
+    let biased = base.wrapping_add(bias as u64);
+    ctx.registers[25].set_x(biased);
+    if let Some(index) = slot {
+        WEAPON_RECORD_RESULT[index].store(biased, core::sync::atomic::Ordering::Relaxed);
+    }
 
     static RECORD_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
     let n = RECORD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 16 {
         dbg_log!(
-            "[articlerecord] #{n} weapon kind {weapon_kind} uses source {source}'s record              (base {base:#x} biased by {bias})"
+            "[articlerecord] #{n} weapon kind {weapon_kind} uses source {source}'s record              (base {base:#x} biased by {bias} -> {biased:#x})"
         );
     }
+}
+
+#[cfg(all(feature = "css_slot", target_arch = "aarch64"))]
+unsafe fn horizon_thread_local() -> u64 {
+    let value: u64;
+    core::arch::asm!("mrs {}, tpidrro_el0", out(reg) value, options(nomem, nostack));
+    value
+}
+
+#[cfg(all(feature = "css_slot", not(target_arch = "aarch64")))]
+unsafe fn horizon_thread_local() -> u64 {
+    0
+}
+
+#[cfg(feature = "css_slot")]
+static PAYLOAD_FILLED: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
+    [const { core::sync::atomic::AtomicI32::new(-1) }; WEAPON_RECORD_SLOTS];
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x3a6fe8, inline)]
+pub(crate) unsafe fn article_init_owner_payload(ctx: &mut skyline::hooks::InlineCtx) {
+    let entry = ctx.registers[8].x();
+    if entry == 0 {
+        return;
+    }
+    let weapon_kind = core::ptr::read_volatile(entry as *const i32);
+    let callback = core::ptr::read_volatile((entry + 8) as *const u64);
+    if callback == 0 {
+        return;
+    }
+    let Some(owner) = custom_articles::source_weapon_owner_kind(weapon_kind) else {
+        return;
+    };
+    if !crate::fighter_params::kind_params_absent(owner) {
+        return;
+    }
+    if PAYLOAD_FILLED
+        .iter()
+        .any(|slot| slot.load(core::sync::atomic::Ordering::Acquire) == weapon_kind)
+    {
+        return;
+    }
+
+    let offsets = custom_articles::callback_payload_offsets(callback as *const u8, owner);
+    if offsets.is_empty() {
+        return;
+    }
+    let resident = custom_articles::custom_weapon_owner_kind(weapon_kind)
+        .and_then(|destination| crate::fighter_params::payload_fields(destination, &offsets))
+        .map(|fields| {
+            fields
+                .iter()
+                .map(|(at, value)| format!("{at:#x}={value:#x}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_else(|| "unavailable".to_owned());
+    let (filled, present) = crate::fighter_params::fill_payload_pointers(owner, &offsets);
+    if filled == 0 && present == 0 {
+        return;
+    }
+    for slot in PAYLOAD_FILLED.iter() {
+        if slot
+            .compare_exchange(
+                -1,
+                weapon_kind,
+                core::sync::atomic::Ordering::AcqRel,
+                core::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            break;
+        }
+    }
+    dbg_log!(
+        "[articleinit] weapon {weapon_kind}: its source init {:#x} reads absent fighter          {owner}'s payload at {:?}; filled {filled} null field(s), {present} already had data.          The same fields on the RESIDENT destination fighter read: {resident}",
+        callback.wrapping_sub(text_base() as u64),
+        offsets.iter().map(|at| format!("{at:#x}")).collect::<Vec<_>>()
+    );
+}
+
+#[cfg(feature = "css_slot")]
+const RESOURCE_LOADER: usize = 0x5331f20;
+#[cfg(feature = "css_slot")]
+const ARTICLE_LVD_FILE_INDEX: u64 = 0x128;
+#[cfg(feature = "css_slot")]
+const RESOURCE_INDEX_MISSING: u32 = 0xffffff;
+#[cfg(feature = "css_slot")]
+const ARTICLE_LVD_COLLISIONS: u64 = 0x168;
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x33bf610)]
+pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
+    if article == 0 {
+        return;
+    }
+    let mut index = core::ptr::read_volatile((article + ARTICLE_LVD_FILE_INDEX) as *const u32);
+    if let Some(ours) = lvd_remap(index) {
+        static REMAP_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        if REMAP_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+            dbg_log!(
+                "[articlelvd] the setup resolved the SOURCE file {index:#x}; pointing the parse                  at the clone's own {ours:#x} instead"
+            );
+        }
+        core::ptr::write_volatile((article + ARTICLE_LVD_FILE_INDEX) as *mut u32, ours);
+        index = ours;
+    }
+    static LVD_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    match crate::fighter_params::file_resident(index) {
+        Ok(resident) => {
+            if LVD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                let magic = core::ptr::read_volatile((resident + 6) as *const [u8; 4]);
+                dbg_log!(
+                    "[articlelvd] file index {index:#x} data at {resident:#x}, magic {:?};                      parsing it",
+                    core::str::from_utf8(&magic)
+                );
+            }
+            call_original!(article)
+        }
+        Err(reason) => {
+            let collisions =
+                core::ptr::read_volatile((article + ARTICLE_LVD_COLLISIONS) as *const u64);
+            core::ptr::write_volatile((article + ARTICLE_LVD_COLLISIONS) as *mut u64, 0);
+            if LVD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                dbg_log!(
+                    "[articlelvd] skipping the parse for file index {index:#x}: {reason};                      cleared the collision list at +{ARTICLE_LVD_COLLISIONS:#x} (was                      {collisions:#x}) so the setup takes its own empty branch"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "css_slot")]
+const LVD_REMAP_SLOTS: usize = 32;
+
+#[cfg(feature = "css_slot")]
+static LVD_REMAP: [(core::sync::atomic::AtomicU32, core::sync::atomic::AtomicU32);
+    LVD_REMAP_SLOTS] = [const {
+    (
+        core::sync::atomic::AtomicU32::new(RESOURCE_INDEX_MISSING),
+        core::sync::atomic::AtomicU32::new(RESOURCE_INDEX_MISSING),
+    )
+}; LVD_REMAP_SLOTS];
+
+#[cfg(feature = "css_slot")]
+fn note_lvd_remap(source: u32, clone: u32) {
+    for (from, to) in LVD_REMAP.iter() {
+        match from.compare_exchange(
+            RESOURCE_INDEX_MISSING,
+            source,
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+        ) {
+            Ok(_) => {
+                to.store(clone, core::sync::atomic::Ordering::Release);
+                return;
+            }
+            Err(found) if found == source => return,
+            Err(_) => continue,
+        }
+    }
+}
+
+#[cfg(feature = "css_slot")]
+fn lvd_remap(source: u32) -> Option<u32> {
+    LVD_REMAP.iter().find_map(|(from, to)| {
+        (from.load(core::sync::atomic::Ordering::Acquire) == source)
+            .then(|| to.load(core::sync::atomic::Ordering::Acquire))
+            .filter(|index| *index != RESOURCE_INDEX_MISSING)
+    })
+}
+
+#[cfg(feature = "css_slot")]
+const ARTICLE_COSTUME_SLOTS: usize = 8;
+
+#[cfg(feature = "css_slot")]
+static LVD_REQUESTED: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
+    [const { core::sync::atomic::AtomicI32::new(-1) }; WEAPON_RECORD_SLOTS];
+
+#[cfg(feature = "css_slot")]
+unsafe fn request_article_lvd(weapon_kind: i32) {
+    if LVD_REQUESTED
+        .iter()
+        .any(|slot| slot.load(core::sync::atomic::Ordering::Acquire) == weapon_kind)
+    {
+        return;
+    }
+
+    let Some(owner) = custom_articles::resource_owner_of(weapon_kind) else {
+        return;
+    };
+    let Some(name) = custom_articles::custom_weapon_name(weapon_kind) else {
+        return;
+    };
+    let Some(source) = custom_articles::source_weapon_name(weapon_kind) else {
+        return;
+    };
+    let trim = |bytes: &[u8]| -> Option<String> {
+        core::str::from_utf8(bytes.split(|byte| *byte == 0).next()?)
+            .ok()
+            .map(str::to_owned)
+    };
+    let (Some(owner), Some(name)) = (trim(owner), trim(name)) else {
+        return;
+    };
+    let Ok(source) = source.to_str() else {
+        return;
+    };
+    let source_owner = custom_articles::source_weapon_owner_name(weapon_kind)
+        .and_then(|name| name.to_str().ok())
+        .unwrap_or("?");
+
+    let mut found = 0;
+    for costume in 0..ARTICLE_COSTUME_SLOTS {
+        let ours = format!("fighter/{owner}/model/{name}/c{costume:02}/{source}.lvd");
+        let vanilla = format!("fighter/{source_owner}/model/{source}/c{costume:02}/{source}.lvd");
+        let Some(index) = crate::item_params::scan_file_path_index(crate::hash40::hash40(&ours))
+        else {
+            continue;
+        };
+        crate::fighter_params::request_resource_file(index as i32);
+        found += 1;
+        if let Some(from) = crate::item_params::scan_file_path_index(crate::hash40::hash40(&vanilla))
+        {
+            note_lvd_remap(from, index);
+        }
+    }
+
+    for slot in LVD_REQUESTED.iter() {
+        if slot
+            .compare_exchange(
+                -1,
+                weapon_kind,
+                core::sync::atomic::Ordering::AcqRel,
+                core::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            break;
+        }
+    }
+
+    if found != 0 {
+        let census: Vec<String> = [
+            format!("fighter/{owner}/model/{name}/c00/{source}.lvd"),
+            format!("fighter/{owner}/model/{name}/c00/model.numdlb"),
+            format!("fighter/{owner}/motion/{name}/c00/motion_list.bin"),
+            format!("fighter/{owner}/model/body/c00/model.numdlb"),
+            format!("fighter/{source_owner}/model/{source}/c00/{source}.lvd"),
+            format!("fighter/{source_owner}/param/vl.prc"),
+            format!("fighter/{owner}/param/vl.prc"),
+        ]
+        .iter()
+        .map(|path| {
+            let short = path
+                .rsplit('/')
+                .take(2)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("/");
+            let short = short.as_str();
+            match crate::item_params::scan_file_path_index(crate::hash40::hash40(path)) {
+                None => format!("{short}=absent"),
+                Some(index) => match crate::fighter_params::file_resident(index) {
+                    Ok(data) => format!("{short}@{index:#x}=data {data:#x}"),
+                    Err(reason) => format!("{short}@{index:#x}=NOT RESIDENT ({reason})"),
+                },
+            }
+        })
+        .collect();
+        dbg_log!(
+            "[articlelvd] weapon {weapon_kind}: {found} of {ARTICLE_COSTUME_SLOTS} lvd paths              exist; residency census {}",
+            census.join(" | ")
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x33b6fb8, inline)]
+pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::InlineCtx) {
+    let weapon_kind = ctx.registers[28].x() as i32;
+    let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
+        return;
+    };
+
+    let owner = custom_articles::source_weapon_owner_kind(weapon_kind);
+    let loaded = match owner {
+        Some(owner) => crate::fighter_params::ensure_kind_params_loaded(owner),
+        None => false,
+    };
+    request_article_lvd(weapon_kind);
+
+    static SPEC_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    if SPEC_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 12 {
+        return;
+    }
+
+    let base = text_base() as u64;
+    let read_u64 = |address: u64| -> u64 {
+        if address == 0 {
+            0
+        } else {
+            core::ptr::read_volatile(address as *const u64)
+        }
+    };
+
+    let spec = ctx.registers[0].x();
+    let vtable = read_u64(spec);
+    let setup = read_u64(vtable.wrapping_add(ARTICLE_SPEC_DESCRIPTOR_SLOT));
+    let manager = read_u64(base + FIGHTER_PARAM_SINGLETON);
+    let payload = match owner {
+        Some(owner) if manager != 0 && owner >= 0 => read_u64(
+            manager
+                + FIGHTER_PARAM_RECORD_BASE
+                + owner as u64 * FIGHTER_PARAM_RECORD_STRIDE
+                + FIGHTER_PARAM_RECORD_PAYLOAD,
+        ),
+        _ => 0,
+    };
+
+    let thread_local = horizon_thread_local();
+    let thread = read_u64(thread_local.wrapping_add(HORIZON_TLS_THREAD));
+    let handle = if thread == 0 {
+        0
+    } else {
+        core::ptr::read_volatile((thread + HORIZON_THREAD_HANDLE) as *const u32)
+    };
+
+    dbg_log!(
+        "[articlespec] weapon kind {weapon_kind} source {source} owner {owner:?}          params={loaded} spec={:#x} vtable={:#x} setup={:#x} manager={manager:#x}          owner_payload={payload:#x} tls={thread_local:#x} thread={thread:#x} handle={handle:#x}",
+        spec.wrapping_sub(base),
+        vtable.wrapping_sub(base),
+        setup.wrapping_sub(base)
+    );
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x33bab50, inline)]
+pub(crate) unsafe fn article_param_fetch_probe(ctx: &mut skyline::hooks::InlineCtx) {
+    let kind = current_builder_kind();
+    if kind < INHERITED_KIND_LOG_FLOOR {
+        return;
+    }
+    static FETCH_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    if FETCH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 16 {
+        return;
+    }
+    let object = ctx.registers[0].x();
+    let index = ctx.registers[1].x() as u32;
+    let accessor = if object == 0 {
+        0
+    } else {
+        core::ptr::read_volatile((object + 0x30) as *const u64)
+    };
+    let (vtable, entries) = if accessor == 0 {
+        (0, 0)
+    } else {
+        (
+            core::ptr::read_volatile(accessor as *const u64),
+            core::ptr::read_volatile((accessor + 8) as *const u64),
+        )
+    };
+    dbg_log!(
+        "[articleparam] building kind {kind}: fetch index {index} object={object:#x}          accessor={accessor:#x} vtable={:#x} entries={entries:#x}",
+        vtable.wrapping_sub(text_base() as u64)
+    );
 }
 
 #[cfg(feature = "css_slot")]
@@ -1212,6 +1722,10 @@ pub(crate) fn install_custom_resource_name_hooks() {
         custom_article_capability_index,
         custom_article_owner_category,
         custom_article_path_weapon_name,
+        custom_article_owner_params,
+        article_param_fetch_probe,
+        article_lvd_parse_guard,
+        article_init_owner_payload,
     );
     install_custom_article_owner_kind_hooks();
     install_custom_article_creator_owner_kind_hooks();

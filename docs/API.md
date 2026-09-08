@@ -391,6 +391,47 @@ alone.
 `ITEM_BACKEND_STATUS_STATUS_ROUTER_READY` or
 `ITEM_BACKEND_STATUS_TRAINING_UI_READY`.
 
+### Owner fighter parameters
+
+Some vanilla items read parameters out of a fighter's `vl.prc` instead of their
+own `param.prc`. Steve's blocks are the clearest case: their lifetime and the
+damage that breaks them live in Steve's fighter parameters. An item cloned from
+one of those shares the value, so editing it would change the vanilla fighter
+too.
+
+These two calls give your item its own copy. Pass your item kind, the fighter
+kind that owns the parameters, a byte offset into that fighter's parameter
+payload, and the value. The offset has to be a multiple of 4 and below `0x4000`.
+
+```rust
+const PICKEL: i32 = 0x58;           // Steve, the fighter that owns the params
+const LIFE: u32 = 0x518;            // param_pickelobject life, in frames
+const AUTO_DAMAGE: u32 = 0x520;     // param_pickelobject auto_damage
+
+clone_engine_api::item_owner_param_set_i32(MY_ITEM.raw(), PICKEL, LIFE, 600)?;
+clone_engine_api::item_owner_param_set_f32(MY_ITEM.raw(), PICKEL, AUTO_DAMAGE, 0.0)?;
+```
+
+Register them once at startup. The engine applies the overrides only while your
+item reads its parameters and puts the fighter's own values back afterwards, so
+a vanilla copy of the same item, and the fighter itself, are unaffected.
+
+Set every parameter that decides the same outcome, not just the obvious one. A
+Steve block ends on whichever comes first, `life` frames or `auto_damage`
+wearing it down, and an item spawned through `have_item` is always the weakest
+material, so a longer `life` alone changes nothing.
+
+| Function | Meaning |
+|---|---|
+| `item_owner_param_set_f32(kind, owner_fighter_kind, offset, value)` | Override one float in the owner fighter's parameters, for your item only. |
+| `item_owner_param_set_i32(kind, owner_fighter_kind, offset, value)` | The same for an integer. |
+
+One line per override appears in the log:
+
+```
+[itemclone] item_owner_param_set public=0x36b owner=88 +0x518 = 0x258 (1 override(s) for this item)
+```
+
 ### Item families
 
 `register_item_family`, `item_category`, `item_family_owner`,

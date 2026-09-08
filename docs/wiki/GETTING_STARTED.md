@@ -18,6 +18,7 @@ A pack's own code goes inside that pack's ARCropolis mod directory as
 
 - [Fighter](../../custom_fighters/template/)
 - [Item](../../custom_items/template/)
+- [Item owned by a fighter](../../custom_items/fighter_owned_template/)
 - [Stage](../../custom_stages/template/)
 
 Copy the whole template, then change every identity name in it before you add

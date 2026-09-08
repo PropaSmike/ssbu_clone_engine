@@ -231,6 +231,9 @@ pub(crate) unsafe fn read_kirby_article_slot_state(
     boma: *mut u8,
     id: u32,
 ) -> Option<KirbyArticleSlotState> {
+    if !cfg!(feature = "diag_kirby_copy") {
+        return None;
+    }
     if boma.is_null() {
         return None;
     }
@@ -785,23 +788,78 @@ pub(crate) unsafe fn shoot_exist_article_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_REMOVE_ARTICLE_IMPL)]
-pub(crate) unsafe fn remove_article_probe(boma: *mut u8, id: u32, target: u64) -> u64 {
+const ARTICLE_MODULE_BOMA_OFFSET: usize = 0x98;
+#[cfg(feature = "css_slot")]
+const REMOVE_ARTICLE_SLOT: usize = 0x1b0;
+#[cfg(feature = "css_slot")]
+const REMOVE_EXIST_ARTICLE_SLOT: usize = 0x1b8;
+#[cfg(feature = "css_slot")]
+const ARTICLE_LOWEST_PLAUSIBLE: usize = 0x1_0000;
+
+#[cfg(feature = "css_slot")]
+unsafe fn article_module_dispatch(boma: *mut u8, slot: usize, id: u32, target: u64) -> u64 {
+    if boma.is_null() {
+        return 0;
+    }
+    let module =
+        core::ptr::read_volatile((boma as usize + ARTICLE_MODULE_BOMA_OFFSET) as *const usize);
+    if module < ARTICLE_LOWEST_PLAUSIBLE {
+        return 0;
+    }
+    let vtable = core::ptr::read_volatile(module as *const usize);
+    if vtable < ARTICLE_LOWEST_PLAUSIBLE {
+        return 0;
+    }
+    let entry = core::ptr::read_volatile((vtable + slot) as *const usize);
+    if entry < ARTICLE_LOWEST_PLAUSIBLE {
+        return 0;
+    }
+    let native: unsafe extern "C" fn(usize, u32, u64) -> u64 = core::mem::transmute(entry);
+    native(module, id, target)
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn install_thunk_stub(offset: usize, handler: usize) -> bool {
+    let mut bytes = [0u8; 16];
+    bytes[0..4].copy_from_slice(&0x5800_0051u32.to_le_bytes());
+    bytes[4..8].copy_from_slice(&0xD61F_0220u32.to_le_bytes());
+    bytes[8..16].copy_from_slice(&(handler as u64).to_le_bytes());
+    crate::text_patch::write_bytes(crate::text_base() + offset, &bytes)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe extern "C" fn remove_article_probe(
+    boma: *mut u8,
+    id: u32,
+    target: u64,
+) -> u64 {
     log_kirby_article_slot_state("pre-remove", boma, id);
-    let ret = call_original!(boma, id, target);
+    let ret = article_module_dispatch(boma, REMOVE_ARTICLE_SLOT, id, target);
     log_kirby_article_operation("remove", boma, id, target, 0, ret);
     log_kirby_article_slot_state("post-remove", boma, id);
     ret
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_REMOVE_EXIST_ARTICLE_IMPL)]
-pub(crate) unsafe fn remove_exist_article_probe(boma: *mut u8, id: u32, target: u64) -> u64 {
+pub(crate) unsafe extern "C" fn remove_exist_article_probe(
+    boma: *mut u8,
+    id: u32,
+    target: u64,
+) -> u64 {
     log_kirby_article_slot_state("pre-remove_exist", boma, id);
-    let ret = call_original!(boma, id, target);
+    let ret = article_module_dispatch(boma, REMOVE_EXIST_ARTICLE_SLOT, id, target);
     log_kirby_article_operation("remove_exist", boma, id, target, 0, ret);
     log_kirby_article_slot_state("post-remove_exist", boma, id);
     ret
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn install_article_removal_stubs() -> bool {
+    install_thunk_stub(OFF_REMOVE_ARTICLE_IMPL, remove_article_probe as usize)
+        && install_thunk_stub(
+            OFF_REMOVE_EXIST_ARTICLE_IMPL,
+            remove_exist_article_probe as usize,
+        )
 }
 
 #[cfg(feature = "css_slot")]
@@ -951,5 +1009,45 @@ pub(crate) unsafe fn kirby_article_init_guard(ctx: &mut skyline::hooks::InlineCt
              supply one (index={index} copy_kind={copy_kind} published={published:#x} \
              count={published_count}); returning no article"
         );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) const OFF_OBSERVER_PURGE_REFCOUNT: usize = 0x37ae244;
+
+#[cfg(feature = "css_slot")]
+static OBSERVER_PURGE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+static OBSERVER_UNDERFLOW_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = OFF_OBSERVER_PURGE_REFCOUNT, inline)]
+pub(crate) unsafe fn observer_purge_refcount_probe(ctx: &mut skyline::hooks::InlineCtx) {
+    let listener = ctx.registers[8].x();
+    if listener < ARTICLE_LOWEST_PLAUSIBLE as u64 {
+        return;
+    }
+    let refcount = core::ptr::read_volatile((listener as usize + 8) as *const u16) as i16;
+    if refcount > 1 {
+        return;
+    }
+    let node = ctx.registers[20].x();
+    let vtable = core::ptr::read_volatile(listener as *const u64);
+    if refcount <= 0 {
+        let n = OBSERVER_UNDERFLOW_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 24 {
+            crate::dbg_log_public(&format!(
+                "[purge] UNDERFLOW #{n} node={node:#x} listener={listener:#x} refcount={refcount} vtable={vtable:#x}; this listener is being released again after it already reached zero, so the destructor and the node free run twice"
+            ));
+        }
+        return;
+    }
+    let n = OBSERVER_PURGE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 64 {
+        crate::dbg_log_public(&format!(
+            "[purge] #{n} node={node:#x} listener={listener:#x} refcount={refcount} vtable={vtable:#x}"
+        ));
     }
 }

@@ -1,0 +1,30 @@
+{
+  "new-dir-infos": [
+    "item/template_block",
+    "item/template_block/model/body/c00",
+    "item/template_block/motion/body/c00",
+    "item/template_block/param",
+    "item/template_block/script/animcmd/body"
+  ],
+  "new-dir-infos-base": {},
+  "new-dir-files": {
+    "item/template_block/model/body/c00": [
+      "item/template_block/model/body/c00/model.numdlb",
+      "item/template_block/model/body/c00/model.numatb",
+      "item/template_block/model/body/c00/model.nusktb",
+      "item/template_block/model/body/c00/model.numshb",
+      "item/template_block/model/body/c00/model.numshexb"
+    ],
+    "item/template_block/motion/body/c00": [
+      "item/template_block/motion/body/c00/motion_list.bin"
+    ],
+    "item/template_block/param": [
+      "item/template_block/param/param.prc"
+    ],
+    "item/template_block/script/animcmd/body": [
+      "item/template_block/script/animcmd/body/game.lc",
+      "item/template_block/script/animcmd/body/effect.lc",
+      "item/template_block/script/animcmd/body/sound.lc"
+    ]
+  }
+}

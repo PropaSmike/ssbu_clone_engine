@@ -518,6 +518,8 @@ type ItemStatusNamedFn = unsafe extern "C" fn(i32, i32, *const c_char, usize) ->
 type ItemStatusKindFn = unsafe extern "C" fn(*const c_char) -> i32;
 type ItemCommonSetFn = unsafe extern "C" fn(i32, u64, f32) -> i32;
 type ItemCommonHasFn = unsafe extern "C" fn(u64) -> i32;
+type ItemOwnerParamF32Fn = unsafe extern "C" fn(i32, i32, u32, f32) -> i32;
+type ItemOwnerParamI32Fn = unsafe extern "C" fn(i32, i32, u32, i32) -> i32;
 type ItemBackendStatusFn = unsafe extern "C" fn() -> u32;
 type StageCapacityFn = unsafe extern "C" fn(*mut u32, *mut u32) -> i32;
 type StageAllocateFn = unsafe extern "C" fn(*const c_char, *const c_char, bool, u32) -> i32;
@@ -575,6 +577,8 @@ static ITEM_STATUS_NAMED_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_STATUS_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_COMMON_SET_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_COMMON_HAS_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_OWNER_PARAM_F32_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_OWNER_PARAM_I32_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_BACKEND_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_CAPACITY_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_ALLOCATE_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1017,6 +1021,44 @@ pub fn item_common_has(field: u64) -> bool {
     };
     let function: ItemCommonHasFn = unsafe { std::mem::transmute(address) };
     unsafe { function(field) != 0 }
+}
+
+pub fn item_owner_param_set_f32(
+    item_kind: i32,
+    owner_fighter_kind: i32,
+    offset: u32,
+    value: f32,
+) -> Result<(), Error> {
+    let address = resolve(
+        &ITEM_OWNER_PARAM_F32_FN,
+        b"clone_engine_item_owner_param_set_f32 ",
+    )
+    .ok_or(Error::EngineUnavailable)?;
+    let function: ItemOwnerParamF32Fn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, owner_fighter_kind, offset, value) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn item_owner_param_set_i32(
+    item_kind: i32,
+    owner_fighter_kind: i32,
+    offset: u32,
+    value: i32,
+) -> Result<(), Error> {
+    let address = resolve(
+        &ITEM_OWNER_PARAM_I32_FN,
+        b"clone_engine_item_owner_param_set_i32 ",
+    )
+    .ok_or(Error::EngineUnavailable)?;
+    let function: ItemOwnerParamI32Fn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, owner_fighter_kind, offset, value) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
 }
 
 pub fn stage_capacity() -> Result<StageCapacity, Error> {

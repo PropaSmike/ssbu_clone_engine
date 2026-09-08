@@ -183,6 +183,17 @@ mod live {
             reserved_u32: 0,
             reserved: [0; 4],
         };
+        if let Some(owner) = declaration
+            .base_item
+            .as_deref()
+            .and_then(crate::custom_articles::fighter_kind_from_name_prefix)
+        {
+            crate::item_clones::remember_base_item_owner(declaration.base_kind, owner);
+            skyline::println!(
+                "[itempack] {directory}: base item {} belongs to fighter kind {owner}; its params                  will be loaded even when that fighter is absent",
+                declaration.base_item.as_deref().unwrap_or("?")
+            );
+        }
         let result = unsafe { crate::item_clones::clone_engine_register_item_v1(&registration) };
         if result != 0 {
             skyline::println!(

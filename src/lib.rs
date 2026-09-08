@@ -53,6 +53,10 @@ mod item_ui_probe;
 compile_error!("diag_item_ui and item_ui_backend hook the same sites; enable only one");
 
 #[cfg(feature = "item_clone_backend")]
+mod block_grid;
+#[cfg(all(feature = "item_clone_backend", feature = "css_slot"))]
+mod owner_effects;
+#[cfg(feature = "item_clone_backend")]
 mod item_clones;
 #[cfg(feature = "item_clone_backend")]
 mod item_common_tables;
@@ -65,6 +69,11 @@ mod item_scripts;
 mod item_slots;
 #[cfg(feature = "item_clone_backend")]
 mod item_status_tables;
+#[cfg(feature = "diag_item_work")]
+mod item_work_probe;
+#[cfg(feature = "css_slot")]
+#[cfg(feature = "css_slot")]
+mod finalsmash_residency;
 
 #[cfg(all(feature = "diag_item_kind", feature = "item_clone_backend"))]
 compile_error!("diag_item_kind and item_clone_backend hook the same item lifecycle seams");
@@ -1270,6 +1279,10 @@ fn caller_is_outside_main_text(lr: usize) -> bool {
     feature = "diag_pathtrace",
     feature = "diag_item_kind"
 ))]
+pub(crate) fn dbg_out_public(s: &str) {
+    unsafe { dbg_out(s) };
+}
+
 pub(crate) fn dbg_log_public(s: &str) {
     unsafe { dbg_out(s) };
     skyline::println!("{}", s);
@@ -1437,19 +1450,6 @@ unsafe fn weapon_name_owner_tables(a0: u64, kind: i32, a2: u64, a3: u64, a4: u64
         );
     }
     call_original!(a0, kind, a2, a3, a4, a5)
-}
-
-#[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-static POCKET_ITEM_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
-#[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-#[skyline::hook(offset = 0x2092af0)]
-unsafe fn generate_article_have_item_probe(boma: u64, id: i32, arg2: i32, hash: u64) -> u64 {
-    let n = POCKET_ITEM_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 16 {
-        dbg_log!("[pocketitem] #{n} boma={boma:#x} id={id} arg2={arg2} hash={hash:#x}");
-    }
-    call_original!(boma, id, arg2, hash)
 }
 
 #[cfg(feature = "css_slot")]
@@ -2624,8 +2624,21 @@ struct StaticFighterData {
     rest: [u64; 9],
 }
 
+const NATIVE_FIGHTER_KIND_MAX: i32 = 0x74;
+
+static GETTER_ENTRY_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+static NATIVE_KIND_CLAMP_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
 #[skyline::hook(offset = OFF_STATIC_FIGHTER_DATA)]
 unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
+    {
+        let n = GETTER_ENTRY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 32 {
+            dbg_log_public(&format!("[getter] #{n} enter kind={kind}"));
+        }
+    }
     #[cfg(feature = "diag_article")]
     let seq = GETTER_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     #[cfg(feature = "diag_article")]
@@ -2649,16 +2662,43 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
         }
         #[cfg(not(feature = "diag_article_baseblob"))]
         {
-            let own: *const StaticFighterData = call_original!(kind);
+            let template = if kind > NATIVE_FIGHTER_KIND_MAX { base } else { kind };
+            if template != kind {
+                let n = NATIVE_KIND_CLAMP_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                if n < 8 {
+                    dbg_log_public(&format!(
+                        "[getter] kind {kind} is past the native getter's own bound {NATIVE_FIGHTER_KIND_MAX}; taking base {base}'s blob as the template instead of asking 0x64b730 for a kind it rejects"
+                    ));
+                }
+            }
+            if template > NATIVE_FIGHTER_KIND_MAX {
+                return core::ptr::null();
+            }
+            let own: *const StaticFighterData = call_original!(template);
+            if own.is_null() {
+                return own;
+            }
             #[cfg_attr(feature = "diag_article_nopatch", allow(unused_mut))]
             let mut patched = *own;
             #[cfg(not(feature = "diag_article_nopatch"))]
             {
                 let base_data: *const StaticFighterData = call_original!(base);
+                if base_data.is_null() {
+                    return own;
+                }
                 patched.static_article_info = (*base_data).static_article_info;
             }
             return Box::into_raw(Box::new(patched));
         }
+    }
+    if kind < 0 || kind > NATIVE_FIGHTER_KIND_MAX {
+        let n = NATIVE_KIND_CLAMP_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 8 {
+            dbg_log_public(&format!(
+                "[getter] kind {kind} has no clone base and is outside 0..={NATIVE_FIGHTER_KIND_MAX}; the native getter would assert on it, so returning no blob"
+            ));
+        }
+        return core::ptr::null();
     }
     let blob: *const StaticFighterData = call_original!(kind);
     #[cfg(feature = "diag_article")]
@@ -2673,8 +2713,27 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
             }
         );
     }
-    append_custom_articles(kind, blob, &mut |source_kind| call_original!(source_kind))
+    #[cfg(feature = "css_slot")]
+    if active_vanilla_construction_kind() == Some(kind) {
+        let n = VANILLA_ARTICLE_SKIP_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 16 {
+            dbg_log_public(&format!(
+                "[article] fighter kind {kind} is the real base fighter under construction; leaving its own article table alone"
+            ));
+        }
+        return blob;
+    }
+    append_custom_articles(kind, blob, &mut |source_kind| {
+        if source_kind < 0 || source_kind > NATIVE_FIGHTER_KIND_MAX {
+            return core::ptr::null();
+        }
+        call_original!(source_kind)
+    })
 }
+
+#[cfg(feature = "css_slot")]
+static VANILLA_ARTICLE_SKIP_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
 static KIRBY_COPY_NAME_RECORDS: OnceLock<RwLock<Vec<(i32, usize)>>> = OnceLock::new();
@@ -2916,9 +2975,10 @@ unsafe fn append_custom_articles(
     }
 
     for descriptor in appended.iter() {
-        if let Some(owner) = custom_articles::source_weapon_owner_kind(descriptor.weapon_id) {
-            fighter_modules::request(owner);
-        }
+        let Some(owner) = custom_articles::source_weapon_owner_kind(descriptor.weapon_id) else {
+            continue;
+        };
+        fighter_modules::request(owner);
     }
 
     let mut descriptors: Vec<custom_articles::ArticleDescriptor> = Vec::new();
@@ -2942,6 +3002,28 @@ unsafe fn append_custom_articles(
         "[article] fighter kind {kind} article table {} -> {count} entries",
         count - appended.len()
     );
+    {
+        static TABLE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        if TABLE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
+            let base = text_base() as u64;
+            let rows: Vec<String> = core::slice::from_raw_parts(
+                (*article_info).descriptors,
+                (*article_info).count,
+            )
+            .iter()
+            .map(|d| {
+                format!(
+                    "{{weapon {} max {} init {:#x} fini {:#x}}}",
+                    d.weapon_id,
+                    d.max_count,
+                    (d.on_init_callback as u64).wrapping_sub(base),
+                    (d.on_fini_callback as u64).wrapping_sub(base)
+                )
+            })
+            .collect();
+            dbg_log!("[articletable] fighter kind {kind}: {}", rows.join(" "));
+        }
+    }
     Box::leak(Box::new(patched))
 }
 
@@ -3084,6 +3166,10 @@ static RESOURCE_CONTEXT: crate::thread_context::ThreadScopedKind =
 static CONSTRUCTION_CONTEXT: crate::thread_context::ThreadScopedKind =
     crate::thread_context::ThreadScopedKind::new("construction_context");
 
+#[cfg(feature = "css_slot")]
+static VANILLA_CONSTRUCTION_CONTEXT: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new("vanilla_construction");
+
 unsafe fn current_thread_key() -> usize {
     skyline::nn::os::GetCurrentThread() as usize
 }
@@ -3116,6 +3202,23 @@ unsafe fn active_construction_kind() -> Option<i32> {
 #[cfg(feature = "css_slot")]
 pub(crate) unsafe fn active_construction_kind_public() -> Option<i32> {
     active_construction_kind()
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn active_vanilla_construction_kind() -> Option<i32> {
+    let kind = VANILLA_CONSTRUCTION_CONTEXT.active(current_thread_key())?;
+    clone_definition(kind).is_none().then_some(kind)
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn with_vanilla_construction_context<R>(
+    kind: i32,
+    callback: impl FnOnce() -> R,
+) -> R {
+    if kind < 0 || clone_definition(kind).is_some() {
+        return callback();
+    }
+    VANILLA_CONSTRUCTION_CONTEXT.scope(current_thread_key(), kind, callback)
 }
 
 #[cfg(feature = "css_slot")]
@@ -3353,6 +3456,10 @@ unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: 
             dbg_log!("[effectbank] enter #{n} handle={handle:#x} search_index={index:#x}");
         }
     }
+    #[cfg(feature = "item_clone_backend")]
+    if owner_effects::is_fighter_handle(handle) {
+        owner_effects::remember_manager(manager as usize);
+    }
     let pending = take_pending_effect_kind(handle);
     let Some(kind) = active_construction_kind().or(pending.map(|p| p.0)) else {
         if (0x300..0x400).contains(&handle) {
@@ -3514,6 +3621,8 @@ mod css_registration;
 #[cfg(feature = "css_slot")]
 use css_registration::*;
 
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+mod fighter_params;
 #[cfg(feature = "true_kind")]
 mod load_pipeline;
 #[cfg(feature = "true_kind")]
@@ -3585,6 +3694,10 @@ pub fn main() {
     item_slots::install();
     #[cfg(feature = "item_clone_backend")]
     item_clones::install();
+    #[cfg(feature = "item_clone_backend")]
+    block_grid::install();
+    #[cfg(feature = "css_slot")]
+    finalsmash_residency::install();
     #[cfg(feature = "item_clone_backend")]
     if item_slots::ready() {
         item_clones::mark_resource_router_ready();
@@ -3778,12 +3891,13 @@ pub fn main() {
 
     #[cfg(feature = "css_slot")]
     {
+        skyline::install_hooks!(article_probes::observer_purge_refcount_probe);
+        skyline::println!(
+            "[clone_engine] installed the observer purge refcount probe at 0x37ae244; tag [purge], and [purge] UNDERFLOW means a listener node is being destroyed twice"
+        );
         skyline::install_hooks!(kirby_article_init_probe, kirby_article_init_guard,);
         skyline::println!(
-            "[clone_engine] kirbyinit: copied-article init guard at 0xba3e2c (LOAD-BEARING) plus a \
-             bounded probe at 0xba3e24. 0xba3df0 tail-branches to \
-             ArticleDescriptor.on_init_callback via the BASE fighter's table; the guard serves the \
-             published Kirby-copy header's callback when that yields null. Tag [kirbyinit]."
+            "[clone_engine] kirbyinit: copied-article init guard at 0xba3e2c (LOAD-BEARING) plus a              bounded probe at 0xba3e24. 0xba3df0 tail-branches to              ArticleDescriptor.on_init_callback via the BASE fighter's table; the guard serves the              published Kirby-copy header's callback when that yields null. Tag [kirbyinit]."
         );
     }
 
@@ -3795,10 +3909,13 @@ pub fn main() {
             article_custom_creator_probe,
             article_base_creator_probe,
             shoot_article_probe,
-            shoot_exist_article_probe,
-            remove_article_probe,
-            remove_exist_article_probe
+            shoot_exist_article_probe
         );
+        if !unsafe { article_probes::install_article_removal_stubs() } {
+            skyline::println!(
+                "[clone_engine] WARNING could not place the article removal stubs; those two probes are inert"
+            );
+        }
         skyline::println!(
             "[clone_engine] installed tracked-Kirby ArticleModule operation/lifecycle probes (diag_kirby_copy)"
         );
@@ -3834,7 +3951,6 @@ pub fn main() {
             {
                 skyline::install_hook!(weapon_name_owner_tables);
                 skyline::install_hooks!(effect_req_probe, effect_req_follow_probe);
-                skyline::install_hook!(generate_article_have_item_probe);
             }
             skyline::install_hook!(utility_get_kind_hook);
             skyline::install_hook!(clone_fighter_status_create);
@@ -3863,7 +3979,11 @@ pub fn main() {
             skyline::nro::add_hook(kirby_copy_family_nro_hook).expect(
                 "clone_engine: libnro_hook is required for the Kirby copy dispatcher range",
             );
-            skyline::install_hook!(kirby_copy_dispatch_status);
+            if !unsafe { kirby_copy::install_status_interrupt_stub() } {
+                skyline::println!(
+                    "[kirbyfam] WARNING could not place the status-interrupt stub; copy status routing is inert"
+                );
+            }
             skyline::println!(
                 "[clone_engine] kirby copy FAMILY route: ONE hook on StatusModule::set_status_kind_interrupt (0x2087740), claimed only for callers inside lua2cpp_kirby's copy dispatcher 0x236ce0..0x239efc - so every per-fighter branch routes and NO Kirby NRO code is patched. Routes an ARMED clone's copied entry to its descriptor-owned status family. Unarmed/unregistered = fully native. Reserve hook 0xAD0 intentionally absent: sv_set_status_func self-grows the status vector (decoded 2026-07-18). Tag [kirbyfam]."
             );
@@ -3956,6 +4076,7 @@ pub fn main() {
         skyline::install_hook!(load_pipeline::camera_record_value_guard);
         #[cfg(feature = "css_slot")]
         skyline::install_hook!(load_pipeline::victory_camera_kind_hook);
+        skyline::install_hook!(load_pipeline::post_init_work_query_probe);
         #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
         skyline::install_hook!(model_path_namespace_hook);
         skyline::println!(
@@ -3985,6 +4106,7 @@ fn report_clone_runtime_hooks() {
         const LOAD_BEARING: &[&str] = &[
             "fighter_init_kind_bridge(0x6079d0) kind+name+kind-array bridge",
             "fighter_scoped_resource_path_hook(0x17e88d0) namespace + base fallback",
+            "fighter_params(0x70c580) per-instance vl.prc payload for clone/base coexistence",
             "model_path_namespace_hook(0x17e9a00) MODEL namespace",
             "path_builder_remap_hook(0x17df460) path namespace",
             "load_dispatch_kind_hook(0x17e5c00) load-dispatch kind",

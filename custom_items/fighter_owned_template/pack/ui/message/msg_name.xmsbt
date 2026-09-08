@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmsbt>
+  <entry label="nam_item_template_block">
+    <text>Template Block</text>
+  </entry>
+  <entry label="nam_item_help_template_block">
+    <text>A Steve block clone with its own lifetime.</text>
+  </entry>
+</xmsbt>
