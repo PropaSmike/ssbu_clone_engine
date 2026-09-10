@@ -634,6 +634,15 @@ pub unsafe fn kirby_copy_dynamic_preload_header(
     Some((header, descriptor_count))
 }
 
+pub fn is_kirby_copy_weapon(weapon_kind: i32) -> bool {
+    registry().read().map_or(false, |registry| {
+        registry.iter().any(|article| {
+            article.weapon_kind == weapon_kind
+                && matches!(article.placement, ArticlePlacement::KirbyCopy { .. })
+        })
+    })
+}
+
 pub fn kirby_copy_index(target_kind: i32, weapon_kind: i32) -> Option<i32> {
     let registry = registry().read().ok()?;
     registry

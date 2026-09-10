@@ -2,7 +2,7 @@
 
 ## Who does what
 
-The Clone Engine Smashline fork registers fighter ACMD, statuses, OPFF,
+Smashline registers fighter ACMD, statuses, OPFF,
 lifecycle callbacks and weapon ACMD. Clone Engine registers the identity and
 routes files, parameters, articles, Kirby data and ownership to it.
 

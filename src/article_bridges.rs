@@ -20,7 +20,7 @@ macro_rules! custom_article_name_hooks {
                             "[articlename] {:#x}: weapon {weapon_kind} game name {:?} ours {:?}",
                             $offset as usize,
                             (!game.is_null())
-                                .then(|| core::ffi::CStr::from_ptr(game).to_str().ok())
+                                .then(|| core::ffi::CStr::from_ptr(game.cast()).to_str().ok())
                                 .flatten(),
                             chosen.and_then(|value| core::ffi::CStr::from_bytes_until_nul(value)
                                 .ok()
@@ -39,7 +39,7 @@ macro_rules! custom_article_name_hooks {
 }
 
 macro_rules! custom_article_scaled_name_hooks {
-    ($install:ident, $lookup:path; $($name:ident($src:expr, $dst:expr, $offset:expr));* $(;)?) => {
+    ($install:ident, $lookup:path, $vanilla:path; $($name:ident($src:expr, $dst:expr, $offset:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
             #[skyline::hook(offset = $offset, inline)]
@@ -47,6 +47,10 @@ macro_rules! custom_article_scaled_name_hooks {
                 let weapon_kind = (ctx.registers[$src].x() >> 3) as i32;
                 if let Some(value) = $lookup(weapon_kind) {
                     ctx.registers[$dst].set_x(value.as_ptr() as u64);
+                    return;
+                }
+                if let Some(pointer) = $vanilla(weapon_kind) {
+                    ctx.registers[$dst].set_x(pointer as u64);
                 }
             }
         )*
@@ -59,7 +63,8 @@ macro_rules! custom_article_scaled_name_hooks {
 }
 
 custom_article_scaled_name_hooks! {
-    install_custom_article_scaled_weapon_name_hooks, custom_articles::source_weapon_name;
+    install_custom_article_scaled_weapon_name_hooks, custom_articles::source_weapon_name,
+        crate::smashline_names::vanilla_weapon_name;
     custom_weapon_name_game_acmd(8, 3, 0x33ace8c);
     custom_weapon_name_sound_acmd(8, 3, 0x33aed4c);
     custom_weapon_name_effect_acmd(8, 3, 0x33addec);
@@ -67,7 +72,8 @@ custom_article_scaled_name_hooks! {
 }
 
 custom_article_scaled_name_hooks! {
-    install_custom_article_scaled_owner_name_hooks, custom_articles::source_weapon_owner_name;
+    install_custom_article_scaled_owner_name_hooks, custom_articles::source_weapon_owner_name,
+        crate::smashline_names::vanilla_weapon_owner_name;
     custom_weapon_owner_name_game_acmd(8, 2, 0x33ace7c);
     custom_weapon_owner_name_sound_acmd(8, 2, 0x33aed3c);
     custom_weapon_owner_name_effect_acmd(8, 2, 0x33adddc);
@@ -864,6 +870,9 @@ pub(crate) unsafe fn article_status_agent_create(
 
     let agent = {
         let _pending = crate::enter_pending_weapon_kind(kind);
+        let _names = source
+            .map(|source| crate::smashline_names::hold_clone_weapon_names(source, kind))
+            .unwrap_or_else(crate::smashline_names::WeaponNameHold::inactive);
         call_original!(object, boma, lua_state)
     };
 
@@ -1467,6 +1476,17 @@ static ARTICLE_DATA_VANILLA_LOOKUP_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+static ARTICLE_DATA_COPY_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const ARTICLE_DATA_COPY_REPORTS: u32 = 64;
+
+#[cfg(feature = "css_slot")]
+static ARTICLE_DATA_EMPTY_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
 const ADDED_RESOURCE_INDEX_FLOOR: u32 = 0x8_0000;
 
 #[cfg(feature = "css_slot")]
@@ -1495,7 +1515,34 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
     } else {
         core::ptr::read_volatile(search_index)
     };
+    let copy_kind = crate::kirby_copy::active_kirby_copy_kind();
+    let minted = key < BARE_WEAPON_KIND_CEILING
+        && crate::custom_articles::custom_weapon_name(key as i32).is_some();
+    if minted && index != u32::MAX {
+        let (stop, file_path) = crate::copy_model_probe::model_residency(index);
+        if stop != "resident" {
+            let n = ARTICLE_DATA_EMPTY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < ARTICLE_DATA_COPY_REPORTS {
+                dbg_log!(
+                    "[articlemiss] #{n} REFUSED key={key:#x} search={index:#x} file={file_path:#x} stop={stop} copy_kind={copy_kind:?}; inserting this record would store a null at +0x28 and the next lookup dereferences it at 0x17defc4, so the game own empty return at 0x17ddf00 is used instead"
+                );
+            }
+            return 0;
+        }
+    }
+    let slip = copy_kind.and_then(|_| {
+        let n = ARTICLE_DATA_COPY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        (n < ARTICLE_DATA_COPY_REPORTS).then_some(n)
+    });
+    if let Some(n) = slip {
+        dbg_log!(
+            "[articlemiss] #{n} enter copy_kind={copy_kind:?} key={key:#x}->{effective_key:#x} custom={is_custom} search={index:#x} variant={variant} mode={mode}"
+        );
+    }
     let result = call_original!(tree, effective_key, search_index, variant, mode);
+    if let Some(n) = slip {
+        dbg_log!("[articlemiss] #{n} exit key={key:#x} ret={result}");
+    }
     let added = index != u32::MAX && index >= ADDED_RESOURCE_INDEX_FLOOR;
     if is_custom || added || key < BARE_WEAPON_KIND_CEILING {
         let n = ARTICLE_DATA_CACHE_KEY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
