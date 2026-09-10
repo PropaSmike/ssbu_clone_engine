@@ -9,14 +9,11 @@ parameters, scripts, UI, articles, Kirby data, and runtime identity separate.
 
 ## Dependencies
 
-- Smashline (clone engine fork) : <https://github.com/PropaSmike/smashline/tree/clone-engine-beta>
+- Smashline : <https://github.com/HDR-Development/smashline>
 - ParamConfig (Not required but heavily recommended)
 - The CSK Collection (For UI slots addition)
 - NRO Hook
 - ARCropolis & Skyline (Obviously)
-
-Clone Engine refuses to activate its custom fighters
-if it detects the Smashline build isn't the fork.
 
 ## Install
 
@@ -131,10 +128,6 @@ the love and respect they deserve.
 - [skyline-smash](https://github.com/ultimate-research/skyline-smash) — WuBoytH, blu-dev, jobrien97, jam1garner, jugeeya, Ayerbe-Dev, theincredibleplayer, FaultyPine
 - [smash-script](https://github.com/WuBoytH/smash-script) — blu-dev, Claude-1308, Ayerbe-Dev, FaultyPine, WuBoytH
 - [ninput](https://github.com/blu-dev/ninput) — blu-dev
-
-The Smashline fork this engine requires is a fork of HDR-Development/Smashline
-with one optional custom-kind bridge added. Upstream behavior is unchanged when
-Clone Engine is absent.
 
 ## License
 

@@ -71,7 +71,7 @@ call.
 | `api_version()` | Version of the installed engine. |
 | `compiled_capabilities()` | What the installed engine was built with. |
 | `runtime_capabilities()` | What passed its checks this boot. |
-| `smashline_bridge_version()`, `smashline_compatible()` | The Smashline fork it found. |
+| `smashline_bridge_version()`, `smashline_compatible()` | Which Smashline build it found. Informational. |
 | `native_backend_status()` | Detailed flags, for diagnosing a failure. |
 | `log(&str)` | Write to the engine's synchronous debug channel. `elog!` formats. |
 
@@ -101,8 +101,8 @@ if clone_engine_api::is_owned_by_kind(weapon.boma(), my_kind()) { }
 
 ## Scripts
 
-ACMD, statuses, OPFF, lifecycle callbacks and weapon ACMD all belong to the
-Smashline fork, registered under your own agent name:
+ACMD, statuses, OPFF, lifecycle callbacks and weapon ACMD all belong to
+Smashline, registered under your own agent name:
 
 ```rust
 smashline::Agent::new("wawa")
@@ -115,8 +115,8 @@ smashline::Agent::new("wawa")
 Registering on the base name instead would change the vanilla fighter and every
 other mod built on it.
 
-Check `smashline_compatible()` before allocating. The engine refuses custom
-fighters when the fork is missing or the wrong version.
+Any Smashline build works. Clone Engine supplies your agent's name itself, so
+there is nothing to check and no fork to install.
 
 ## Parameters
 
@@ -158,7 +158,7 @@ A `vl.prc` of your own goes in your own folders instead.
 ## Articles
 
 `clone_article` copies a vanilla weapon into a new weapon kind that belongs to
-your fighter, with its own files, and the Smashline fork registers its ACMD
+your fighter, with its own files, and Smashline registers its ACMD
 under its own agent name.
 
 A weapon kind and an article-table index are different numbers. The kind is
@@ -475,7 +475,7 @@ Wrappers return `Error::Engine(code)`. The ones you are most likely to see:
 | `ERROR_DUPLICATE` | The identity or kind is already taken. |
 | `ERROR_NAMESPACE` | Effect or article namespace conflict. |
 | `ERROR_ARTICLE_RESOURCE_CONFLICT` | Two minted articles were given one directory. |
-| `ERROR_SMASHLINE_REQUIRED` | The Smashline fork is missing or incompatible. |
+| `ERROR_SMASHLINE_REQUIRED` | Retired. No longer returned; any Smashline build works. |
 | `ERROR_HOOK_PREFLIGHT` | The live game code did not match what the hook expected. |
 | `ERROR_HOOK_ABI` | That hook ABI is not supported. |
 | `ERROR_ITEM_UI_METADATA` | UI metadata is malformed or does not match the item. |

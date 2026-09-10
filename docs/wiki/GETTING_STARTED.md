@@ -5,7 +5,7 @@ from a vanilla base. It does not convert an existing moveset for you.
 
 ## Install the runtime
 
-Clone Engine and its Smashline fork go in the global plugin directory:
+Clone Engine goes in the global plugin directory:
 
 ```text
 atmosphere/contents/01006A800016E000/romfs/skyline/plugins/

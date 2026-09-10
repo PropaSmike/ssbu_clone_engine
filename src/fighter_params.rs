@@ -34,8 +34,7 @@ impl Instance {
     }
 }
 
-pub(crate) const PARAM_NATIVE_KINDS: i32 = 94;
-pub(crate) const CLONE_SLOTS: usize = 138;
+pub(crate) use clone_engine_core::slots::{CLONE_SLOTS, PARAM_NATIVE_KINDS};
 
 type ParamLoader = unsafe extern "C" fn(usize, i32, *const i32);
 
@@ -164,14 +163,11 @@ fn skip_log(message: &str) {
 }
 
 fn base_state(base_kind: i32) -> Option<&'static BaseState> {
-    usize::try_from(base_kind).ok().and_then(|row| BASES.get(row))
+    clone_engine_core::slots::base_row(base_kind).and_then(|row| BASES.get(row))
 }
 
 fn clone_state(clone_kind: i32) -> Option<&'static CloneState> {
-    let Some(row) = clone_kind
-        .checked_sub(FIRST_CUSTOM_KIND)
-        .and_then(|row| usize::try_from(row).ok())
-    else {
+    let Some(row) = clone_engine_core::slots::clone_row(clone_kind) else {
         OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
         return None;
     };

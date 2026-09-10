@@ -269,12 +269,6 @@ fn close_registration(site: &'static str) {
 }
 
 pub fn register_clone_fighter(new_kind: i32, base_kind: i32) {
-    if smashline_bridge_version() < SMASHLINE_BRIDGE_VERSION_REQUIRED {
-        skyline::println!(
-            "[clone_engine] custom fighter {new_kind} rejected: Clone Engine Smashline bridge v{SMASHLINE_BRIDGE_VERSION_REQUIRED} is required"
-        );
-        return;
-    }
     let _guard = registration_gate().lock().unwrap();
     if REGISTRATION_CLOSED.load(core::sync::atomic::Ordering::Acquire) {
         skyline::println!(
@@ -370,13 +364,6 @@ pub extern "C" fn clone_engine_compiled_capabilities_v1() -> u64 {
 #[no_mangle]
 pub extern "C" fn clone_engine_runtime_capabilities_v1() -> u64 {
     let mut capabilities = compiled_capabilities();
-    if smashline_bridge_version() < SMASHLINE_BRIDGE_VERSION_REQUIRED {
-        capabilities &= !(clone_engine_api::CAP_FIGHTER_IDENTITY
-            | clone_engine_api::CAP_SMASHLINE_BRIDGE
-            | clone_engine_api::CAP_FIGHTER_ARTICLES
-            | clone_engine_api::CAP_KIRBY_COPY
-            | clone_engine_api::CAP_PARAMCONFIG_BRIDGE);
-    }
     if !param_overrides::available() {
         capabilities &= !clone_engine_api::CAP_PARAMCONFIG_BRIDGE;
     }
@@ -580,9 +567,6 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
     }
     if struct_size < core::mem::size_of::<CloneRegistrationV1>() as u32 {
         return ERROR_STRUCT_SIZE;
-    }
-    if smashline_bridge_version() < SMASHLINE_BRIDGE_VERSION_REQUIRED {
-        return ERROR_SMASHLINE_REQUIRED;
     }
     let mut registration = core::ptr::read(registration);
     let _registration_guard = registration_gate().lock().unwrap();
@@ -1219,6 +1203,7 @@ macro_rules! share_hook {
             if let Some(base) = clone_base(kind as i32) {
                 diag_reroute_log!($name, kind as i32, base);
                 let _pending = PENDING_AGENT_KIND.enter(current_thread_key(), kind as i32);
+                let _agent_name = smashline_names::hold_clone_fighter_name(Some(kind as i32));
                 return call_original!(base as u64, x1, x2, x3);
             }
             call_original!(kind, x1, x2, x3)
@@ -1336,8 +1321,10 @@ macro_rules! clone_fighter_acmd_hooks {
             #[cfg(feature = "css_slot")]
             #[skyline::hook(offset = $offset)]
             unsafe fn $name(object: u64, boma: u64, lua_state: u64) -> u64 {
-                let _pending = clone_kind_of_object(object)
-                    .map(|kind| PENDING_AGENT_KIND.enter(current_thread_key(), kind));
+                let clone_kind = clone_kind_of_object(object);
+                let _pending =
+                    clone_kind.map(|kind| PENDING_AGENT_KIND.enter(current_thread_key(), kind));
+                let _agent_name = smashline_names::hold_clone_fighter_name(clone_kind);
                 call_original!(object, boma, lua_state)
             }
         )*
@@ -1470,6 +1457,7 @@ macro_rules! article_animcmd_agent_hooks {
                 core::ptr::write_volatile(kind_field, source);
                 let agent = {
                     let _pending = crate::enter_pending_weapon_kind(kind);
+                    let _names = smashline_names::hold_clone_weapon_names(source, kind);
                     call_original!(object, boma, lua_state)
                 };
                 core::ptr::write_volatile(kind_field, kind);
@@ -1512,8 +1500,10 @@ unsafe fn clone_fighter_status_create(object: u64, boma: u64, lua_state: u64) ->
         core::ptr::read_volatile(kind_field)
     };
     let spoof = clone_definition(kind).map(|definition| definition.base_kind);
-    let _pending = clone_kind_of_object(object)
-        .map(|clone_kind| PENDING_AGENT_KIND.enter(current_thread_key(), clone_kind));
+    let status_clone_kind = clone_kind_of_object(object);
+    let _pending =
+        status_clone_kind.map(|clone_kind| PENDING_AGENT_KIND.enter(current_thread_key(), clone_kind));
+    let _agent_name = smashline_names::hold_clone_fighter_name(status_clone_kind);
     if let Some(base) = spoof {
         core::ptr::write_volatile(kind_field, base);
     }
@@ -3607,6 +3597,9 @@ mod article_bridges;
 use article_bridges::*;
 
 #[cfg(feature = "css_slot")]
+mod copy_model_probe;
+
+#[cfg(feature = "css_slot")]
 mod kirby_copy;
 #[cfg(feature = "css_slot")]
 use kirby_copy::*;
@@ -3631,6 +3624,8 @@ use load_pipeline::*;
 mod article_probes;
 use article_probes::*;
 
+mod smashline_names;
+
 fn smashline_bridge_version() -> u32 {
     let version = SMASHLINE_BRIDGE_VERSION.load(core::sync::atomic::Ordering::Acquire);
     if version != 0 {
@@ -3651,7 +3646,7 @@ fn report_smashline_name_support() {
     if result != 0 || address == 0 {
         SMASHLINE_BRIDGE_VERSION.store(0, core::sync::atomic::Ordering::Release);
         skyline::println!(
-            "[clone_engine] smashline: incompatible or stock; custom fighter registration is disabled"
+            "[clone_engine] smashline: stock build; agent names come from the engine's name slots"
         );
         return;
     }
@@ -3698,6 +3693,8 @@ pub fn main() {
     block_grid::install();
     #[cfg(feature = "css_slot")]
     finalsmash_residency::install();
+    #[cfg(feature = "css_slot")]
+    copy_model_probe::install();
     #[cfg(feature = "item_clone_backend")]
     if item_slots::ready() {
         item_clones::mark_resource_router_ready();

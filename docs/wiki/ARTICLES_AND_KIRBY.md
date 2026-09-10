@@ -4,7 +4,7 @@
 
 `clone_article` copies a vanilla weapon into a new weapon kind that belongs to
 your fighter. Clone Engine owns its identity, files, ownership and weapon
-statuses; the Smashline fork registers its ACMD under its own agent name. Each
+statuses; Smashline registers its ACMD under its own agent name. Each
 article needs a file directory name of its own.
 
 Keep the `ArticleHandle` you get back. Its weapon kind is permanent. Its

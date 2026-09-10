@@ -19,7 +19,7 @@ shared_hook_example = []
 clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.1.0-beta.1" }
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
 smash_script = { git = "https://github.com/WuBoytH/smash-script.git", rev = "24c5b69b79c7d7b041c3993ecd766ceccf950c2b" }
-smashline = { git = "https://github.com/PropaSmike/smashline", tag = "clone-engine-beta.1" }
+smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
 the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api.git", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361" }
 arcropolis-api = { git = "https://github.com/Raytwo/arcropolis_api", rev = "5d100d3eb48a4591839925f74f7cf2c781f09f15" }
 

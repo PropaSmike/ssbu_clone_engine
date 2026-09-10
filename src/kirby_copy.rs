@@ -1479,6 +1479,7 @@ pub(crate) unsafe fn kirby_copy_setup_probe(
     } else {
         None
     };
+    audit_status_interrupt_stub("copy_setup");
     let idx = copyset_log_index();
     if let Some(n) = idx {
         dbg_log!(
@@ -1809,6 +1810,9 @@ pub(crate) const KIRBY_NRO_DISPATCH_SEAM_OPCODE: u32 = 0xAA0003E1;
 pub(crate) const KIRBY_NRO_DISPATCH_NEXT_OPCODE: u32 = 0xF940_0380;
 #[cfg(feature = "css_slot")]
 pub(crate) const OFF_STATUS_SET_KIND_INTERRUPT: usize = 0x2087740;
+
+#[cfg(feature = "css_slot")]
+pub(crate) const KIRBY_NRO_STATUS_INTERRUPT_GOT: usize = 0x69e9a8;
 #[cfg(feature = "css_slot")]
 #[allow(dead_code)]
 pub(crate) const KIRBY_STATUS_SAMUS_SPECIAL_N: u64 = 0x287;
@@ -1967,6 +1971,46 @@ pub(crate) unsafe fn install_status_interrupt_stub() -> bool {
         "[kirbyfam] status-interrupt stub REFUSED at {site:#x}; copy status routing is inert"
     ));
     false
+}
+
+#[cfg(feature = "css_slot")]
+static STUB_AUDIT_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn audit_status_interrupt_stub(site_label: &str) {
+    let n = STUB_AUDIT_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n >= 6 {
+        return;
+    }
+    let site = crate::text_base() + OFF_STATUS_SET_KIND_INTERRUPT;
+    let mut live = [0u8; 16];
+    for (index, slot) in live.iter_mut().enumerate() {
+        *slot = core::ptr::read_volatile((site + index) as *const u8);
+    }
+    let handler = u64::from_le_bytes([
+        live[8], live[9], live[10], live[11], live[12], live[13], live[14], live[15],
+    ]);
+    let ours = live[0..4] == 0x5800_0051u32.to_le_bytes()
+        && live[4..8] == 0xD61F_0220u32.to_le_bytes();
+    let expected = kirby_copy_dispatch_status as *const () as usize as u64;
+    let base = KIRBY_NRO_BASE.load(core::sync::atomic::Ordering::Relaxed);
+    let (got, target, head) = if base > 0x1_0000 {
+        let slot = base + KIRBY_NRO_STATUS_INTERRUPT_GOT;
+        let target = core::ptr::read_volatile(slot as *const usize);
+        let head = if target > 0x1_0000 {
+            core::ptr::read_volatile(target as *const u32)
+        } else {
+            0
+        };
+        (slot, target, head)
+    } else {
+        (0, 0, 0)
+    };
+    dbg_log_public(&format!(
+        "[kirbyfam] #{n} stub audit at {site_label}: site={site:#x} bytes={live:02x?} ours={ours} handler={handler:#x} expected={expected:#x} match={} nro_base={base:#x} got={got:#x} got_target={target:#x} want={site:#x} resolved_to_us={} head={head:#010x}",
+        handler == expected,
+        target == site
+    ));
 }
 
 #[cfg(feature = "css_slot")]
