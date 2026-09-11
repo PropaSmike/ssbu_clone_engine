@@ -261,6 +261,17 @@ for every color, and play it from your copy status by the name you registered.
 Your motions are added to the base fighter's, never in place of them. Names must
 be unique across every installed pack, and 256 can be registered in total.
 
+### Mesh visibility defaults
+
+Hide or show a hat mesh from the start, before any copy animation plays:
+
+```rust
+clone_engine_api::clone_copy_mesh_default(kind, "wing", false)?;
+```
+
+Use the mesh name your animations use. Up to 16 per fighter. Your animations
+still control the mesh once they play.
+
 ## Shared hooks
 
 When two movesets need the same game function, the broker installs one hook and

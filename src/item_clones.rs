@@ -700,6 +700,9 @@ unsafe fn battle_object_update(object: *mut u8) {
     #[cfg(feature = "item_selftest")]
     report_status_constants();
     let identity = live_identity_of_object(object as usize);
+    if let Some((_, base)) = identity {
+        crate::block_grid::note_clone_object(base);
+    }
     let scope = identity.and_then(|(public, base)| {
         let scope = crate::item_params::enter_runtime_clone(public, base);
         if scope.is_some() {
@@ -1394,6 +1397,7 @@ unsafe fn item_deactivate_bridge(manager: *mut u8, item: *mut u8, recycle: u32) 
     };
     call_original!(manager, item, recycle);
     if let Some(kind) = remove_live(item as usize, object_id) {
+        crate::block_grid::note_released_object(item as usize);
         limited_log(format!(
             "[itemclone] release object={item:p} id={object_id:#x} public={kind:#x} recycle={recycle}"
         ));

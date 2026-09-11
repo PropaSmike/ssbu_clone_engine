@@ -1,5 +1,6 @@
 use super::*;
 
+use clone_engine_core::param_swap::{BaseState, CloneState};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
 const PARAM_SINGLETON: usize = 0x52bb3b0;
@@ -20,109 +21,19 @@ const PARAM_FILE_REQUEST: usize = 0x3540450;
 const PARAM_PATH_TYPE_A: i32 = 12;
 const PARAM_PATH_TYPE_B: i32 = 13;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Instance {
-    payload: usize,
-    owner: usize,
-    payload_b: usize,
-    owner_b: usize,
-}
-
-impl Instance {
-    pub(crate) fn payload(&self) -> usize {
-        self.payload
-    }
-}
-
+pub(crate) use clone_engine_core::param_swap::{GuardMode, Instance, LockOutcome, SwapRegistry};
 pub(crate) use clone_engine_core::slots::{CLONE_SLOTS, PARAM_NATIVE_KINDS};
 
 type ParamLoader = unsafe extern "C" fn(usize, i32, *const i32);
 
-struct BaseState {
-    origin: AtomicUsize,
-    vanilla_payload: AtomicUsize,
-    vanilla_owner: AtomicUsize,
-    vanilla_payload_b: AtomicUsize,
-    vanilla_owner_b: AtomicUsize,
-    separated: AtomicBool,
-    saw_clone: AtomicBool,
-    vanilla_own_context: AtomicBool,
-}
+static REGISTRY: SwapRegistry = SwapRegistry::new();
 
-impl BaseState {
-    const fn new() -> Self {
-        Self {
-            origin: AtomicUsize::new(0),
-            vanilla_payload: AtomicUsize::new(0),
-            vanilla_owner: AtomicUsize::new(0),
-            vanilla_payload_b: AtomicUsize::new(0),
-            vanilla_owner_b: AtomicUsize::new(0),
-            separated: AtomicBool::new(false),
-            saw_clone: AtomicBool::new(false),
-            vanilla_own_context: AtomicBool::new(false),
-        }
-    }
-
-    fn forget(&self) {
-        self.origin.store(0, Ordering::Relaxed);
-        self.vanilla_payload.store(0, Ordering::Relaxed);
-        self.vanilla_owner.store(0, Ordering::Relaxed);
-        self.vanilla_payload_b.store(0, Ordering::Relaxed);
-        self.vanilla_owner_b.store(0, Ordering::Relaxed);
-        self.separated.store(false, Ordering::Relaxed);
-        self.saw_clone.store(false, Ordering::Relaxed);
-        self.vanilla_own_context.store(false, Ordering::Relaxed);
-    }
-}
-
-struct CloneState {
-    payload: AtomicUsize,
-    owner: AtomicUsize,
-    payload_b: AtomicUsize,
-    owner_b: AtomicUsize,
-}
-
-impl CloneState {
-    const fn new() -> Self {
-        Self {
-            payload: AtomicUsize::new(0),
-            owner: AtomicUsize::new(0),
-            payload_b: AtomicUsize::new(0),
-            owner_b: AtomicUsize::new(0),
-        }
-    }
-
-    fn forget(&self) {
-        self.payload.store(0, Ordering::Relaxed);
-        self.owner.store(0, Ordering::Relaxed);
-        self.payload_b.store(0, Ordering::Relaxed);
-        self.owner_b.store(0, Ordering::Relaxed);
-    }
-}
-
-static BASES: [BaseState; PARAM_NATIVE_KINDS as usize] =
-    [const { BaseState::new() }; PARAM_NATIVE_KINDS as usize];
-
-static CLONES: [CloneState; CLONE_SLOTS] = [const { CloneState::new() }; CLONE_SLOTS];
-
-static SWAP_LOCK: AtomicBool = AtomicBool::new(false);
-static SWAP_OWNER: AtomicUsize = AtomicUsize::new(0);
 static SWAP_BUSY_LOG: AtomicU32 = AtomicU32::new(0);
 const SWAP_SPIN_LIMIT: u32 = 100_000;
 
-static OUT_OF_RANGE: AtomicU32 = AtomicU32::new(0);
-
-static PEAK_CLONE_SLOT: AtomicI32 = AtomicI32::new(-1);
-
 pub(crate) static PARAM_INSTANCE_LOG: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum GuardMode {
-    Idle,
-    Restore,
-    CaptureClone,
-    CaptureVanilla,
-}
+const EMPTY_INSTANCE: Instance = Instance::EMPTY;
 
 pub(crate) struct SwapGuard {
     record: usize,
@@ -132,13 +43,6 @@ pub(crate) struct SwapGuard {
     mode: GuardMode,
     refcount: Option<u32>,
 }
-
-const EMPTY_INSTANCE: Instance = Instance {
-    payload: 0,
-    owner: 0,
-    payload_b: 0,
-    owner_b: 0,
-};
 
 impl SwapGuard {
     const fn idle() -> Self {
@@ -163,39 +67,15 @@ fn skip_log(message: &str) {
 }
 
 fn base_state(base_kind: i32) -> Option<&'static BaseState> {
-    clone_engine_core::slots::base_row(base_kind).and_then(|row| BASES.get(row))
+    REGISTRY.base(base_kind)
 }
 
 fn clone_state(clone_kind: i32) -> Option<&'static CloneState> {
-    let Some(row) = clone_engine_core::slots::clone_row(clone_kind) else {
-        OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
-        return None;
-    };
-    let Some(state) = CLONES.get(row) else {
-        OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
-        return None;
-    };
-    let seen = row as i32;
-    let mut peak = PEAK_CLONE_SLOT.load(Ordering::Relaxed);
-    while seen > peak {
-        match PEAK_CLONE_SLOT.compare_exchange_weak(
-            peak,
-            seen,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => break,
-            Err(observed) => peak = observed,
-        }
-    }
-    Some(state)
+    REGISTRY.clone_slot(clone_kind)
 }
 
 pub(crate) fn clone_slot_peak() -> (i32, u32) {
-    (
-        PEAK_CLONE_SLOT.load(Ordering::Relaxed),
-        OUT_OF_RANGE.load(Ordering::Relaxed),
-    )
+    REGISTRY.peak()
 }
 
 unsafe fn singleton() -> Option<usize> {
@@ -220,33 +100,17 @@ unsafe fn read_pair(record: usize) -> (usize, usize) {
 
 fn lock_swaps() -> bool {
     let thread = unsafe { current_thread_key() };
-    if thread != 0 && SWAP_OWNER.load(Ordering::Acquire) == thread {
-        return false;
-    }
-    for _ in 0..SWAP_SPIN_LIMIT {
-        if SWAP_LOCK
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-        {
-            SWAP_OWNER.store(thread, Ordering::Release);
-            return true;
-        }
-        core::hint::spin_loop();
-    }
-    if SWAP_BUSY_LOG.fetch_add(1, Ordering::Relaxed) < 4 {
+    let outcome = REGISTRY.try_lock(thread, SWAP_SPIN_LIMIT);
+    if outcome == LockOutcome::Contended && SWAP_BUSY_LOG.fetch_add(1, Ordering::Relaxed) < 4 {
         dbg_log!(
             "[cloneparam] swap lock held elsewhere for the whole spin budget; proceeding unlocked rather than blocking the load"
         );
     }
-    false
+    outcome.owned()
 }
 
 fn unlock_swaps(owned: bool) {
-    if !owned {
-        return;
-    }
-    SWAP_OWNER.store(0, Ordering::Release);
-    SWAP_LOCK.store(false, Ordering::Release);
+    REGISTRY.unlock(owned);
 }
 
 fn clones_of(base_kind: i32) -> Vec<i32> {
@@ -261,24 +125,12 @@ fn clones_of(base_kind: i32) -> Vec<i32> {
         .unwrap_or_default()
 }
 
-fn known_payload(state: &BaseState, base_kind: i32, payload: usize) -> bool {
-    if payload == state.origin.load(Ordering::Relaxed)
-        || payload == state.vanilla_payload.load(Ordering::Relaxed)
-    {
-        return true;
-    }
-    clones_of(base_kind).into_iter().any(|kind| {
-        clone_state(kind).is_some_and(|clone| clone.payload.load(Ordering::Relaxed) == payload)
-    })
+fn known_payload(_state: &BaseState, base_kind: i32, payload: usize) -> bool {
+    REGISTRY.known_payload(base_kind, payload, &clones_of(base_kind))
 }
 
-fn forget_all(state: &BaseState, base_kind: i32) {
-    state.forget();
-    for kind in clones_of(base_kind) {
-        if let Some(clone) = clone_state(kind) {
-            clone.forget();
-        }
-    }
+fn forget_all(_state: &BaseState, base_kind: i32) {
+    REGISTRY.forget_all(base_kind, &clones_of(base_kind));
 }
 
 unsafe fn revalidate(base_kind: i32, record: usize) -> Option<&'static BaseState> {
@@ -829,20 +681,7 @@ unsafe fn read_plausible(at: usize) -> Option<usize> {
 }
 
 fn describe_root(root: usize) -> &'static str {
-    for state in BASES.iter() {
-        if root == state.vanilla_payload.load(Ordering::Relaxed) {
-            return "base-instance";
-        }
-        if root == state.origin.load(Ordering::Relaxed) {
-            return "origin";
-        }
-    }
-    for state in CLONES.iter() {
-        if root == state.payload.load(Ordering::Relaxed) {
-            return "clone-instance";
-        }
-    }
-    "unknown"
+    REGISTRY.describe_root(root)
 }
 
 pub(crate) unsafe fn observe_work_param_root(boma: usize) {
