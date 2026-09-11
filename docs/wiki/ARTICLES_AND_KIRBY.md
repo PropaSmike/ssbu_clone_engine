@@ -52,3 +52,4 @@ belongs on `Agent::new("kirby")`.
 
 The fighter template registers two and ships no animation, because those are
 yours to make. The builder is in the Kirby section of the [API guide](../API.md).
+`clone_copy_mesh_default` hides or shows a hat mesh from the start.

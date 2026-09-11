@@ -1,4 +1,5 @@
 pub mod hash;
+pub mod param_swap;
 pub mod slots;
 pub mod text_layout;
 

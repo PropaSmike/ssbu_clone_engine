@@ -47,6 +47,96 @@ pub(crate) fn copy_models(fighter_kind: i32) -> Vec<String> {
 }
 
 #[cfg(feature = "css_slot")]
+pub(crate) const MAX_COPY_MESH_DEFAULTS: usize = 16;
+#[cfg(feature = "css_slot")]
+const MODEL_MODULE_OFFSET: usize = 0x78;
+#[cfg(feature = "css_slot")]
+const MODEL_SET_MESH_VISIBILITY_SLOT: usize = 0x1d0;
+#[cfg(feature = "css_slot")]
+const COPY_MESH_REAPPLY_FRAMES: u32 = 30;
+
+#[cfg(feature = "css_slot")]
+static COPY_MESH_BOMA: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "css_slot")]
+static COPY_MESH_KIND: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
+#[cfg(feature = "css_slot")]
+static COPY_MESH_FRAMES: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+#[cfg(feature = "css_slot")]
+static COPY_MESH_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+fn copy_mesh_registry() -> &'static std::sync::RwLock<Vec<(i32, String, bool)>> {
+    static MESHES: OnceLock<std::sync::RwLock<Vec<(i32, String, bool)>>> = OnceLock::new();
+    MESHES.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) fn copy_mesh_defaults(fighter_kind: i32) -> Vec<(u64, bool)> {
+    copy_mesh_registry()
+        .read()
+        .map(|held| {
+            held.iter()
+                .filter(|(known, _, _)| *known == fighter_kind)
+                .map(|(_, mesh, visible)| (clone_engine_core::hash::hash40(mesh), *visible))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(feature = "css_slot")]
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_clone_copy_mesh_default_v1(
+    registration: *const clone_engine_api::CloneCopyMeshV1,
+) -> i32 {
+    if registration.is_null() {
+        return clone_engine_api::ERROR_NULL;
+    }
+    let registration = &*registration;
+    if registration.api_version != clone_engine_api::API_VERSION_V1 {
+        return clone_engine_api::ERROR_VERSION;
+    }
+    if (registration.struct_size as usize)
+        < core::mem::size_of::<clone_engine_api::CloneCopyMeshV1>()
+    {
+        return clone_engine_api::ERROR_STRUCT_SIZE;
+    }
+    if registration.mesh.is_null() {
+        return clone_engine_api::ERROR_NAME;
+    }
+    let Ok(mesh) = core::ffi::CStr::from_ptr(registration.mesh).to_str() else {
+        return clone_engine_api::ERROR_NAME;
+    };
+    if mesh.is_empty() {
+        return clone_engine_api::ERROR_NAME;
+    }
+    let kind = registration.fighter_kind;
+    let visible = registration.visible != 0;
+    let Ok(mut held) = copy_mesh_registry().write() else {
+        return clone_engine_api::ERROR_UNSUPPORTED;
+    };
+    if held.iter().filter(|(known, _, _)| *known == kind).count() >= MAX_COPY_MESH_DEFAULTS {
+        dbg_log!(
+            "[kirbymesh] kind {kind} already has {MAX_COPY_MESH_DEFAULTS} mesh defaults; '{mesh}' refused"
+        );
+        return clone_engine_api::ERROR_UNSUPPORTED;
+    }
+    if let Some(slot) = held
+        .iter_mut()
+        .find(|(known, name, _)| *known == kind && name == mesh)
+    {
+        slot.2 = visible;
+        dbg_log!("[kirbymesh] kind {kind} mesh '{mesh}' default updated to visible={visible}");
+        return 0;
+    }
+    held.push((kind, mesh.to_string(), visible));
+    dbg_log!(
+        "[kirbymesh] kind {kind} registered mesh '{mesh}' default visible={visible} (hash {:#x})",
+        clone_engine_core::hash::hash40(mesh)
+    );
+    0
+}
+
+#[cfg(feature = "css_slot")]
 #[no_mangle]
 pub unsafe extern "C" fn clone_engine_clone_copy_model_v1(
     registration: *const clone_engine_api::CloneCopyModelV1,
@@ -1700,6 +1790,73 @@ unsafe fn probe_kirby_status_table(boma: u64) {
 }
 
 #[cfg(feature = "css_slot")]
+unsafe fn apply_copy_mesh_defaults(boma: u64, kind: i32) {
+    let defaults = copy_mesh_defaults(kind);
+    if defaults.is_empty() {
+        return;
+    }
+    if (boma as u64) < LOWEST_PLAUSIBLE_POINTER {
+        return;
+    }
+    let module =
+        core::ptr::read_volatile((boma as usize + MODEL_MODULE_OFFSET) as *const usize);
+    let entry = module_vtable_target(module, MODEL_SET_MESH_VISIBILITY_SLOT);
+    let (base, end) = (text_base(), text_end());
+    if entry == 0 || base == 0 || end <= base || entry < base || entry >= end {
+        let n = COPY_MESH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 8 {
+            dbg_log!(
+                "[kirbymesh] #{n} kind {kind} skipped: boma={boma:#x} module={module:#x} slot={entry:#x} is not inside main"
+            );
+        }
+        return;
+    }
+    let set_mesh_visibility: extern "C" fn(usize, u64, bool) = core::mem::transmute(entry);
+    for (mesh, visible) in &defaults {
+        set_mesh_visibility(module, *mesh, *visible);
+    }
+    let n = COPY_MESH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 8 {
+        dbg_log!(
+            "[kirbymesh] #{n} kind {kind} applied {} mesh default(s) to boma={boma:#x} module={module:#x}",
+            defaults.len()
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn track_copy_mesh_defaults(boma: u64, kind: i32) {
+    let same = COPY_MESH_BOMA.load(core::sync::atomic::Ordering::Acquire) == boma
+        && COPY_MESH_KIND.load(core::sync::atomic::Ordering::Acquire) == kind;
+    if !same {
+        COPY_MESH_BOMA.store(boma, core::sync::atomic::Ordering::Release);
+        COPY_MESH_KIND.store(kind, core::sync::atomic::Ordering::Release);
+        COPY_MESH_FRAMES.store(0, core::sync::atomic::Ordering::Release);
+    }
+    let frames = COPY_MESH_FRAMES.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+    if frames >= COPY_MESH_REAPPLY_FRAMES {
+        return;
+    }
+    apply_copy_mesh_defaults(boma, kind);
+}
+
+#[cfg(feature = "css_slot")]
+fn forget_copy_mesh_defaults(boma: u64) {
+    if COPY_MESH_BOMA
+        .compare_exchange(
+            boma,
+            0,
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Relaxed,
+        )
+        .is_ok()
+    {
+        COPY_MESH_KIND.store(-1, core::sync::atomic::Ordering::Release);
+        COPY_MESH_FRAMES.store(0, core::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = OFF_KIRBY_PER_FIGHTER_FRAME)]
 pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
@@ -1726,6 +1883,7 @@ pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3
                     KIRBY_CLONE_COPY_KIND
                         .store(target_kind.unwrap(), core::sync::atomic::Ordering::Release);
                     KIRBY_CLONE_COPY_BOMA.store(boma, core::sync::atomic::Ordering::Release);
+                    track_copy_mesh_defaults(boma, target_kind.unwrap());
                     poll_kirby_copy_article_state(boma);
                 } else {
                     if KIRBY_CLONE_COPY_BOMA
@@ -1740,6 +1898,7 @@ pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3
                         KIRBY_CLONE_COPY_KIND.store(-1, core::sync::atomic::Ordering::Release);
                         KIRBY_COPY_ARTICLE_POLL_STATE
                             .store(u64::MAX, core::sync::atomic::Ordering::Release);
+                        forget_copy_mesh_defaults(boma);
                     }
                 }
                 let state = (kind as u64) | (flag << 32);

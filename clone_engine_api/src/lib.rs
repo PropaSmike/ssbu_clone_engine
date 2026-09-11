@@ -547,6 +547,7 @@ static CLONE_COPY_ARTICLE_FN: AtomicUsize = AtomicUsize::new(0);
 static COPY_ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MODEL_FN: AtomicUsize = AtomicUsize::new(0);
+static CLONE_COPY_MESH_FN: AtomicUsize = AtomicUsize::new(0);
 static LOG_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
 static PARAM_INT_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1512,6 +1513,43 @@ pub fn clone_copy_model(fighter_kind: i32, directory: &str) -> Result<(), Error>
         reserved: [0; 4],
     };
     let function: unsafe extern "C" fn(*const CloneCopyModelV1) -> i32 =
+        unsafe { core::mem::transmute(address) };
+    let result = unsafe { function(&registration) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub const MAX_COPY_MESH_DEFAULTS: usize = 16;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CloneCopyMeshV1 {
+    pub api_version: u32,
+    pub struct_size: u32,
+    pub fighter_kind: i32,
+    pub visible: u32,
+    pub mesh: *const c_char,
+    pub reserved: [u64; 4],
+}
+
+pub fn clone_copy_mesh_default(fighter_kind: i32, mesh: &str, visible: bool) -> Result<(), Error> {
+    let address = resolve(
+        &CLONE_COPY_MESH_FN,
+        b"clone_engine_clone_copy_mesh_default_v1 ",
+    )
+    .ok_or(Error::EngineUnavailable)?;
+    let mesh = CString::new(mesh).map_err(|_| Error::InvalidName)?;
+    let registration = CloneCopyMeshV1 {
+        api_version: API_VERSION_V1,
+        struct_size: core::mem::size_of::<CloneCopyMeshV1>() as u32,
+        fighter_kind,
+        visible: u32::from(visible),
+        mesh: mesh.as_ptr(),
+        reserved: [0; 4],
+    };
+    let function: unsafe extern "C" fn(*const CloneCopyMeshV1) -> i32 =
         unsafe { core::mem::transmute(address) };
     let result = unsafe { function(&registration) };
     if result < 0 {

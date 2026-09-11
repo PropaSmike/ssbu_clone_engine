@@ -9,6 +9,7 @@ const MOV_W8_WZR: u32 = 0x2A1F_03E8;
 const MOV_W8_ONE: u32 = 0x5280_0028;
 
 const ROSTER_GRACE_FRAMES: u32 = 120;
+const ROSTER_CONFIRM_FRAMES: u32 = 4;
 const GRID_BLACKOUT_FRAMES: u32 = 30;
 
 const PICKELOBJECT_BASE_KIND: i32 = 0x1AE;
@@ -26,7 +27,12 @@ const NO_POSITION: u64 = u64::MAX;
 
 static NEEDED: AtomicBool = AtomicBool::new(false);
 static EPOCH: AtomicUsize = AtomicUsize::new(0);
-static STEVE_SEEN: AtomicBool = AtomicBool::new(false);
+static ROSTER_HAS_PICKEL: AtomicBool = AtomicBool::new(false);
+static SCAN_REPORTS_PRESENT: AtomicBool = AtomicBool::new(false);
+static CLONE_BLOCK_LIVE: AtomicBool = AtomicBool::new(false);
+static ROSTER_LOGGED: AtomicBool = AtomicBool::new(false);
+static PRESENT_RUN: AtomicU32 = AtomicU32::new(0);
+static LAST_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
 static PATCHED: AtomicBool = AtomicBool::new(false);
 static PATCHED_FRAME: AtomicU32 = AtomicU32::new(0);
 static REFUSED: AtomicBool = AtomicBool::new(false);
@@ -66,24 +72,49 @@ pub(crate) unsafe fn sample() {
         return;
     };
     if EPOCH.swap(inner, Ordering::AcqRel) != inner {
-        STEVE_SEEN.store(false, Ordering::Release);
+        ROSTER_HAS_PICKEL.store(false, Ordering::Release);
+        SCAN_REPORTS_PRESENT.store(false, Ordering::Release);
+        CLONE_BLOCK_LIVE.store(false, Ordering::Release);
+        ROSTER_LOGGED.store(false, Ordering::Release);
+        PRESENT_RUN.store(0, Ordering::Release);
+        LAST_FRAME.store(u32::MAX, Ordering::Release);
         restore("a new match started");
+    }
+    let present = core::ptr::read_volatile(inner as *const u8) != 0;
+    SCAN_REPORTS_PRESENT.store(present, Ordering::Release);
+    let frames = core::ptr::read_volatile(
+        (inner + CONTAINER_OFFSET + CONTAINER_FRAME_COUNTER) as *const u32,
+    );
+    let ours = CLONE_BLOCK_LIVE.load(Ordering::Acquire);
+    if LAST_FRAME.swap(frames, Ordering::AcqRel) != frames {
+        let run = if present && !ours {
+            PRESENT_RUN.fetch_add(1, Ordering::AcqRel) + 1
+        } else {
+            PRESENT_RUN.store(0, Ordering::Release);
+            0
+        };
+        if run >= ROSTER_CONFIRM_FRAMES {
+            ROSTER_HAS_PICKEL.store(true, Ordering::Release);
+        }
     }
     if PATCHED.load(Ordering::Acquire) || REFUSED.load(Ordering::Acquire) {
         return;
     }
-    if core::ptr::read_volatile(inner as *const u8) != 0 {
-        STEVE_SEEN.store(true, Ordering::Release);
+    if ROSTER_HAS_PICKEL.load(Ordering::Acquire) {
+        if !ROSTER_LOGGED.swap(true, Ordering::AcqRel) {
+            log(format!(
+                "[blockgrid] the scan reported a pickel present for {ROSTER_CONFIRM_FRAMES}                  consecutive samples by {frames} manager frames with no clone block of ours live,                  so this match has a real pickel on the roster and the grid stays the game's own"
+            ));
+        }
         return;
     }
-    if STEVE_SEEN.load(Ordering::Acquire) {
-        return;
-    }
-    let frames = core::ptr::read_volatile(
-        (inner + CONTAINER_OFFSET + CONTAINER_FRAME_COUNTER) as *const u32,
-    );
     if frames < ROSTER_GRACE_FRAMES {
         return;
+    }
+    if present && !ROSTER_LOGGED.swap(true, Ordering::AcqRel) {
+        log(format!(
+            "[blockgrid] the scan already reports present at {frames} manager frames because a              clone block of ours is live; patching anyway so the grid survives that block dying"
+        ));
     }
     apply(frames);
 }
@@ -187,6 +218,7 @@ struct Settle {
     position: AtomicU64,
     still: AtomicU32,
     placed: AtomicBool,
+    seen: AtomicBool,
 }
 
 impl Settle {
@@ -196,12 +228,15 @@ impl Settle {
             position: AtomicU64::new(NO_POSITION),
             still: AtomicU32::new(0),
             placed: AtomicBool::new(false),
+            seen: AtomicBool::new(false),
         }
     }
 }
 
 static SETTLES: [Settle; SETTLE_SLOTS] = [const { Settle::new() }; SETTLE_SLOTS];
 static PLACED_LOGGED: AtomicBool = AtomicBool::new(false);
+static SPAWN_LOGS: AtomicU32 = AtomicU32::new(0);
+const SPAWN_LOG_LIMIT: u32 = 8;
 static PLACED_REFUSED: AtomicBool = AtomicBool::new(false);
 
 fn plausible(value: usize) -> bool {
@@ -264,6 +299,22 @@ fn pack(x: f32, y: f32) -> u64 {
     u64::from(x.to_bits()) | (u64::from(y.to_bits()) << 32)
 }
 
+pub(crate) fn note_released_object(object: usize) {
+    for slot in SETTLES.iter() {
+        if slot
+            .object
+            .compare_exchange(object, 0, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            slot.position.store(NO_POSITION, Ordering::Release);
+            slot.still.store(0, Ordering::Relaxed);
+            slot.placed.store(false, Ordering::Release);
+            slot.seen.store(false, Ordering::Release);
+            return;
+        }
+    }
+}
+
 fn settle_for(object: usize) -> Option<&'static Settle> {
     for slot in SETTLES.iter() {
         if slot.object.load(Ordering::Acquire) == object {
@@ -279,6 +330,7 @@ fn settle_for(object: usize) -> Option<&'static Settle> {
             slot.position.store(NO_POSITION, Ordering::Release);
             slot.still.store(0, Ordering::Relaxed);
             slot.placed.store(false, Ordering::Release);
+            slot.seen.store(false, Ordering::Release);
             return Some(slot);
         }
     }
@@ -286,7 +338,10 @@ fn settle_for(object: usize) -> Option<&'static Settle> {
 }
 
 unsafe fn grid_accepts_placement() -> bool {
-    if STEVE_SEEN.load(Ordering::Acquire) {
+    if ROSTER_HAS_PICKEL.load(Ordering::Acquire) {
+        return true;
+    }
+    if SCAN_REPORTS_PRESENT.load(Ordering::Acquire) {
         return true;
     }
     if !PATCHED.load(Ordering::Acquire) {
@@ -303,10 +358,17 @@ unsafe fn grid_accepts_placement() -> bool {
         .saturating_add(GRID_BLACKOUT_FRAMES)
 }
 
+pub(crate) fn note_clone_object(base_kind: i32) {
+    if base_kind == PICKELOBJECT_BASE_KIND {
+        CLONE_BLOCK_LIVE.store(true, Ordering::Release);
+    }
+}
+
 pub(crate) unsafe fn note_live_block(object: usize, base_kind: i32) {
     if base_kind != PICKELOBJECT_BASE_KIND || PLACED_REFUSED.load(Ordering::Relaxed) {
         return;
     }
+    CLONE_BLOCK_LIVE.store(true, Ordering::Release);
     let Some(boma) = read_pointer(object + crate::item_clones::BATTLE_OBJECT_MODULE_TABLE) else {
         return;
     };
@@ -317,6 +379,16 @@ pub(crate) unsafe fn note_live_block(object: usize, base_kind: i32) {
         return;
     };
     let here = pack(x, y);
+    if !slot.seen.swap(true, Ordering::AcqRel)
+        && SPAWN_LOGS.fetch_add(1, Ordering::Relaxed) < SPAWN_LOG_LIMIT
+    {
+        log(format!(
+            "[blockgrid] clone block {object:#x} first seen at ({x}, {y}), grid open: roster={}              scan={} patched={}",
+            ROSTER_HAS_PICKEL.load(Ordering::Acquire),
+            SCAN_REPORTS_PRESENT.load(Ordering::Acquire),
+            PATCHED.load(Ordering::Acquire)
+        ));
+    }
     if here == pack(0.0, 0.0) {
         slot.position.store(here, Ordering::Release);
         slot.still.store(0, Ordering::Relaxed);
@@ -348,7 +420,7 @@ pub(crate) unsafe fn note_live_block(object: usize, base_kind: i32) {
         Some(status) => {
             if !PLACED_LOGGED.swap(true, Ordering::AcqRel) {
                 log(format!(
-                    "[blockgrid] settled clone block requested placed status {status}; the game's script now owns its collision, grid cell and life"
+                    "[blockgrid] settled clone block {object:#x} at ({x}, {y}) requested placed status {status}; the game's script now owns its collision, grid cell and life"
                 ));
             }
         }
