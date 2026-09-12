@@ -60,6 +60,8 @@ mod owner_effects;
 mod item_clones;
 #[cfg(feature = "item_clone_backend")]
 mod item_common_tables;
+#[cfg(feature = "item_clone_backend")]
+mod item_generate;
 mod item_packs;
 #[cfg(feature = "item_clone_backend")]
 mod item_params;
@@ -153,7 +155,12 @@ struct CloneDefinition {
     owns_param_resources: bool,
     kirby_copy_full_model: bool,
     css: Option<&'static CloneCssEntry>,
+    param_file: &'static core::sync::atomic::AtomicU8,
 }
+
+const PARAM_FILE_UNCHECKED: u8 = 0;
+const PARAM_FILE_ABSENT: u8 = 1;
+const PARAM_FILE_SHIPPED: u8 = 2;
 
 #[cfg(feature = "css_slot")]
 struct CloneCssEntry {
@@ -168,8 +175,36 @@ struct CloneCssEntry {
 struct CloneCssEntry;
 
 impl CloneDefinition {
+    fn ships_param_file(&self) -> bool {
+        match self.param_file.load(core::sync::atomic::Ordering::Acquire) {
+            PARAM_FILE_SHIPPED => return true,
+            PARAM_FILE_ABSENT => return false,
+            _ => {}
+        }
+        let path = format!("fighter/{}/param/vl.prc", self.resource_name);
+        let shipped = fighter_modules::path_exists(&path);
+        self.param_file.store(
+            if shipped { PARAM_FILE_SHIPPED } else { PARAM_FILE_ABSENT },
+            core::sync::atomic::Ordering::Release,
+        );
+        dbg_log_public(&format!(
+            "[cloneparam] kind {} {} '{path}'; its param directories are {}",
+            self.kind,
+            if shipped { "ships" } else { "does not ship" },
+            if shipped || self.owns_param_resources || self.article_namespace != 0 || !self.articles.is_empty() {
+                "its own"
+            } else {
+                "the base fighter's"
+            }
+        ));
+        shipped
+    }
+
     fn ships_own_param_resources(&self) -> bool {
-        self.owns_param_resources || self.article_namespace != 0 || !self.articles.is_empty()
+        self.owns_param_resources
+            || self.article_namespace != 0
+            || !self.articles.is_empty()
+            || self.ships_param_file()
     }
 
     fn ships_own_ai_resources(&self) -> bool {
@@ -796,6 +831,7 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
         article_namespace,
         articles,
         owns_param_resources: registration.flags & FLAG_OWNS_PARAM_RESOURCES != 0,
+        param_file: Box::leak(Box::new(core::sync::atomic::AtomicU8::new(PARAM_FILE_UNCHECKED))),
         kirby_copy_full_model: registration.flags & FLAG_KIRBY_COPY_FULL_MODEL != 0,
         css: None,
     }));
@@ -1298,7 +1334,7 @@ macro_rules! dbg_log {
 }
 
 #[cfg(feature = "css_slot")]
-unsafe fn clone_kind_of_object(object: u64) -> Option<i32> {
+pub(crate) unsafe fn clone_kind_of_object(object: u64) -> Option<i32> {
     if object == 0 {
         return None;
     }
@@ -1527,15 +1563,41 @@ pub extern "C" fn clone_engine_param_override_v1(
     {
         let key = (param_type, param_hash);
         let slots = [slot];
-        let accepted =
-            unsafe { param_overrides::push_to_param_config(kind, &slots, key, op, value) };
+        let row_op = match op {
+            param_overrides::OP_SET => Some(clone_engine_core::fighter_param_row::Op::Set(value)),
+            param_overrides::OP_MUL => Some(clone_engine_core::fighter_param_row::Op::Mul(value)),
+            _ => None,
+        };
+        let available = param_overrides::available();
+        let (row, forward) = match row_op {
+            Some(row_op) if param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN => {
+                let recorded = fighter_param_thrown::record(kind, slot, param_hash, row_op);
+                (recorded.message, !recorded.recorded)
+            }
+            Some(_) if !available => (String::from("row: not recorded, ParamConfig missing"), true),
+            Some(row_op) if param_type == clone_engine_core::fighter_common_copies::COMMON => {
+                let recorded = fighter_common_copies::record(kind, slot, param_hash, row_op);
+                let forward = !recorded.recorded || op == param_overrides::OP_SET;
+                (recorded.message, forward)
+            }
+            Some(row_op) => {
+                let recorded = fighter_param_rows::record(kind, slot, param_type, param_hash, row_op);
+                (recorded.message, !recorded.accessor_set_deferred)
+            }
+            None => (String::from("row: unknown op"), true),
+        };
+        let accepted = if forward {
+            unsafe { param_overrides::push_to_param_config(kind, &slots, key, op, value) }
+        } else {
+            available || param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN
+        };
         if accepted {
             ensure_param_getter_brackets_installed();
         }
         let n = PARAM_REGISTER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n < 8 {
+        if n < PARAM_REGISTER_LOG_LIMIT {
             dbg_log!(
-                "[paramreg] #{n} kind={kind} slot={slot} key=({param_type:#x},{param_hash:#x}) op={op} value={value} paramconfig={accepted}"
+                "[paramreg] #{n} kind={kind} slot={slot} key=({param_type:#x},{param_hash:#x}) op={op} value={value} paramconfig={accepted} {row}"
             );
         }
         i32::from(!accepted)
@@ -1564,10 +1626,20 @@ pub extern "C" fn clone_engine_param_int_override_v1(
         if accepted {
             ensure_param_getter_brackets_installed();
         }
+        let op = clone_engine_core::fighter_param_row::Op::SetInt(value);
+        let row = if !accepted {
+            String::from("row: not recorded")
+        } else if param_type == clone_engine_core::fighter_common_copies::COMMON {
+            fighter_common_copies::record(kind, slot, param_hash, op).message
+        } else if param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN {
+            fighter_param_thrown::record(kind, slot, param_hash, op).message
+        } else {
+            fighter_param_rows::record(kind, slot, param_type, param_hash, op).message
+        };
         let n = PARAM_REGISTER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n < 8 {
+        if n < PARAM_REGISTER_LOG_LIMIT {
             dbg_log!(
-                "[paramreg] #{n} int kind={kind} slot={slot} key=({param_type:#x},{param_hash:#x}) value={value} paramconfig={accepted}"
+                "[paramreg] #{n} int kind={kind} slot={slot} key=({param_type:#x},{param_hash:#x}) value={value} paramconfig={accepted} {row}"
             );
         }
         i32::from(!accepted)
@@ -1592,6 +1664,7 @@ static PARAM_KIND_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::Atomi
 
 #[cfg(feature = "css_slot")]
 static PARAM_REGISTER_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+const PARAM_REGISTER_LOG_LIMIT: u32 = 160;
 
 #[cfg(feature = "css_slot")]
 macro_rules! param_getter_brackets {
@@ -3034,7 +3107,11 @@ unsafe fn fighter_aux_data_init_hook(record: *mut u8, source: *mut u8, kind: i32
                 );
             }
         }
-        return call_original!(record, source, base);
+        let row = fighter_param_rows::enter_for_clone(kind);
+        let result = call_original!(record, source, base);
+        fighter_param_rows::leave(row);
+        fighter_param_rows::note_aux_data_init(kind);
+        return result;
     }
     call_original!(record, source, kind)
 }
@@ -3616,6 +3693,11 @@ use css_registration::*;
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 mod fighter_params;
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+mod fighter_common_copies;
+mod fighter_param_rows;
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+mod fighter_param_thrown;
 #[cfg(feature = "true_kind")]
 mod load_pipeline;
 #[cfg(feature = "true_kind")]
@@ -3715,6 +3797,8 @@ pub fn main() {
     if item_params::ready() {
         item_clones::mark_param_router_ready();
     }
+    #[cfg(feature = "item_clone_backend")]
+    item_generate::install();
 
     #[cfg(feature = "item_clone_backend")]
     item_scripts::install();
@@ -4055,6 +4139,10 @@ pub fn main() {
         #[cfg(not(feature = "diag_article_initspoof"))]
         skyline::install_hook!(fighter_init_kind_bridge);
         #[cfg(feature = "css_slot")]
+        fighter_param_rows::install_hooks();
+        fighter_common_copies::install_hooks();
+        fighter_param_thrown::install_hooks();
+        #[cfg(feature = "css_slot")]
         skyline::install_hooks!(fighter_scoped_resource_path_hook, fighter_camera_set_hook);
         #[cfg(feature = "css_slot")]
         skyline::install_hook!(load_pipeline::camera_animation_base_fallback);
@@ -4104,6 +4192,9 @@ fn report_clone_runtime_hooks() {
             "fighter_init_kind_bridge(0x6079d0) kind+name+kind-array bridge",
             "fighter_scoped_resource_path_hook(0x17e88d0) namespace + base fallback",
             "fighter_params(0x70c580) per-instance vl.prc payload for clone/base coexistence",
+            "fighter_param_rows(0x6867e0, 0x60b6b0, per-frame 0x3a84e0 + Fighter phases 107/109/110/111-115 at 0x614630 0x6164a0 0x616580 0x619810 0x619850 0x619890 0x61a0a0 0x3a8bc0; aux record under 0x34af10) fighter_param + fighter_param_motion row swap for direct readers",
+            "fighter_common_copies(accessor+0x2758 param object; binders 0x736a90 common 0x782c00 item 0x7741f0 etc 0x798540 power_up 0x761f70 effect) per-fighter copies of the six shared param files patched for clones; kind bind 0x77d100 re-patches the detached power_up object at param object+0x1b10",
+            "fighter_param_thrown(thunk 0x20a8000 + lua call 0x20a81b4 for thrown_offset 0x720f90; entry hooks 0x7210e0 donkey 0x7211a0 ridley 0x721380 gaogaen 0x721240 diddy 0x7212e0 mii 0x721430 demon_command 0x7214d0 demon_special_lw) hold offsets adjusted for clones at the accessor",
             "model_path_namespace_hook(0x17e9a00) MODEL namespace",
             "path_builder_remap_hook(0x17df460) path namespace",
             "load_dispatch_kind_hook(0x17e5c00) load-dispatch kind",

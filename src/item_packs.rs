@@ -8,6 +8,10 @@ pub struct ItemPackDeclaration {
     pub agent_name: Option<String>,
     pub ui_id: Option<String>,
     pub training_order: i32,
+    pub spawn_per: Option<i32>,
+    pub spawn_min: i32,
+    pub spawn_max: i32,
+    pub spawn_from: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -18,7 +22,14 @@ pub enum ItemPackError {
     MissingBaseKind,
 }
 
+pub const SPAWN_COUNT_DEFAULT: i32 = 1;
+
 impl ItemPackDeclaration {
+    pub fn spawn_count(&self) -> (i32, i32) {
+        let min = self.spawn_min.max(0);
+        (min, self.spawn_max.max(min))
+    }
+
     pub fn agent(&self) -> &str {
         self.agent_name.as_deref().unwrap_or(&self.resource_name)
     }
@@ -44,7 +55,11 @@ fn strip_comment(line: &str) -> &str {
 }
 
 pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
-    let mut declaration = ItemPackDeclaration::default();
+    let mut declaration = ItemPackDeclaration {
+        spawn_min: SPAWN_COUNT_DEFAULT,
+        spawn_max: SPAWN_COUNT_DEFAULT,
+        ..ItemPackDeclaration::default()
+    };
     let mut saw_base = false;
     for (index, raw) in text.lines().enumerate() {
         let line = strip_comment(raw).trim();
@@ -72,6 +87,16 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
             "ui_id" => declaration.ui_id = Some(unquoted.to_string()),
             "training_order" => {
                 declaration.training_order = value.parse::<i32>().map_err(|_| bad())?
+            }
+            "spawn_per" => declaration.spawn_per = Some(value.parse::<i32>().map_err(|_| bad())?),
+            "spawn_min" => declaration.spawn_min = value.parse::<i32>().map_err(|_| bad())?,
+            "spawn_max" => declaration.spawn_max = value.parse::<i32>().map_err(|_| bad())?,
+            "spawn_from" => {
+                declaration.spawn_from = unquoted
+                    .split(',')
+                    .map(|name| name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .collect()
             }
             _ => {}
         }
@@ -232,7 +257,35 @@ mod live {
             declaration.resource_name,
             declaration.ui()
         );
+        register_spawns(directory, declaration, public_kind);
         RegisterOutcome::Registered
+    }
+
+    fn register_spawns(directory: &str, declaration: &ItemPackDeclaration, public_kind: i32) {
+        let Some(per) = declaration.spawn_per else {
+            return;
+        };
+        let (min, max) = declaration.spawn_count();
+        let mut generators = vec![String::from("item_genid_random")];
+        generators.extend(
+            declaration
+                .spawn_from
+                .iter()
+                .map(|container| format!("item_kind_{container}")),
+        );
+        for generator in generators {
+            let result = crate::item_generate::register(
+                public_kind,
+                clone_engine_core::hash40(&generator),
+                per,
+                min,
+                max,
+                clone_engine_core::item_generate::VARIATION_AUTO,
+            );
+            skyline::println!(
+                "[itempack] {directory}: spawn in {generator} per={per} count={min}..{max} result={result}"
+            );
+        }
     }
 }
 
@@ -297,6 +350,22 @@ resource_name = "wawa"
             parse("base_kind = 63\n"),
             Err(ItemPackError::MissingResourceName)
         );
+    }
+
+    #[test]
+    fn spawn_keys_default_to_one_at_a_time_and_no_natural_spawn() {
+        let declaration = parse(EXAMPLE_PACK).unwrap();
+        assert_eq!(declaration.spawn_per, None);
+        assert_eq!(declaration.spawn_count(), (1, 1));
+        assert!(declaration.spawn_from.is_empty());
+
+        let declaration = parse(
+            "base_kind = 63\nresource_name = \"wawa\"\nspawn_per = 30\nspawn_max = 2\nspawn_from = \"box, barrel,capsule\"\n",
+        )
+        .unwrap();
+        assert_eq!(declaration.spawn_per, Some(30));
+        assert_eq!(declaration.spawn_count(), (1, 2));
+        assert_eq!(declaration.spawn_from, vec!["box", "barrel", "capsule"]);
     }
 
     #[test]

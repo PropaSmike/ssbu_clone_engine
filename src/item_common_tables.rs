@@ -1,11 +1,4 @@
 pub(crate) const COMMON_HANDLE_GLOBAL: usize = 0x52C31E0;
-pub(crate) const COMMON_ARRAY_IN_STRUCT: usize = 0x28;
-
-pub(crate) const COMMON_ROW_STRIDE: usize = 0x448;
-
-pub(crate) const COMMON_PACKED_BASE: usize = 0x3908;
-pub(crate) const COMMON_PACKED_STRIDE: usize = 0x284;
-
 pub(crate) static ITEM_COMMON_FLOATS: [(u64, u32); 161] = [
     (0x002bcf8826c, 0x8),
     (0x005ec462584, 0x0),

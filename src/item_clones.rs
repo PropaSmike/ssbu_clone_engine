@@ -142,7 +142,7 @@ fn hash40(name: &str) -> u64 {
     crate::hash40::hash40(name)
 }
 
-unsafe fn base_resource_name(kind: i32) -> Option<&'static CStr> {
+pub(crate) unsafe fn base_resource_name(kind: i32) -> Option<&'static CStr> {
     if !(0..=LAST_ORDINARY_ITEM_KIND).contains(&kind) {
         return None;
     }
@@ -535,6 +535,10 @@ pub(crate) fn queue_pocket_ticket(public_kind: i32) -> bool {
     queue_spawn_ticket(public_kind, ItemSpawnSource::Direct)
 }
 
+pub(crate) fn queue_lot_ticket(public_kind: i32) -> bool {
+    queue_spawn_ticket(public_kind, ItemSpawnSource::Lot)
+}
+
 pub(crate) fn pocket_ticket_pending(public_kind: i32) -> bool {
     SPAWN_TICKETS.iter().any(|ticket| {
         ticket.state.load(Ordering::Acquire) == 1
@@ -618,6 +622,7 @@ fn take_spawn_ticket(base_kind: i32) -> Option<(ItemDefinitionView, ItemSpawnSou
         4 => ItemSpawnSource::MasterBall,
         5 => ItemSpawnSource::Boss,
         6 => ItemSpawnSource::FamilyChild,
+        7 => ItemSpawnSource::Lot,
         _ => ItemSpawnSource::Unknown,
     };
     let view = definition(public_kind);
@@ -690,8 +695,10 @@ pub(crate) unsafe fn live_identity_of_object(object: usize) -> Option<(i32, i32)
 #[skyline::hook(offset = OFF_BATTLE_OBJECT_UPDATE)]
 unsafe fn battle_object_update(object: *mut u8) {
     crate::block_grid::sample();
+    let row = crate::fighter_param_rows::enter_for_object(object as usize);
     if LIVE_COUNT.load(Ordering::Acquire) == 0 {
         call_original!(object);
+        crate::fighter_param_rows::leave(row);
         return;
     }
     crate::item_params::try_fill();
@@ -716,6 +723,7 @@ unsafe fn battle_object_update(object: *mut u8) {
         scope
     });
     call_original!(object);
+    crate::fighter_param_rows::leave(row);
     if let Some(index) = scope {
         crate::item_params::leave_runtime_clone(index);
     }
@@ -1146,6 +1154,10 @@ pub(crate) fn sweep_live(is_active: impl Fn(u32) -> bool) {
 
 pub(crate) fn clone_base_kind(public_kind: i32) -> Option<i32> {
     definition(public_kind).map(|view| view.base_kind)
+}
+
+pub(crate) fn clone_category(public_kind: i32) -> Option<ItemCategory> {
+    definition(public_kind).map(|view| view.category)
 }
 
 fn remove_live(object: usize, object_id: u32) -> Option<i32> {
@@ -2549,9 +2561,100 @@ fn clone_engine_item_owner_param_set_bits(
     }
 }
 
+fn common_word_refusal(field: u64, reject: clone_engine_core::item_common_row::Reject) -> i32 {
+    use clone_engine_core::item_common_row::Reject;
+    let why = match reject {
+        Reject::UnknownField => "not one of the 43 word fields (bools, ints, kinds) of the common row",
+        Reject::NotABool => "a bool takes 0 or 1",
+        Reject::NotAWord => "a label only fits a kind field (have_kind, size_kind, hit_kind, ...)",
+        Reject::NotAHash => "a hash40 field takes a 40-bit hash",
+        Reject::UnknownLabel => "the label is not one the game's item resolver knows",
+    };
+    log(format!("[itemclone] item_common_set refused field={field:#x}: {why}"));
+    ERROR_UNSUPPORTED
+}
+
+fn register_common_word(item_kind: i32, field: u64, name: &str, offset: u32, bits: u64, shown: String) -> i32 {
+    match crate::item_params::register_common_bits(
+        item_kind,
+        crate::item_params::CommonTable::Word,
+        offset,
+        bits,
+    ) {
+        true => {
+            log(format!(
+                "[itemclone] item_common_set public={item_kind:#x} {name} ({field:#x}) -> word +{offset:#x} = {shown} ({} override(s) for this item)",
+                crate::item_params::common_override_count(item_kind)
+            ));
+            RESULT_OK
+        }
+        false => ERROR_BACKEND_UNAVAILABLE,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_item_common_set_i32(item_kind: i32, field: u64, value: i32) -> i32 {
+    use clone_engine_core::item_common_row as row;
+    if definition(item_kind).is_none() {
+        return ERROR_CUSTOM_KIND;
+    }
+    match row::resolve_i32(field, value) {
+        Ok((offset, bits)) => {
+            let name = row::word(field).map(|word| word.name).unwrap_or("?");
+            register_common_word(item_kind, field, name, offset, u64::from(bits), value.to_string())
+        }
+        Err(reject) => common_word_refusal(field, reject),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_item_common_set_label(item_kind: i32, field: u64, label: u64) -> i32 {
+    use clone_engine_core::item_common_row as row;
+    if definition(item_kind).is_none() {
+        return ERROR_CUSTOM_KIND;
+    }
+    match row::resolve_label(field, label) {
+        Ok((offset, bits)) => {
+            let name = row::word(field).map(|word| word.name).unwrap_or("?");
+            register_common_word(item_kind, field, name, offset, u64::from(bits), format!("{bits} (label {label:#x})"))
+        }
+        Err(reject) => common_word_refusal(field, reject),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_item_common_set_hash(item_kind: i32, field: u64, value: u64) -> i32 {
+    use clone_engine_core::item_common_row as row;
+    if definition(item_kind).is_none() {
+        return ERROR_CUSTOM_KIND;
+    }
+    match row::resolve_hash(field, value) {
+        Ok((offset, bits)) => {
+            let name = row::hash_field(field).map(|f| f.name).unwrap_or("?");
+            match crate::item_params::register_common_bits(
+                item_kind,
+                crate::item_params::CommonTable::Hash,
+                offset,
+                bits,
+            ) {
+                true => {
+                    log(format!(
+                        "[itemclone] item_common_set public={item_kind:#x} {name} ({field:#x}) -> hash +{offset:#x} = {bits:#x} ({} override(s) for this item)",
+                        crate::item_params::common_override_count(item_kind)
+                    ));
+                    RESULT_OK
+                }
+                false => ERROR_BACKEND_UNAVAILABLE,
+            }
+        }
+        Err(reject) => common_word_refusal(field, reject),
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn clone_engine_item_common_has(field: u64) -> i32 {
-    crate::item_params::common_field_offset(field).is_some() as i32
+    (crate::item_params::common_field_offset(field).is_some()
+        || clone_engine_core::item_common_row::describe(field).is_some()) as i32
 }
 
 #[no_mangle]
