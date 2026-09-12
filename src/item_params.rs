@@ -1,4 +1,5 @@
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
+use clone_engine_core::item_common_row::Table;
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use crate::item_slots::{self, text_word, InlineHook};
@@ -1096,11 +1097,47 @@ unsafe fn current_thread() -> usize {
     skyline::nn::os::GetCurrentThread() as usize
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommonTable {
+    Float,
+    Word,
+    Hash,
+}
+
+impl CommonTable {
+    fn core(self) -> Table {
+        match self {
+            CommonTable::Float => Table::Float,
+            CommonTable::Word => Table::Word,
+            CommonTable::Hash => Table::Hash,
+        }
+    }
+
+    fn tag(self) -> u32 {
+        match self {
+            CommonTable::Float => 0,
+            CommonTable::Word => 1,
+            CommonTable::Hash => 2,
+        }
+    }
+
+    fn from_tag(tag: u32) -> CommonTable {
+        match tag {
+            1 => CommonTable::Word,
+            2 => CommonTable::Hash,
+            _ => CommonTable::Float,
+        }
+    }
+}
+
+const SAVE_TABLE_SHIFT: u32 = 28;
+const SAVE_OFFSET_MASK: u32 = (1 << SAVE_TABLE_SHIFT) - 1;
+
 struct CommonOverride {
     public_kind: i32,
+    table: CommonTable,
     offset: u32,
-    value: f32,
+    bits: u64,
 }
 
 fn common_overrides() -> &'static RwLock<Vec<CommonOverride>> {
@@ -1111,8 +1148,8 @@ fn common_overrides() -> &'static RwLock<Vec<CommonOverride>> {
 const MAX_COMMON_SAVES: usize = 192;
 static SAVE_OFFSET: [[AtomicU32; MAX_COMMON_SAVES]; MAX_RUNTIME_SCOPES] =
     [const { [const { AtomicU32::new(u32::MAX) }; MAX_COMMON_SAVES] }; MAX_RUNTIME_SCOPES];
-static SAVE_VALUE: [[AtomicU32; MAX_COMMON_SAVES]; MAX_RUNTIME_SCOPES] =
-    [const { [const { AtomicU32::new(0) }; MAX_COMMON_SAVES] }; MAX_RUNTIME_SCOPES];
+static SAVE_VALUE: [[AtomicU64; MAX_COMMON_SAVES]; MAX_RUNTIME_SCOPES] =
+    [const { [const { AtomicU64::new(0) }; MAX_COMMON_SAVES] }; MAX_RUNTIME_SCOPES];
 static SAVE_COUNT: [AtomicUsize; MAX_RUNTIME_SCOPES] =
     [const { AtomicUsize::new(0) }; MAX_RUNTIME_SCOPES];
 
@@ -1215,7 +1252,7 @@ pub(crate) fn owner_override_count(public_kind: i32) -> usize {
         .unwrap_or(0)
 }
 
-pub(crate) unsafe fn common_row(kind: i32) -> Option<*mut f32> {
+pub(crate) unsafe fn common_cell(kind: i32, table: CommonTable) -> Option<*mut u8> {
     if kind < 0 || kind as u64 >= NATIVE_KIND_TERM {
         return None;
     }
@@ -1229,11 +1266,25 @@ pub(crate) unsafe fn common_row(kind: i32) -> Option<*mut f32> {
     if structure < 0x10_0000_0000 {
         return None;
     }
-    Some(
-        (structure
-            + crate::item_common_tables::COMMON_PACKED_BASE
-            + kind as usize * crate::item_common_tables::COMMON_PACKED_STRIDE) as *mut f32,
-    )
+    Some((structure + table.core().cell(kind as usize, 0)) as *mut u8)
+}
+
+pub(crate) unsafe fn common_row(kind: i32) -> Option<*mut f32> {
+    common_cell(kind, CommonTable::Float).map(|cell| cell as *mut f32)
+}
+
+unsafe fn read_cell(cell: *mut u8, table: CommonTable) -> u64 {
+    match table.core().width() {
+        8 => core::ptr::read_volatile(cell as *const u64),
+        _ => u64::from(core::ptr::read_volatile(cell as *const u32)),
+    }
+}
+
+unsafe fn write_cell(cell: *mut u8, table: CommonTable, bits: u64) {
+    match table.core().width() {
+        8 => core::ptr::write_volatile(cell as *mut u64, bits),
+        _ => core::ptr::write_volatile(cell as *mut u32, bits as u32),
+    }
 }
 
 pub(crate) fn common_field_offset(hash: u64) -> Option<u32> {
@@ -1245,21 +1296,41 @@ pub(crate) fn common_field_offset(hash: u64) -> Option<u32> {
 }
 
 pub(crate) fn register_common_override(public_kind: i32, offset: u32, value: f32) -> bool {
+    register_common_bits(public_kind, CommonTable::Float, offset, u64::from(value.to_bits()))
+}
+
+pub(crate) fn register_common_bits(
+    public_kind: i32,
+    table: CommonTable,
+    offset: u32,
+    bits: u64,
+) -> bool {
+    if offset > SAVE_OFFSET_MASK {
+        return false;
+    }
     let Ok(mut overrides) = common_overrides().write() else {
         return false;
     };
     match overrides
         .iter_mut()
-        .find(|e| e.public_kind == public_kind && e.offset == offset)
+        .find(|e| e.public_kind == public_kind && e.table == table && e.offset == offset)
     {
-        Some(existing) => existing.value = value,
+        Some(existing) => existing.bits = bits,
         None => overrides.push(CommonOverride {
             public_kind,
+            table,
             offset,
-            value,
+            bits,
         }),
     }
     true
+}
+
+pub(crate) fn common_override_count(public_kind: i32) -> usize {
+    common_overrides()
+        .read()
+        .map(|held| held.iter().filter(|e| e.public_kind == public_kind).count())
+        .unwrap_or(0)
 }
 
 unsafe fn apply_common_overrides(scope: usize, public_kind: i32, base_kind: i32) {
@@ -1270,25 +1341,34 @@ unsafe fn apply_common_overrides(scope: usize, public_kind: i32, base_kind: i32)
     if overrides.is_empty() {
         return;
     }
-    let Some(row) = common_row(base_kind) else {
-        return;
-    };
     let mut saved = 0usize;
     for entry in overrides.iter().filter(|e| e.public_kind == public_kind) {
         if saved >= MAX_COMMON_SAVES {
             break;
         }
-        let field = row.byte_add(entry.offset as usize);
-        SAVE_OFFSET[scope][saved].store(entry.offset, Ordering::Relaxed);
-        SAVE_VALUE[scope][saved]
-            .store(core::ptr::read_volatile(field).to_bits(), Ordering::Relaxed);
-        let was = core::ptr::read_volatile(field);
-        core::ptr::write_volatile(field, entry.value);
-        static REPORTED: AtomicBool = AtomicBool::new(false);
-        if !REPORTED.swap(true, Ordering::AcqRel) {
+        let Some(row) = common_cell(base_kind, entry.table) else {
+            continue;
+        };
+        let field = row.add(entry.offset as usize);
+        let was = read_cell(field, entry.table);
+        SAVE_OFFSET[scope][saved].store(
+            entry.offset | (entry.table.tag() << SAVE_TABLE_SHIFT),
+            Ordering::Relaxed,
+        );
+        SAVE_VALUE[scope][saved].store(was, Ordering::Relaxed);
+        write_cell(field, entry.table, entry.bits);
+        static REPORTED: [AtomicBool; 3] = [const { AtomicBool::new(false) }; 3];
+        if !REPORTED[entry.table.tag() as usize].swap(true, Ordering::AcqRel) {
             crate::dbg_log_public(&format!(
-                "[itemcommon] OVERRIDE public={public_kind:#x} base={base_kind:#x} +{:#x}: {was} -> {}",
-                entry.offset, entry.value
+                "[itemcommon] OVERRIDE public={public_kind:#x} base={base_kind:#x} {} +{:#x}: {} -> {}",
+                match entry.table {
+                    CommonTable::Float => "float",
+                    CommonTable::Word => "word",
+                    CommonTable::Hash => "hash",
+                },
+                entry.offset,
+                show_bits(entry.table, was),
+                show_bits(entry.table, entry.bits)
             ));
         }
         saved += 1;
@@ -1296,21 +1376,30 @@ unsafe fn apply_common_overrides(scope: usize, public_kind: i32, base_kind: i32)
     SAVE_COUNT[scope].store(saved, Ordering::Release);
 }
 
+fn show_bits(table: CommonTable, bits: u64) -> String {
+    match table {
+        CommonTable::Float => format!("{}", f32::from_bits(bits as u32)),
+        CommonTable::Word => format!("{}", bits as u32 as i32),
+        CommonTable::Hash => format!("{bits:#x}"),
+    }
+}
+
 unsafe fn restore_common_overrides(scope: usize, base_kind: i32) {
     let saved = SAVE_COUNT[scope].swap(0, Ordering::AcqRel);
     if saved == 0 {
         return;
     }
-    let Some(row) = common_row(base_kind) else {
-        return;
-    };
     for slot in 0..saved.min(MAX_COMMON_SAVES) {
-        let offset = SAVE_OFFSET[scope][slot].load(Ordering::Relaxed);
-        if offset == u32::MAX {
+        let packed = SAVE_OFFSET[scope][slot].load(Ordering::Relaxed);
+        if packed == u32::MAX {
             continue;
         }
+        let table = CommonTable::from_tag(packed >> SAVE_TABLE_SHIFT);
+        let Some(row) = common_cell(base_kind, table) else {
+            continue;
+        };
         let bits = SAVE_VALUE[scope][slot].load(Ordering::Relaxed);
-        core::ptr::write_volatile(row.byte_add(offset as usize), f32::from_bits(bits));
+        write_cell(row.add((packed & SAVE_OFFSET_MASK) as usize), table, bits);
     }
 }
 

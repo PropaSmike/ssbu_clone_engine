@@ -720,11 +720,13 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
             );
         }
 
+        let row = crate::fighter_param_rows::enter(kind, base);
         let params = crate::fighter_params::enter_clone_window(kind, base, entry_id);
         with_construction_context(kind, || {
             call_original!(object, id, base, entry_id, spoof_hash)
         });
         crate::fighter_params::leave_window(params);
+        crate::fighter_param_rows::leave(row);
         if let Some((slot, _, _)) = patched {
             *slot = kind;
         }

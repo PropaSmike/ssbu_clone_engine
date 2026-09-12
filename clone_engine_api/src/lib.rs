@@ -140,6 +140,7 @@ pub enum ItemSpawnSource {
     MasterBall = 4,
     Boss = 5,
     FamilyChild = 6,
+    Lot = 7,
 }
 
 impl ItemSpawnSource {
@@ -151,6 +152,7 @@ impl ItemSpawnSource {
             4 => Self::MasterBall,
             5 => Self::Boss,
             6 => Self::FamilyChild,
+            7 => Self::Lot,
             _ => Self::Unknown,
         }
     }
@@ -518,6 +520,9 @@ type ItemStatusNamedFn = unsafe extern "C" fn(i32, i32, *const c_char, usize) ->
 type ItemStatusKindFn = unsafe extern "C" fn(*const c_char) -> i32;
 type ItemCommonSetFn = unsafe extern "C" fn(i32, u64, f32) -> i32;
 type ItemCommonHasFn = unsafe extern "C" fn(u64) -> i32;
+type ItemGenerateAddFn = unsafe extern "C" fn(i32, u64, i32, i32, i32, i32) -> i32;
+type ItemCommonSetI32Fn = unsafe extern "C" fn(i32, u64, i32) -> i32;
+type ItemCommonSetHashFn = unsafe extern "C" fn(i32, u64, u64) -> i32;
 type ItemOwnerParamF32Fn = unsafe extern "C" fn(i32, i32, u32, f32) -> i32;
 type ItemOwnerParamI32Fn = unsafe extern "C" fn(i32, i32, u32, i32) -> i32;
 type ItemBackendStatusFn = unsafe extern "C" fn() -> u32;
@@ -578,6 +583,10 @@ static ITEM_STATUS_NAMED_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_STATUS_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_COMMON_SET_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_COMMON_HAS_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_GENERATE_ADD_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_COMMON_SET_I32_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_COMMON_SET_LABEL_FN: AtomicUsize = AtomicUsize::new(0);
+static ITEM_COMMON_SET_HASH_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_OWNER_PARAM_F32_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_OWNER_PARAM_I32_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_BACKEND_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1009,6 +1018,59 @@ pub fn item_common_set(item_kind: i32, field: u64, value: f32) -> Result<(), Err
     let address = resolve(&ITEM_COMMON_SET_FN, b"clone_engine_item_common_set\0")
         .ok_or(Error::EngineUnavailable)?;
     let function: ItemCommonSetFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, field, value) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub const ITEM_VARIATION_AUTO: i32 = -1;
+
+pub fn item_generate_add(
+    item_kind: i32,
+    generator: u64,
+    per: i32,
+    min: i32,
+    max: i32,
+    variation: i32,
+) -> Result<(), Error> {
+    let address = resolve(&ITEM_GENERATE_ADD_FN, b"clone_engine_item_generate_add_v1\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let function: ItemGenerateAddFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, generator, per, min, max, variation) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn item_common_set_i32(item_kind: i32, field: u64, value: i32) -> Result<(), Error> {
+    let address = resolve(&ITEM_COMMON_SET_I32_FN, b"clone_engine_item_common_set_i32\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let function: ItemCommonSetI32Fn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, field, value) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn item_common_set_label(item_kind: i32, field: u64, label: u64) -> Result<(), Error> {
+    let address = resolve(&ITEM_COMMON_SET_LABEL_FN, b"clone_engine_item_common_set_label\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let function: ItemCommonSetHashFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(item_kind, field, label) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn item_common_set_hash(item_kind: i32, field: u64, value: u64) -> Result<(), Error> {
+    let address = resolve(&ITEM_COMMON_SET_HASH_FN, b"clone_engine_item_common_set_hash\0")
+        .ok_or(Error::EngineUnavailable)?;
+    let function: ItemCommonSetHashFn = unsafe { std::mem::transmute(address) };
     let result = unsafe { function(item_kind, field, value) };
     if result < 0 {
         return Err(Error::Engine(result));

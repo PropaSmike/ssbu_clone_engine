@@ -83,6 +83,10 @@ unsafe fn singleton() -> Option<usize> {
     (value != 0 && value & 7 == 0).then_some(value)
 }
 
+pub(crate) unsafe fn param_singleton() -> Option<usize> {
+    singleton()
+}
+
 unsafe fn record_of(base_kind: i32) -> Option<usize> {
     if !(0..PARAM_NATIVE_KINDS).contains(&base_kind) {
         return None;
@@ -111,6 +115,14 @@ fn lock_swaps() -> bool {
 
 fn unlock_swaps(owned: bool) {
     REGISTRY.unlock(owned);
+}
+
+pub(crate) fn swap_lock() -> bool {
+    lock_swaps()
+}
+
+pub(crate) fn swap_unlock(owned: bool) {
+    unlock_swaps(owned);
 }
 
 fn clones_of(base_kind: i32) -> Vec<i32> {

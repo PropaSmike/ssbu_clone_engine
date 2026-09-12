@@ -137,6 +137,71 @@ returns `false` if ParamConfig is missing or refuses the request.
 bridged, because the supported ParamConfig build does not export it. Pass
 `ANY_SLOT` for every costume.
 
+Some fields like `scale`, `jump_y` and `walk_speed_max` are read by the game
+in two ways. `param_override` with `ANY_SLOT` covers both. `param_override_slot`
+covers only one, so use `ANY_SLOT` for those fields.
+
+Dodge and roll frames, air dodge slide speeds, capture offsets and the other
+fields of `fighter_param_motion.prc` take `param_motion` as the param and the
+field as the subparam, which is how the game itself keys them:
+
+```rust
+param_override_full(kind, ANY_SLOT, "param_motion", "escape_air_slide_speed", ParamOp::Mul, 2.0);
+param_int_override_full(kind, ANY_SLOT, "param_motion", "flip", 0);
+```
+
+Registering a motion field without `param_motion` is accepted and does
+nothing; the engine log says which key to use.
+
+The shared files `common.prc`, `item.prc`, `etc.prc`, `power_up.prc`,
+`effect.prc` and `sound.prc` under `fighter/common/param/` can also be
+changed for one clone. Every fighter carries its own copy of the six, and
+the game reaches all of them with `common` as the param, so:
+
+```rust
+param_override_full(kind, ANY_SLOT, "common", "shield_max", ParamOp::Set, 20.0);
+param_override_full(kind, ANY_SLOT, "common", "dash_stick_x", ParamOp::Set, 0.5);
+param_int_override_full(kind, ANY_SLOT, "common", "dead_up_star_move_frame", 60);
+```
+
+Real fighters keep the shipped values. Top-level values only; the colour
+lists and the `power_up_*` multiplier lists are not addressable this way,
+and a few dozen match-level values (handicap boost, team attack rates, the
+finish camera, area wind, `power_up_point_min`) are read from a shared
+instance and stay global.
+
+Values that the game pairs with each other need changing together. The
+clearest case is the shield: a broken shield comes back with `shield_reset`
+HP (37.5), an absolute value the game does not clamp to `shield_max`, and
+the bubble is drawn from HP over max. Lower `shield_max` alone and the
+second shield is bigger and tougher than the first; lower `shield_reset`
+with it.
+
+`fighter_param_thrown.prc` holds where a thrown fighter's body sits during
+the holder's throw animations, one XYZ per (holder, victim) pair. Its values
+are not addressed by name: a clone gets rules instead, keyed with
+`param_thrown`, that the engine applies to every read for that clone. Use
+them when your model is a different size or shape from the base's.
+
+```rust
+// The clone throws someone: scale every hold offset it produces.
+param_override_full(kind, ANY_SLOT, "param_thrown", "offset", ParamOp::Mul, 1.2);
+// ... or one component of one throw: forward throw, Y, fixed.
+param_override_full(kind, ANY_SLOT, "param_thrown", "offset_f_y", ParamOp::Set, 8.0);
+// Someone throws the clone: raise it while it is held.
+param_override_full(kind, ANY_SLOT, "param_thrown", "held_offset_y", ParamOp::Mul, 1.2);
+```
+
+Holder keys are `offset`, `offset_f`, `offset_b`, `offset_hi`, `offset_lw`
+(forward, back, up and down throws; `offset` covers all of them plus the
+special holds such as a DK clone's cargo throws), each with `_x`, `_y`, `_z`
+variants. Victim keys are `held_offset` and its `_x`, `_y`, `_z` variants,
+applied whoever the holder is. A whole-vector key takes `Mul` only; a
+component takes `Set` or `Mul`. Rules apply in registration order, `ANY_SLOT`
+only, and never reach ParamConfig.
+
+`battle_object.prc` and `spirits.prc` cannot be changed per clone.
+
 Interaction rules, each with a `_slot` variant for one costume:
 
 | Function | Meaning |
@@ -378,6 +443,10 @@ ones your base item already has.
 | `item_status_kind(name)` | Resolve a status name. Fails until the item module's table is written. |
 | `item_common_has(hash)` | Whether a common-item float is supported. |
 | `item_common_set(kind, hash, value)` | Override one common-item float, for your item only. |
+| `item_common_set_i32(kind, hash, value)` | The same for a bool (0 or 1), an int, or a kind by number. |
+| `item_common_set_label(kind, hash, label)` | A kind field by its prc label, such as `item_have_kind_grip`. |
+| `item_common_set_hash(kind, hash, name_hash)` | A bone or motion name field, such as `thrown_node`. |
+| `item_generate_add(kind, generator, per, min, max, variation)` | Let it drop on its own, or out of a container. |
 | `item_base_kind(kind)` | Its vanilla base. |
 | `is_item_kind(kind)` | Whether the engine registered it. |
 | `item_resource_name(kind)` | Its file root. |
@@ -442,6 +511,95 @@ One line per override appears in the log:
 ```
 [itemclone] item_owner_param_set public=0x36b owner=88 +0x518 = 0x258 (1 override(s) for this item)
 ```
+
+### The rest of the common row
+
+`item/common/param/param.prc` holds 235 fields per item. `item_common_set`
+covers its 161 floats; the other 74 are bools, ints, kind labels and hash40
+names, and take the same treatment through three calls:
+
+```rust
+// a thrown copy vanishes on a shield instead of hopping off it
+clone_engine_api::item_common_set_label(MY_ITEM.raw(), hash40("shield_kind"), hash40("item_shield_kind_lost"))?;
+// lying on the floor, it launches when hit
+clone_engine_api::item_common_set_label(MY_ITEM.raw(), hash40("hit_kind"), hash40("item_hit_kind_fly"))?;
+// Kirby cannot swallow it
+clone_engine_api::item_common_set_i32(MY_ITEM.raw(), hash40("eatable"), 0)?;
+// the bone it is thrown from
+clone_engine_api::item_common_set_hash(MY_ITEM.raw(), hash40("thrown_node"), hash40("have"))?;
+```
+
+The field names are the prc's (`have_kind`, `size_kind`, `hit_kind`,
+`shield_kind`, `reflect_kind`, `flip_type`, `bound_flag`, `scale_type`,
+`camera_kind`, `eatable`, `paintable`, `ai_pri`, `thrown_rot_kind`,
+`thrown_node`, `clung_node`, `captured_motion` ...), and a kind field takes
+either the label the prc shows for it (`item_shield_kind_lost`) or the raw
+number. `item_common_has` answers for all of them. `group` is the one field
+the game keeps outside its per-kind tables, so it cannot be set this way.
+
+As with the floats, a value is in force while your item's own code runs and
+the vanilla item keeps its own; a field the game reads by kind before an
+item exists, such as the CPU's `ai_pri` or the drop weight's `trait_original`,
+still shows the base's value at that moment.
+
+The log names each registration and, once per table, the first swap:
+
+```
+[itemclone] item_common_set public=0x36b shield_kind (0xbd90c08b8) -> word +0x78 = 1 (label 0x1599e11ba6) (3 override(s) for this item)
+[itemcommon] OVERRIDE public=0x36b base=0x40 word +0x78: 3 -> 1
+```
+
+### Spawning on its own
+
+A registered item only appears when something spawns it: your fighter's code,
+the Training menu, a `have_item`. The game's own drops come from generation
+tables in `item/common/param/generate_param_item.prc`, and a custom kind is not
+in them. One call adds it:
+
+```rust
+use clone_engine_api::ITEM_VARIATION_AUTO;
+
+// weight 30 in the natural drops; most vanilla items sit at 20..50, capsules
+// at 100, Assist Trophies at 150
+clone_engine_api::item_generate_add(MY_ITEM.raw(), hash40("item_genid_random"), 30, 1, 1, ITEM_VARIATION_AUTO)?;
+// and out of boxes, with the same weight against that box's own list
+clone_engine_api::item_generate_add(MY_ITEM.raw(), hash40("item_kind_box"), 30, 1, 1, ITEM_VARIATION_AUTO)?;
+```
+
+`generator` is the hash40 of the table's `gen_id` label: `item_genid_random`
+for the natural drops, or `item_kind_<name>` of the vanilla container that
+should drop it (`box`, `barrel`, `capsule`, `carrierbox`, `kusudama`,
+`sandbag`, `grass`). `per` is the weight, `min` and `max` how many appear at
+once, `variation` normally `ITEM_VARIATION_AUTO`.
+
+A plugin-less `item.toml` pack gets the same with three keys:
+
+```toml
+spawn_per  = 30                    # natural drops; leave it out for none
+spawn_max  = 2                     # optional, with spawn_min; both default to 1
+spawn_from = "box, barrel, capsule" # optional container drops, same weight
+```
+
+The entry follows the item switch of your **base** item. A custom kind has no
+row in the item switch menu, so when the player turns your base off, your item
+stops too, and when the base is banned on a stage, so is yours. There is no
+way to give it a row of its own; the menu's 201 rows are fixed.
+
+| Function | Meaning |
+|---|---|
+| `item_generate_add(kind, generator, per, min, max, variation)` | Put your item into one of the game's generation tables. |
+
+Log lines, one per registration, one per table at every match start, and one
+for each draw of your item:
+
+```
+[itemgen] generate_add public=0x36a (base 0x3f) in item_genid_random: per 30 count 1..1 variation -1; follows the base's item switch
+[itemgen] match setup #1: item_genid_random (item table, record 0x...): 87 vanilla entries, 1 clone entry appended, 0 held back by the item switch
+[itemgen] lot from item_genid_random: clone 0x36a drawn, handing the game base 0x3f variation -1 (ticket queued)
+```
+
+`held back by the item switch` is your item sitting out a match because its
+base is switched off.
 
 ### Item families
 

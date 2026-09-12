@@ -1,4 +1,10 @@
+pub mod fighter_common_copies;
+pub mod fighter_param_row;
+pub mod fighter_param_thrown;
 pub mod hash;
+pub mod item_common_row;
+pub mod item_common_row_table;
+pub mod item_generate;
 pub mod param_swap;
 pub mod slots;
 pub mod text_layout;
