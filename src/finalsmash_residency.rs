@@ -26,6 +26,7 @@ static RESOLVED_OWNER: core::sync::atomic::AtomicI32 = core::sync::atomic::Atomi
 static PRELOAD_KIND: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
 static SUBSTITUTE_DIRECTORY: core::sync::atomic::AtomicI32 =
     core::sync::atomic::AtomicI32::new(-1);
+static SUBSTITUTE_KIND: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
 static SUBSTITUTE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 const SUBSTITUTE_LOG_BUDGET: u32 = 4;
 static GATE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
@@ -150,11 +151,11 @@ fn model_probes_for(kind: i32) -> &'static [&'static str] {
         .unwrap_or(&[])
 }
 
-unsafe fn resource_service() -> usize {
+pub(crate) unsafe fn resource_service() -> usize {
     core::ptr::read_volatile((crate::text_base_public() + RESOURCE_SERVICE) as *const usize)
 }
 
-unsafe fn directory_index_for(service: usize, hash: u64) -> Option<u32> {
+pub(crate) unsafe fn directory_index_for(service: usize, hash: u64) -> Option<u32> {
     let chain = core::ptr::read_volatile((service + 0x78) as *const usize);
     if chain < LOWEST_PLAUSIBLE_POINTER {
         return None;
@@ -189,7 +190,7 @@ unsafe fn directory_index_for(service: usize, hash: u64) -> Option<u32> {
     ((entry & SEARCH_KEY_MASK) == hash).then(|| (entry >> 0x28) as u32)
 }
 
-unsafe fn directory_load_flags(service: usize, directory: u32) -> u64 {
+pub(crate) unsafe fn directory_load_flags(service: usize, directory: u32) -> u64 {
     if service < LOWEST_PLAUSIBLE_POINTER {
         return 0xdead;
     }
@@ -299,7 +300,7 @@ unsafe fn put_hex(out: &mut [u8], mut at: usize, value: u64) -> usize {
     at
 }
 
-unsafe fn fiber_note(tag: &[u8], values: &[(&[u8], u64)]) {
+pub(crate) unsafe fn fiber_note(tag: &[u8], values: &[(&[u8], u64)]) {
     let mut buf = [0u8; 224];
     let mut at = put(&mut buf, 0, tag);
     for (name, value) in values {
@@ -410,15 +411,19 @@ unsafe fn finalsmash_preload_kind(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 unsafe fn substitute_directory_for_preload() -> Option<u32> {
-    let cached = SUBSTITUTE_DIRECTORY.load(Ordering::Relaxed);
-    if cached == -2 {
-        return None;
-    }
-    if cached >= 0 {
-        return Some(cached as u32);
-    }
-
     let kind = PRELOAD_KIND.load(Ordering::Relaxed);
+    if SUBSTITUTE_KIND.load(Ordering::Relaxed) == kind {
+        let cached = SUBSTITUTE_DIRECTORY.load(Ordering::Relaxed);
+        if cached == -2 {
+            return None;
+        }
+        if cached >= 0 {
+            return Some(cached as u32);
+        }
+    }
+    SUBSTITUTE_KIND.store(kind, Ordering::Relaxed);
+    SUBSTITUTE_DIRECTORY.store(-1, Ordering::Relaxed);
+
     let Some(definition) = crate::clone_definition(kind) else {
         return None;
     };

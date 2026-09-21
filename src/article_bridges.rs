@@ -1382,6 +1382,34 @@ module_190_probes! {
 }
 
 #[cfg(feature = "css_slot")]
+static SHARED_ARTICLE_FALLBACK_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const SHARED_ARTICLE_FALLBACK_REPORTS: u32 = 32;
+
+#[cfg(feature = "css_slot")]
+unsafe fn shared_article_not_loaded(
+    out: *mut u32,
+    construction_kind: Option<i32>,
+    weapon_kind: i32,
+) -> Option<(&'static CloneDefinition, u32, &'static str, u32)> {
+    if out.is_null() || custom_articles::is_custom_weapon_kind(weapon_kind) {
+        return None;
+    }
+    let definition = construction_kind.and_then(clone_definition)?;
+    if definition.ships_own_param_resources() {
+        return None;
+    }
+    let index = core::ptr::read_volatile(out);
+    if index == u32::MAX {
+        return None;
+    }
+    let (stop, file_path) = crate::copy_model_probe::model_residency(index);
+    (stop != "resident").then_some((definition, index, stop, file_path))
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x17e0840)]
 pub(crate) unsafe fn custom_article_path_probe(
     out: *mut u32,
@@ -1403,6 +1431,24 @@ pub(crate) unsafe fn custom_article_path_probe(
     call_original!(out, weapon_kind, resource_type, variant, color, flags);
 
     let construction_kind = active_construction_kind();
+    if let Some((definition, index, stop, file_path)) =
+        shared_article_not_loaded(out, construction_kind, weapon_kind)
+    {
+        let mut retry: u32 = u32::MAX;
+        crate::ARTICLE_OWNER_OVERRIDE.scope(current_thread_key(), definition.kind, || {
+            call_original!(&mut retry as *mut u32, weapon_kind, resource_type, variant, color, flags);
+        });
+        if retry != u32::MAX || resource_type == 0 {
+            core::ptr::write_volatile(out, retry);
+        }
+        let n = SHARED_ARTICLE_FALLBACK_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < SHARED_ARTICLE_FALLBACK_REPORTS {
+            dbg_log!(
+                "[articleshare] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: base path {index:#x} (file {file_path:#x}) not loaded ({stop}); clone path {retry:#x}",
+                definition.kind
+            );
+        }
+    }
     let tracked = custom_articles::is_custom_weapon_kind(weapon_kind)
         || construction_kind
             .and_then(clone_definition)
@@ -1550,7 +1596,8 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
     let copy_kind = crate::kirby_copy::active_kirby_copy_kind();
     let minted = key < BARE_WEAPON_KIND_CEILING
         && crate::custom_articles::custom_weapon_name(key as i32).is_some();
-    if minted && index != u32::MAX {
+    let guarded = minted || (key < BARE_WEAPON_KIND_CEILING && definition.is_some());
+    if guarded && index != u32::MAX {
         let (stop, file_path) = crate::copy_model_probe::model_residency(index);
         if stop != "resident" {
             let n = ARTICLE_DATA_EMPTY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
