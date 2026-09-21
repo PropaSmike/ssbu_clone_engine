@@ -79,6 +79,8 @@ mod item_work_probe;
 #[cfg(feature = "css_slot")]
 #[cfg(feature = "css_slot")]
 mod finalsmash_residency;
+#[cfg(feature = "css_slot")]
+mod append_group;
 
 #[cfg(all(feature = "diag_item_kind", feature = "item_clone_backend"))]
 compile_error!("diag_item_kind and item_clone_backend hook the same item lifecycle seams");
@@ -3965,11 +3967,21 @@ unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: 
 }
 
 #[cfg(feature = "css_slot")]
+pub(crate) static ARTICLE_OWNER_OVERRIDE: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new("article_owner_override");
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x17e0a4c, inline)]
 unsafe fn custom_article_owner_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
     if let Some(owner) = custom_articles::custom_weapon_owner_name(weapon_kind) {
         ctx.registers[25].set_x(owner.as_ptr() as u64);
+        return;
+    }
+    if let Some(definition) =
+        ARTICLE_OWNER_OVERRIDE.active(current_thread_key()).and_then(clone_definition)
+    {
+        ctx.registers[25].set_x(definition.resource_name_cstr.as_ptr() as u64);
         return;
     }
     let Some(kind) = active_construction_kind() else {
@@ -4143,6 +4155,8 @@ pub fn main() {
     block_grid::install();
     #[cfg(feature = "css_slot")]
     finalsmash_residency::install();
+    #[cfg(feature = "css_slot")]
+    append_group::install();
     #[cfg(feature = "css_slot")]
     copy_model_probe::install();
     #[cfg(feature = "item_clone_backend")]

@@ -1440,6 +1440,7 @@ pub(crate) unsafe fn load_final_register_call_hook(ctx: &mut skyline::hooks::Inl
                     "[loadfinal] #{n} CUSTOM single register keeps w1={kind} obj={load_obj:#x}; trampoline executes once"
                 );
             }
+            crate::append_group::request_append_group(load_obj as usize, kind as i32);
         }
 
         #[cfg(not(feature = "css_slot"))]

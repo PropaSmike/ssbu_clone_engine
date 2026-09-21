@@ -140,6 +140,11 @@ fn publish_css() {
         ui_series_id: Hash40Type::Overwrite(hash40("ui_series_metroid")),      // series icon
         disp_order: SignedByteType::Optional(Some(40)),                        // position on the select screen
         color_num: UnsignedByteType::Overwrite(COSTUMES),                      // number of costumes
+        shop_item_tag: Hash40Type::Overwrite(hash40("-1")),                    // the base's DLC fields hide the entry; clear them
+        alt_chara_id: Hash40Type::Overwrite(hash40("-1")),
+        save_no: SignedByteType::Overwrite(0),
+        is_dlc: BoolType::Overwrite(false),
+        is_patch: BoolType::Overwrite(false),
         extra_index_maps: UnsignedByteMap::Overwrite(indices),
         extra_hash_maps: Hash40Map::Overwrite(hashes),
         ..Default::default()

@@ -38,6 +38,14 @@ pub fn publish() {
         ui_series_id: Hash40Type::Overwrite(hash40("ui_series_mario")), // series icon
         disp_order: SignedByteType::Optional(Some(2)),    // position on the select screen
         color_num: UnsignedByteType::Overwrite(crate::COSTUMES), // number of costumes
+        // A DLC base (Joker, Hero, Banjo, Terry, Byleth, Min Min, Steve, Sephiroth,
+        // Pyra, Kazuya, Sora, Piranha Plant) carries shop and unlock fields the
+        // select screen checks; a row that keeps them is never drawn.
+        shop_item_tag: Hash40Type::Overwrite(hash40("-1")),
+        alt_chara_id: Hash40Type::Overwrite(hash40("-1")),
+        save_no: SignedByteType::Overwrite(0),
+        is_dlc: BoolType::Overwrite(false),
+        is_patch: BoolType::Overwrite(false),
         extra_index_maps: UnsignedByteMap::Overwrite(indices),
         extra_hash_maps: Hash40Map::Overwrite(hashes),
         ..Default::default()
