@@ -12,6 +12,34 @@ pub struct ItemPackDeclaration {
     pub spawn_min: i32,
     pub spawn_max: i32,
     pub spawn_from: Vec<String>,
+    pub common: Vec<(String, ItemPackValue)>,
+    pub owner_params: Vec<(String, String, ItemPackValue)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ItemPackValue {
+    Float(f64),
+    Int(i32),
+}
+
+impl Eq for ItemPackValue {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemPackSection {
+    Item,
+    Common,
+    OwnerParams,
+}
+
+fn parse_number(value: &str) -> Option<ItemPackValue> {
+    let value = value.trim();
+    if value.contains('.') || value.contains('e') {
+        value.parse::<f64>().ok().map(ItemPackValue::Float)
+    } else if let Some(hex) = value.strip_prefix("0x") {
+        i32::from_str_radix(hex, 16).ok().map(ItemPackValue::Int)
+    } else {
+        value.parse::<i32>().ok().map(ItemPackValue::Int)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,9 +89,21 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
         ..ItemPackDeclaration::default()
     };
     let mut saw_base = false;
+    let mut section = ItemPackSection::Item;
     for (index, raw) in text.lines().enumerate() {
         let line = strip_comment(raw).trim();
         if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') && !line.starts_with("[[") {
+            let table = line[1..line.len() - 1].trim();
+            let table = table.strip_prefix("item.").unwrap_or(table);
+            section = match table {
+                "item" => ItemPackSection::Item,
+                "common" => ItemPackSection::Common,
+                "owner_params" => ItemPackSection::OwnerParams,
+                _ => return Err(ItemPackError::Malformed { line: index + 1 }),
+            };
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
@@ -76,6 +116,28 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
             line: index + 1,
             key: key.to_string(),
         };
+        match section {
+            ItemPackSection::Common => {
+                let Some(number) = parse_number(value) else {
+                    return Err(bad());
+                };
+                declaration.common.push((key.to_string(), number));
+                continue;
+            }
+            ItemPackSection::OwnerParams => {
+                let Some((owner, field)) = key.split_once('.') else {
+                    return Err(bad());
+                };
+                let Some(number) = parse_number(value) else {
+                    return Err(bad());
+                };
+                declaration
+                    .owner_params
+                    .push((owner.trim().to_string(), field.trim().to_string(), number));
+                continue;
+            }
+            ItemPackSection::Item => {}
+        }
         match key {
             "base_kind" => {
                 declaration.base_kind = value.parse::<i32>().map_err(|_| bad())?;
@@ -110,6 +172,26 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
     Ok(declaration)
 }
 
+pub fn parse_all(text: &str) -> Result<Vec<ItemPackDeclaration>, ItemPackError> {
+    let blocks = clone_engine_core::manifest::blocks(text, "item")
+        .map_err(|line| ItemPackError::Malformed { line })?;
+    blocks
+        .iter()
+        .map(|block| {
+            parse(&block.text).map_err(|error| match error {
+                ItemPackError::Malformed { line } => ItemPackError::Malformed {
+                    line: line + block.first_line - 1,
+                },
+                ItemPackError::BadValue { line, key } => ItemPackError::BadValue {
+                    line: line + block.first_line - 1,
+                    key,
+                },
+                other => other,
+            })
+        })
+        .collect()
+}
+
 #[cfg(all(not(test), feature = "item_clone_backend"))]
 mod live {
     use super::*;
@@ -121,6 +203,47 @@ mod live {
     const MOD_ROOT: &str = "sd:/ultimate/mods";
 
     const MAX_KIND_PROBES: usize = 8;
+
+    static NEXT_KIND: core::sync::atomic::AtomicI32 =
+        core::sync::atomic::AtomicI32::new(crate::item_clones::FIRST_SPARSE_ITEM_KIND);
+
+    fn register_probing(directory: &str, declaration: &ItemPackDeclaration) -> Option<i32> {
+        for attempt in 0..MAX_KIND_PROBES {
+            let kind = NEXT_KIND.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            match register(directory, declaration, kind) {
+                RegisterOutcome::Registered => return Some(kind),
+                RegisterOutcome::KindTaken if attempt + 1 < MAX_KIND_PROBES => continue,
+                RegisterOutcome::KindTaken => {
+                    skyline::println!(
+                        "[itempack] {directory}: no free item kind in {MAX_KIND_PROBES} tries; {} skipped",
+                        declaration.resource_name
+                    );
+                    return None;
+                }
+                RegisterOutcome::Refused => return None,
+            }
+        }
+        None
+    }
+
+    pub fn register_text(label: &str, text: &str) -> i32 {
+        let parsed = match parse_all(text) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                skyline::println!("[itempack] {label} (plugin manifest) is not readable: {error:?}");
+                return clone_engine_api::ERROR_MANIFEST;
+            }
+        };
+        let mut first = clone_engine_api::ERROR_MANIFEST;
+        for declaration in &parsed {
+            if let Some(kind) = register_probing(label, declaration) {
+                if first < 0 {
+                    first = kind;
+                }
+            }
+        }
+        first
+    }
 
     enum RegisterOutcome {
         Registered,
@@ -157,10 +280,9 @@ mod live {
             "[itempack] {} item.toml pack(s) under {MOD_ROOT}",
             declarations.len()
         );
-        let mut next_kind = crate::item_clones::FIRST_SPARSE_ITEM_KIND;
         for (directory, text) in declarations {
-            let declaration = match parse(&text) {
-                Ok(declaration) => declaration,
+            let parsed = match parse_all(&text) {
+                Ok(parsed) => parsed,
                 Err(error) => {
                     skyline::println!(
                         "[itempack] {directory}/item.toml is not readable: {error:?}; skipped"
@@ -168,17 +290,11 @@ mod live {
                     continue;
                 }
             };
-            for attempt in 0..MAX_KIND_PROBES {
-                let kind = next_kind;
-                next_kind += 1;
-                match register(&directory, &declaration, kind) {
-                    RegisterOutcome::Registered => break,
-                    RegisterOutcome::KindTaken if attempt + 1 < MAX_KIND_PROBES => continue,
-                    RegisterOutcome::KindTaken => skyline::println!(
-                        "[itempack] {directory}: no free item kind in {MAX_KIND_PROBES} tries; skipped"
-                    ),
-                    RegisterOutcome::Refused => break,
-                }
+            if parsed.len() > 1 {
+                skyline::println!("[itempack] {directory}/item.toml: {} items", parsed.len());
+            }
+            for declaration in &parsed {
+                register_probing(&directory, declaration);
             }
         }
     }
@@ -258,7 +374,58 @@ mod live {
             declaration.ui()
         );
         register_spawns(directory, declaration, public_kind);
+        register_tables(directory, declaration, public_kind);
         RegisterOutcome::Registered
+    }
+
+    fn register_tables(directory: &str, declaration: &ItemPackDeclaration, public_kind: i32) {
+        for (field, value) in &declaration.common {
+            let hash = clone_engine_core::hash40(field);
+            let result = match value {
+                ItemPackValue::Float(value) => {
+                    crate::item_clones::clone_engine_item_common_set(public_kind, hash, *value as f32)
+                }
+                ItemPackValue::Int(value) => {
+                    crate::item_clones::clone_engine_item_common_set_i32(public_kind, hash, *value)
+                }
+            };
+            skyline::println!("[itempack] {directory}: [common] {field} result={result}");
+        }
+        for (owner, field, value) in &declaration.owner_params {
+            let Some(owner_kind) = crate::custom_articles::fighter_kind_from_str(owner) else {
+                skyline::println!(
+                    "[itempack] {directory}: [owner_params] {owner}.{field}: {owner} is not a fighter"
+                );
+                continue;
+            };
+            let Some(word) = clone_engine_core::owner_param_words::words_of(owner_kind)
+                .iter()
+                .find(|word| word.path() == *field || word.field_name() == field)
+            else {
+                skyline::println!(
+                    "[itempack] {directory}: [owner_params] {owner}.{field}: {owner} has no such param"
+                );
+                continue;
+            };
+            let offset = u32::from(word.offset);
+            let result = match (word.kind, value) {
+                (clone_engine_core::owner_param_words::WordKind::F32, ItemPackValue::Float(value)) => {
+                    crate::item_clones::clone_engine_item_owner_param_set_f32(public_kind, owner_kind, offset, *value as f32)
+                }
+                (clone_engine_core::owner_param_words::WordKind::F32, ItemPackValue::Int(value)) => {
+                    crate::item_clones::clone_engine_item_owner_param_set_f32(public_kind, owner_kind, offset, *value as f32)
+                }
+                (_, ItemPackValue::Int(value)) => {
+                    crate::item_clones::clone_engine_item_owner_param_set_i32(public_kind, owner_kind, offset, *value)
+                }
+                (_, ItemPackValue::Float(value)) => {
+                    crate::item_clones::clone_engine_item_owner_param_set_i32(public_kind, owner_kind, offset, *value as i32)
+                }
+            };
+            skyline::println!(
+                "[itempack] {directory}: [owner_params] {owner}.{field} (offset {offset:#x}) result={result}"
+            );
+        }
     }
 
     fn register_spawns(directory: &str, declaration: &ItemPackDeclaration, public_kind: i32) {
@@ -296,6 +463,16 @@ pub(crate) fn load_all() {
 
 #[cfg(not(all(not(test), feature = "item_clone_backend")))]
 pub(crate) fn load_all() {}
+
+#[cfg(all(not(test), feature = "item_clone_backend"))]
+pub(crate) fn register_text(label: &str, text: &str) -> i32 {
+    live::register_text(label, text)
+}
+
+#[cfg(not(all(not(test), feature = "item_clone_backend")))]
+pub(crate) fn register_text(_label: &str, _text: &str) -> i32 {
+    clone_engine_api::ERROR_UNSUPPORTED
+}
 
 #[cfg(test)]
 mod tests {

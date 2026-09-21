@@ -108,6 +108,8 @@ pub(crate) const OFF_RESOURCE_SLOT: usize = 0x17f1aa0;
 pub(crate) const OFF_FIGHTER_CLASS_RESOLVER: usize = 0x68d530;
 
 pub(crate) const FIGHTER_CLASS_TABLE: usize = 0x529bfd0;
+pub(crate) const OFF_WEAPON_CLASS_RESOLVER: usize = 0x33be790;
+pub(crate) const OFF_WEAPON_CLASS_RECACHE: usize = 0x339fd60;
 
 pub(crate) const OFF_STATIC_FIGHTER_DATA: usize = 0x64b730;
 

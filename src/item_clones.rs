@@ -34,6 +34,7 @@ const OFF_ITEM_GET_HAVE_ITEM_ID: usize = 0x2098D30;
 const OFF_ITEM_GET_PICKABLE_ITEM_KIND: usize = 0x2098D60;
 const OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID: usize = 0x2098D40;
 const OFF_ITEM_DEACTIVATE: usize = 0x15D4570;
+const OFF_ITEM_OBJECT_ADOPT: usize = 0x15DBB28;
 const OFF_BATTLE_OBJECT_UPDATE: usize = 0x3A84E0;
 pub(crate) const BATTLE_OBJECT_MODULE_TABLE: usize = 0x20;
 
@@ -57,6 +58,10 @@ const MAIN_PREFLIGHT: &[(usize, &[u32])] = &[
     (
         OFF_ITEM_DEACTIVATE,
         &[0xD101C3FF, 0xF9000BFB, 0xA90267FA, 0xA9035FF8, 0xA90457F6],
+    ),
+    (
+        OFF_ITEM_OBJECT_ADOPT,
+        &[0xF94002C8, 0xF9400908, 0xD63F0100, 0xF94002C8],
     ),
     (
         OFF_BATTLE_OBJECT_UPDATE,
@@ -1400,6 +1405,14 @@ unsafe fn item_lower_creator_bridge(
     item
 }
 
+#[skyline::hook(offset = OFF_ITEM_OBJECT_ADOPT, inline)]
+unsafe fn item_object_adopt(ctx: &mut skyline::hooks::InlineCtx) {
+    let Some(public_kind) = crate::item_params::runtime_clone_on_thread() else {
+        return;
+    };
+    crate::clone_vtables::adopt_item_object(public_kind, ctx.registers[22].x() as usize);
+}
+
 #[skyline::hook(offset = OFF_ITEM_DEACTIVATE)]
 unsafe fn item_deactivate_bridge(manager: *mut u8, item: *mut u8, recycle: u32) {
     let object_id = if item.is_null() {
@@ -1408,6 +1421,7 @@ unsafe fn item_deactivate_bridge(manager: *mut u8, item: *mut u8, recycle: u32) 
         (item.add(0x08) as *const u32).read_unaligned()
     };
     call_original!(manager, item, recycle);
+    crate::clone_vtables::release_item_object(item as usize);
     if let Some(kind) = remove_live(item as usize, object_id) {
         crate::block_grid::note_released_object(item as usize);
         limited_log(format!(
@@ -2552,7 +2566,9 @@ fn clone_engine_item_owner_param_set_bits(
     match crate::item_params::register_owner_override(item_kind, owner_kind, offset, bits) {
         true => {
             log(format!(
-                "[itemclone] item_owner_param_set public={item_kind:#x} owner={owner_kind}                  +{offset:#x} = {bits:#x} ({} override(s) for this item)",
+                "[itemclone] item_owner_param_set public={item_kind:#x} owner={owner_kind} \
+                 +{offset:#x} = {bits:#x}: {} ({} override(s) for this item)",
+                clone_engine_core::owner_param_words::describe(owner_kind, offset, bits),
                 crate::item_params::owner_override_count(item_kind)
             ));
             RESULT_OK
@@ -2790,6 +2806,7 @@ pub fn install() {
             item_born_item_bridge,
             item_attach_item_bridge,
             item_lower_creator_bridge,
+            item_object_adopt,
             item_deactivate_bridge,
             battle_object_update
         );

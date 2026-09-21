@@ -2,6 +2,10 @@ use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub mod manifest;
+pub mod slot;
+pub mod v2;
+
 pub const API_VERSION_V1: u32 = 1;
 pub const API_VERSION_V2: u32 = 2;
 pub const FIRST_CUSTOM_KIND: i32 = 118;
@@ -43,6 +47,7 @@ pub const ERROR_ITEM_RESOURCE_UNAVAILABLE: i32 = -29;
 pub const ERROR_ITEM_SPAWN_UNAVAILABLE: i32 = -30;
 pub const ERROR_ITEM_UI_METADATA: i32 = -31;
 pub const ERROR_ITEM_UI_CAPACITY: i32 = -32;
+pub const ERROR_MANIFEST: i32 = -33;
 pub const ERROR_ITEM_UI_UNAVAILABLE: i32 = -33;
 pub const ERROR_SMASHLINE_REQUIRED: i32 = -34;
 
@@ -1094,7 +1099,7 @@ pub fn item_owner_param_set_f32(
 ) -> Result<(), Error> {
     let address = resolve(
         &ITEM_OWNER_PARAM_F32_FN,
-        b"clone_engine_item_owner_param_set_f32 ",
+        b"clone_engine_item_owner_param_set_f32\0",
     )
     .ok_or(Error::EngineUnavailable)?;
     let function: ItemOwnerParamF32Fn = unsafe { std::mem::transmute(address) };
@@ -1113,7 +1118,7 @@ pub fn item_owner_param_set_i32(
 ) -> Result<(), Error> {
     let address = resolve(
         &ITEM_OWNER_PARAM_I32_FN,
-        b"clone_engine_item_owner_param_set_i32 ",
+        b"clone_engine_item_owner_param_set_i32\0",
     )
     .ok_or(Error::EngineUnavailable)?;
     let function: ItemOwnerParamI32Fn = unsafe { std::mem::transmute(address) };
@@ -1599,7 +1604,7 @@ pub struct CloneCopyMeshV1 {
 pub fn clone_copy_mesh_default(fighter_kind: i32, mesh: &str, visible: bool) -> Result<(), Error> {
     let address = resolve(
         &CLONE_COPY_MESH_FN,
-        b"clone_engine_clone_copy_mesh_default_v1 ",
+        b"clone_engine_clone_copy_mesh_default_v1\0",
     )
     .ok_or(Error::EngineUnavailable)?;
     let mesh = CString::new(mesh).map_err(|_| Error::InvalidName)?;

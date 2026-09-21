@@ -85,12 +85,23 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 name = "clone_engine_api"
 version = "0.1.0-beta.1"
 dependencies = [
+ "clone_engine_core",
+ "clone_engine_macros",
  "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
 ]
 
 [[package]]
 name = "clone_engine_core"
 version = "0.1.0-beta.1"
+
+[[package]]
+name = "clone_engine_macros"
+version = "0.1.0-beta.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
 
 [[package]]
 name = "compile-time-lua-bind-hash"

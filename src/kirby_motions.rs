@@ -227,6 +227,9 @@ fn log_outcome(outcome: &[(String, Result<(), Rejected>)], total: usize) {
 }
 
 #[cfg(not(test))]
+pub(crate) use live::clone_engine_clone_copy_motion_v1;
+
+#[cfg(not(test))]
 mod live {
     use super::*;
     use clone_engine_api::{

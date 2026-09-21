@@ -240,6 +240,16 @@ pub unsafe extern "C" fn clone_engine_register_item_ui_v1(
         {
             RESULT_OK
         } else {
+            log(format!(
+                "[itemui] REFUSED ui={ui_id} for public={:#x}: {} already holds {}",
+                registration.item_kind,
+                if existing.ui_hash == ui_hash {
+                    format!("public={:#x}", existing.public_kind)
+                } else {
+                    String::from("this item")
+                },
+                existing.ui_id.to_string_lossy()
+            ));
             ERROR_DUPLICATE
         };
     }

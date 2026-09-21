@@ -11,7 +11,11 @@ unsafe extern "C" fn observe(call: *mut HookCall) -> u32 {
         return HOOK_DECLINED;
     }
     let call = &mut *call;
-    let boma = call.args[1] as *mut smash::app::BattleObjectModuleAccessor;
+    let object = call.args[1] as *mut smash::app::BattleObject;
+    if object.is_null() {
+        return HOOK_DECLINED;
+    }
+    let boma = (*object).module_accessor;
     let Some(kind) = crate::kind() else {
         return HOOK_DECLINED;
     };

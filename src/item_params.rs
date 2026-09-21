@@ -1158,6 +1158,7 @@ struct OwnerOverride {
     owner_kind: i32,
     offset: u32,
     bits: u32,
+    reported: AtomicBool,
 }
 
 fn owner_overrides() -> &'static RwLock<Vec<OwnerOverride>> {
@@ -1199,9 +1200,22 @@ pub(crate) fn register_owner_override(
             owner_kind,
             offset,
             bits,
+            reported: AtomicBool::new(false),
         }),
     }
     true
+}
+
+pub(crate) fn owner_targets(owner_kind: i32) -> Vec<(i32, u32, u32)> {
+    owner_overrides()
+        .read()
+        .map(|held| {
+            held.iter()
+                .filter(|e| e.owner_kind == owner_kind)
+                .map(|e| (e.public_kind, e.offset, e.bits))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 unsafe fn apply_owner_overrides(scope: usize, public_kind: i32) {
@@ -1224,11 +1238,26 @@ unsafe fn apply_owner_overrides(scope: usize, public_kind: i32) {
             continue;
         };
         let field = (payload + entry.offset as usize) as *mut u32;
+        let before = core::ptr::read_volatile(field);
         OWNER_SAVE_ADDRESS[scope][saved].store(field as usize, Ordering::Relaxed);
-        OWNER_SAVE_BITS[scope][saved]
-            .store(core::ptr::read_volatile(field), Ordering::Relaxed);
+        OWNER_SAVE_BITS[scope][saved].store(before, Ordering::Relaxed);
         core::ptr::write_volatile(field, entry.bits);
         saved += 1;
+        if !entry.reported.swap(true, Ordering::Relaxed) {
+            crate::dbg_log_public(&format!(
+                "[ownerparam] applied public={public_kind:#x} owner={} +{:#x}: {} -> {}",
+                entry.owner_kind,
+                entry.offset,
+                clone_engine_core::owner_param_words::describe(
+                    entry.owner_kind,
+                    entry.offset,
+                    before
+                ),
+                clone_engine_core::owner_param_words::word_at(entry.owner_kind, entry.offset)
+                    .map(|word| word.shown(entry.bits))
+                    .unwrap_or_else(|| format!("{:#x}", entry.bits))
+            ));
+        }
     }
     OWNER_SAVE_COUNT[scope].store(saved, Ordering::Release);
 }
@@ -1438,6 +1467,18 @@ pub(crate) fn leave_runtime_clone(index: usize) {
     SCOPE_PUBLIC[index].store(-1, Ordering::Relaxed);
     SCOPE_BASE[index].store(-1, Ordering::Relaxed);
     SCOPE_THREAD[index].store(0, Ordering::Release);
+}
+
+pub(crate) fn runtime_clone_on_thread() -> Option<i32> {
+    let thread = unsafe { current_thread() };
+    if thread == 0 {
+        return None;
+    }
+    (0..MAX_RUNTIME_SCOPES).find_map(|index| {
+        (SCOPE_THREAD[index].load(Ordering::Acquire) == thread)
+            .then(|| SCOPE_PUBLIC[index].load(Ordering::Relaxed))
+            .filter(|public| *public >= 0)
+    })
 }
 
 fn runtime_clone_for_base(base_kind: i32) -> Option<i32> {

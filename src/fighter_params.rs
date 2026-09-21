@@ -1021,24 +1021,27 @@ unsafe fn report_owner_fields(kind: i32, payload: usize) {
     if payload == 0 {
         return;
     }
-    let dump = |from: usize, to: usize| -> String {
-        (from..to)
-            .step_by(4)
-            .map(|at| {
-                let raw = core::ptr::read_volatile((payload + at) as *const u32);
-                format!("{at:#x}={raw:#x}")
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    crate::dbg_log_public(&format!(
-        "[ownerparam] {kind} first cluster {}",
-        dump(0x4f8, 0x564)
-    ));
-    crate::dbg_log_public(&format!(
-        "[ownerparam] {kind} second cluster {}",
-        dump(0x750, 0x780)
-    ));
+    let targets = crate::item_params::owner_targets(kind);
+    let known = clone_engine_core::owner_param_words::words_of(kind).len();
+    if targets.is_empty() {
+        crate::dbg_log_public(&format!(
+            "[ownerparam] {kind} loaded for a clone item, {known} known word(s), none overridden"
+        ));
+        return;
+    }
+    for (public_kind, offset, bits) in targets {
+        if !crate::item_params::owner_offset_valid(offset) {
+            continue;
+        }
+        let raw = core::ptr::read_volatile((payload + offset as usize) as *const u32);
+        crate::dbg_log_public(&format!(
+            "[ownerparam] {kind} loaded for public={public_kind:#x}: +{offset:#x} holds {raw:#x}, {}, override {}",
+            clone_engine_core::owner_param_words::describe(kind, offset, raw),
+            clone_engine_core::owner_param_words::word_at(kind, offset)
+                .map(|word| word.shown(bits))
+                .unwrap_or_else(|| format!("{bits:#x}"))
+        ));
+    }
 }
 
 

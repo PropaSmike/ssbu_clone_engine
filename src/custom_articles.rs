@@ -10,7 +10,7 @@ use clone_engine_api::{
 
 pub const FIRST_CUSTOM_WEAPON_KIND: i32 = 0x267;
 
-const MAX_CUSTOM_ARTICLES: usize = 256;
+pub(crate) const MAX_CUSTOM_ARTICLES: usize = 256;
 
 const LOWERCASE_FIGHTER_NAMES: usize = 0x4f80e20;
 const FIGHTER_NAME_COUNT: usize = 118;
@@ -109,6 +109,11 @@ pub fn fighter_kind_from_name_prefix(name: &str) -> Option<i32> {
     best.map(|(_, kind)| kind)
 }
 
+pub fn fighter_kind_from_str(name: &str) -> Option<i32> {
+    let owned = std::ffi::CString::new(name).ok()?;
+    unsafe { fighter_kind_from_name(&owned) }
+}
+
 unsafe fn fighter_kind_from_name(name: &CStr) -> Option<i32> {
     (0..FIGHTER_NAME_COUNT)
         .find(|index| {
@@ -199,6 +204,50 @@ pub fn custom_weapon_name(weapon_kind: i32) -> Option<&'static [u8]> {
         .map(|article| article.name)
 }
 
+pub fn weapon_kind_from_names(owner: &str, weapon: &str) -> Option<i32> {
+    (0..WEAPON_NAME_COUNT).find_map(|index| {
+        let owner_entry = unsafe { table_string(WEAPON_OWNER_NAMES, index) }?;
+        let weapon_entry = unsafe { table_string(LOWERCASE_WEAPON_NAMES, index) }?;
+        (owner_entry.to_bytes().eq_ignore_ascii_case(owner.as_bytes())
+            && weapon_entry.to_bytes().eq_ignore_ascii_case(weapon.as_bytes()))
+        .then_some(index as i32)
+    })
+}
+
+pub fn weapon_kinds_of_owner(owner_kind: i32) -> Vec<i32> {
+    (0..WEAPON_NAME_COUNT)
+        .filter(|index| {
+            let slot = (text_base() + WEAPON_OWNER_KINDS + index * 4) as *const i32;
+            let stored: i32 = unsafe { core::ptr::read_volatile(slot) };
+            stored == owner_kind
+        })
+        .map(|index| index as i32)
+        .collect()
+}
+
+pub fn article_kind_by_name(resource_owner: &str, name: &str) -> Option<i32> {
+    let registry = registry().read().ok()?;
+    registry
+        .iter()
+        .find(|article| {
+            article.placement == ArticlePlacement::Static
+                && article.resource_owner_name.strip_suffix(&[0]) == Some(resource_owner.as_bytes())
+                && article.name.strip_suffix(&[0]) == Some(name.as_bytes())
+        })
+        .map(|article| article.weapon_kind)
+}
+
+pub fn copy_article_kind_by_name(target_kind: i32, name: &str) -> Option<i32> {
+    let registry = registry().read().ok()?;
+    registry
+        .iter()
+        .find(|article| {
+            article.placement == ArticlePlacement::KirbyCopy { target_kind }
+                && article.name.strip_suffix(&[0]) == Some(name.as_bytes())
+        })
+        .map(|article| article.weapon_kind)
+}
+
 pub fn weapon_name_table_bias(weapon_kind: i32) -> Option<u64> {
     if !is_custom_weapon_kind(weapon_kind) {
         return None;
@@ -251,6 +300,14 @@ pub fn custom_weapon_source_kind(weapon_kind: i32) -> Option<i32> {
         .iter()
         .find(|article| article.weapon_kind == weapon_kind)
         .map(|article| article.source_weapon_kind)
+}
+
+pub fn is_source_of_custom_weapon(weapon_kind: i32) -> bool {
+    registry()
+        .read()
+        .ok()
+        .map(|articles| articles.iter().any(|article| article.source_weapon_kind == weapon_kind))
+        .unwrap_or(false)
 }
 
 pub fn param_source_owner_kind(weapon_kind: i32) -> Option<i32> {
