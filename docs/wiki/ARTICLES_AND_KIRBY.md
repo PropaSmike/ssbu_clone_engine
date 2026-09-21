@@ -1,55 +1,134 @@
 # Articles and Kirby
 
-## Articles of your own
+## Articles
 
-`clone_article` copies a vanilla weapon into a new weapon kind that belongs to
-your fighter. Clone Engine owns its identity, files, ownership and weapon
-statuses; Smashline registers its ACMD under its own agent name. Each
-article needs a file directory name of its own.
+Declare one in the manifest:
 
-Keep the `ArticleHandle` you get back. Its weapon kind is permanent. Its
-article-table index is not, because other mods can add articles and move it, so
-resolve the index immediately before you use it and never fall back to zero.
+```rust
+Manifest::new("my_fighter", "samus")
+    .article(
+        "beam",        // folder fighter/my_fighter/model/beam, scripts under "my_fighter_beam"
+        "samus/cshot", // the vanilla article it is copied from: fighter/weapon
+    )
+```
 
-Weapon callbacks belong to the owner, so gate them with `is_owned_by_kind`.
+or in `fighter.toml`:
+
+```toml
+[[article]]
+name = "beam"          # files under fighter/my_fighter/model/beam
+from = "samus/cshot"   # the vanilla article it is copied from
+```
+
+Its scripts go under the name `<fighter>_<article>`:
+
+```rust
+smashline::Agent::new("my_fighter_beam")                              // the article's own name
+    .game_acmd("game_fly", game_fly, smashline::Priority::Default)     // script name, function, priority
+    .install();
+
+MY_FIGHTER.article("beam")
+    .status(Line::Main, *WEAPON_SAMUS_CSHOT_STATUS_KIND_FLY, beam_main) // status line, a status kind of the source weapon, function
+    .install();
+```
+
+Each article needs a folder of its own. Read
+`MY_FIGHTER.article("beam").index()` right before you use it, never earlier,
+and never fall back to 0. `MY_FIGHTER.article("beam").spawn(boma)` does both.
 
 ## Articles with collision
 
-Four vanilla articles carry an `.lvd` file for their collision. Cloning one needs
-no extra registration, but the file name is not yours to change: put it in your
-own article directory under the base article's original file name.
+An article with an `.lvd` file keeps the base's file name inside your folder:
 
 ```text
-fighter/<your fighter>/model/<your article name>/c00/<base article name>.lvd
+fighter/<your fighter>/model/<your article>/c00/<base article name>.lvd
 ```
 
-Rename the file to match your directory and the article loads with no collision
-at all.
+Renamed, it loads with no collision.
 
 ## Kirby copies
 
-Your fighter can ship its own Kirby copy status scripts and either an ordinary
-hat or a full-body copy. Clone Engine creates the copy record, routes the model,
-motion and article files, and sends only the copy of your fighter to your
-scripts.
+Reserve the status numbers the copied move needs:
 
-The fighter template has a working example.
+```rust
+Manifest::new("my_fighter", "mario")
+    .kirby(1)          // how many status numbers the copied move needs
+```
 
-The copy gets one model. If your hat is several pieces, or its meshes and bones
-are split up, declare the extra models with `clone_copy_model`, up to three.
-Anything in a model you did not declare is never loaded.
+```toml
+[kirby]
+statuses = 1
+```
 
-## Copy motions
+Read them back with `kirby_status(n)`, register the scripts on Kirby, then
+arm:
 
-The copy animates from the base fighter's copy animations. `clone_copy_motion`
-adds animations of your own beside them, so you only ship files for the motions
-you change.
+```rust
+smashline::Agent::new("kirby")                                  // Kirby's copy scripts go on Kirby
+    .status(Main, MY_FIGHTER.kirby_status(0), kirby_special_n)  // status line, the first reserved number, function
+    .install();
+MY_FIGHTER.arm_kirby();                                         // after the statuses are installed
+```
 
-The animation goes in `fighter/kirby/motion/<your resource name>body/c00/`,
-listed in `new-dir-files` under your `kirbycopy/cNN/bodymotion` group, and the
-motion name starts with your resource name so two packs cannot collide. Its ACMD
-belongs on `Agent::new("kirby")`.
+`arm_kirby` must come after the statuses are installed.
 
-The fighter template registers two and ships no animation, because those are
-yours to make. The builder is in the Kirby section of the [API guide](../API.md).
-`clone_copy_mesh_default` hides or shows a hat mesh from the start.
+The copy model, hat or full body, goes in
+`fighter/kirby/model/copy_<your name>_fitkirby/cNN/`, and the pack's
+`config.json` declares the copy files under `fighter/<your name>/kirbycopy/cNN`.
+Do not create empty `kirbycopy/cNN` groups and do not fill them with the base
+fighter's Kirby files; both make the game's file cache fail.
+
+`.kirby_full_model()` (`full_model = true`) gives Kirby your whole body
+instead of a hat. It needs a complete model and animation set for every Kirby
+colour.
+
+### More than one model
+
+`.kirby_model("my_fighter_kirby_extra")` (`model = "..."` in `[kirby]`)
+declares one extra model folder under `fighter/kirby/model/`. Anything in a
+model you did not declare is never loaded.
+
+### Your own copy animations
+
+Only the animations you change; the rest come from the base fighter:
+
+```rust
+use clone_engine_api::v2::Motion;
+
+Manifest::new("my_fighter", "mario")
+    .kirby_motion(
+        Motion::new(
+            "my_fighter_special_n",         // motion name; must start with your name
+            "myfighterd00specialn.nuanmb",  // animation file
+        )
+        .template("mario_special_n")        // borrow flags and scripts from this copy motion
+        .scripts("myfighterspecialn"),      // game_, sound_, effect_, expression_ scripts, on Agent::new("kirby")
+    )
+```
+
+```toml
+[[kirby.motion]]
+name = "my_fighter_special_n"
+animation = "myfighterd00specialn.nuanmb"
+template = "mario_special_n"
+scripts = "myfighterspecialn"
+```
+
+The animation file goes in `fighter/kirby/motion/<your name>body/c00/` and is
+listed in `new-dir-files` under your `kirbycopy/cNN/bodymotion` group. A
+motion with a template and no scripts keeps the template's hitboxes.
+
+### Hiding a hat piece from the start
+
+```rust
+Manifest::new("my_fighter", "mario")
+    .kirby_mesh("wing", false)   // mesh name, visible at the start
+```
+
+```toml
+[[kirby.mesh]]
+name = "wing"
+visible = false
+```
+
+Your animations still control the mesh once they play.

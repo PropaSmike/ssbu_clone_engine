@@ -692,6 +692,8 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
     name_hash: u64,
 ) {
     crate::css_registration::record_entry_owner_object(entry_id, id);
+    #[cfg(feature = "css_slot")]
+    crate::ensure_param_getter_brackets_installed();
     let n = INIT_PROBE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 32 {
         let (cnt, k0, k1, k2) = entry_kind_array(entry_id);
@@ -725,6 +727,7 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
         with_construction_context(kind, || {
             call_original!(object, id, base, entry_id, spoof_hash)
         });
+        crate::clone_vtables::report_fighter_construction(kind, object as usize);
         crate::fighter_params::leave_window(params);
         crate::fighter_param_rows::leave(row);
         if let Some((slot, _, _)) = patched {
@@ -737,6 +740,7 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
         crate::with_vanilla_construction_context(kind, || {
             call_original!(object, id, kind, entry_id, name_hash)
         });
+        crate::clone_vtables::report_vanilla_fighter_construction(kind, object as usize);
         crate::fighter_params::leave_window(params);
     }
 }

@@ -83,6 +83,9 @@ pub(crate) fn cache_custom_entry_selection(entry_id: i32, kind: Option<i32>) {
     }
     CSS_CUSTOM_ENTRY_KINDS[entry_id as usize]
         .store(kind.unwrap_or(-1), core::sync::atomic::Ordering::SeqCst);
+    if let Some(kind) = kind {
+        crate::staffroll::mark_used(kind);
+    }
 }
 
 #[cfg(feature = "css_slot")]
@@ -271,10 +274,27 @@ pub(crate) unsafe fn register_one_csk_css_slot(
     let ui_chara = hash40(definition.ui_chara);
     let custom_kind_hash = hash40(definition.fighter_kind_name);
     let base_ui = hash40(&format!("ui_chara_{}", definition.base_resource_name));
-    let base_characall = hash40(&format!(
-        "vc_narration_characall_{}",
-        definition.base_resource_name
-    ));
+    let base_characall = match css.narration {
+        Some(narration) => hash40(narration),
+        None => hash40(&format!(
+            "vc_narration_characall_{}",
+            definition.base_resource_name
+        )),
+    };
+    if let Some(narration) = css.narration {
+        type AddNarrationFn = unsafe extern "C" fn(*mut i8) -> bool;
+        if let Some(add_narration_addr) = lookup_symbol(b"add_narration_characall_entry\0") {
+            let add_narration: AddNarrationFn = core::mem::transmute(add_narration_addr);
+            let mut owned = narration.as_bytes().to_vec();
+            owned.push(0);
+            let added = add_narration(owned.as_mut_ptr().cast::<i8>());
+            skyline::println!(
+                "[css118] narration {narration} for {}: {}",
+                definition.resource_name,
+                if added { "added" } else { "refused by CSK" }
+            );
+        }
+    }
 
     let mut ui_fallbacks = HashMap::new();
     let mut ui_indices = HashMap::new();

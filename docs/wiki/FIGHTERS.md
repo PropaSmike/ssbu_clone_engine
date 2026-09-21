@@ -1,73 +1,86 @@
-# Fighters and Smashline
+# Fighters
 
-## Who does what
+## Declaring the fighter
 
-Smashline registers fighter ACMD, statuses, OPFF,
-lifecycle callbacks and weapon ACMD. Clone Engine registers the identity and
-routes files, parameters, articles, Kirby data and ownership to it.
+In the plugin, before anything else:
 
-Register your scripts on your own agent name, never the base fighter's:
+```rust
+use clone_engine_api::v2::{fighter, Manifest};
+
+fighter!(MY_FIGHTER, "my_fighter");
+
+let manifest = Manifest::new("my_fighter", "mario")
+    .costumes(8)
+    .own_css();
+let Ok(kind) = MY_FIGHTER.register(manifest) else { return };
+```
+
+Or as a `fighter.toml` beside the pack's `config.json`, in which case the
+plugin (if any) skips `register`:
+
+```toml
+name = "my_fighter"
+base = "mario"
+costumes = 8
+css = false
+```
+
+Every key and method is in the [API reference](../API.md#fighters).
+
+## Character select entry
+
+Your CSK call stays as it is. Two fields name the clone:
+
+```rust
+add_chara_db_entry_info(CharacterDatabaseEntry {
+    ui_chara_id: hash40("ui_chara_my_fighter"),
+    clone_from_ui_chara_id: Some(hash40("ui_chara_mario")),
+    fighter_kind: Hash40Type::Overwrite(hash40("fighter_kind_my_fighter")),
+    fighter_kind_corps: Hash40Type::Overwrite(hash40("fighter_kind_my_fighter")),
+    ..
+});
+```
+
+The full call is in the [API reference](../API.md#character-select-entry).
+A pack with no plugin drops `css = false` and adds `display_name`, `series`,
+`disp_order` to `fighter.toml`; the engine publishes the entry.
+
+## Stats
+
+ParamConfig's calls stay as they are, with `kind` where the base kind was:
+
+```rust
+param_config::update_float(kind, vec![-1], (hash40("param_special_hi"), hash40("y_spd_air")), 1.5);
+```
+
+See [Stats and parameters](PARAMETERS.md).
+
+## Scripts
+
+Smashline scripts go under your own fighter name, never the base's:
 
 ```rust
 smashline::Agent::new("my_fighter")
-    .game_acmd("game_attack11", game_attack11, smashline::Priority::Low)
+    .game_acmd("game_attack11", game_attack11, smashline::Priority::Default)
     .status(smashline::Exec, FIGHTER_STATUS_KIND_WAIT, wait_exec)
     .on_line(smashline::Main, fighter_frame)
     .install();
 ```
 
-## Identity
+`MY_FIGHTER.is(x)` and `MY_FIGHTER.owns(x)` are the checks for a plain
+`#[skyline::hook]`; Smashline scripts under `"my_fighter"` need none.
 
-Build a `CloneRegistration` with `KIND_AUTO`, the vanilla base kind, your
-`ui_chara_...` and `fighter_kind_...` names, your resource name, the base
-resource name and your real color range. `allocate` returns the kind for this
-installation.
+## Packs written before `fighter.toml`
 
-Keep it in a `CloneKind`, which stores the number against your permanent name:
-
-```rust
-static KIND: clone_engine_api::CloneKind =
-    clone_engine_api::CloneKind::new("fighter_kind_my_fighter");
-
-KIND.store(clone_engine_api::allocate(&descriptor)?);
-
-let Some(kind) = KIND.get() else { return false };
-```
-
-Then gate your callbacks on it: `is_kind` for the fighter, `is_owned_by_kind`
-for weapons and articles. A callback that runs without a gate runs for the
-vanilla base too.
+They register with `CloneRegistration` and `allocate`, and check `is_kind`
+in every callback. Still works: [Deprecated: the long form](../DEPRECATED.md).
 
 ## Final Smash backgrounds
 
-27 fighters bring their own background scene with their Final Smash. If you clone
-one of them you get it for free, with the base fighter absent from the match, and
-there is nothing to register.
+The base fighter's background is used unless you ship your own at
+`fighter/<your name>/finalsmash/shared/`, with the base's layout. If it comes
+up black, the log says what was looked for and found:
 
-To ship your own instead, put it at
-`fighter/<your resource name>/finalsmash/shared/`, matching the layout of the
-base fighter's tree. Your files are used when they are there, and the base
-fighter's load when they are not.
-
-If the background comes up black, the boot log says which fighter was resolved
-and how many of its models were found:
-
-```
+```text
 [fsload] kind 20 (falco) finalsmash directory Some(15204), 2 of 2 model probes resolved, 0 missing
 ```
-
-## Order of registration
-
-[`custom_fighters/template`](../../custom_fighters/template/) does this in
-order, and the order matters:
-
-1. capability and Smashline bridge checks;
-2. Clone Engine identity allocation;
-3. Smashline ACMD, status, OPFF and lifecycle registration;
-4. ParamConfig and article registration;
-5. optional Kirby and shared-hook registration;
-6. the ARCropolis mount callback;
-7. CSK publication.
-
-Publishing the CSS row before the descriptor and the files exist gives the
-player a row that selects a fighter the game cannot load.

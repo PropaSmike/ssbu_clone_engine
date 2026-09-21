@@ -180,6 +180,10 @@ impl ThreadScopedKind {
         (kind >= 0).then_some(kind)
     }
 
+    pub(crate) fn is_idle(&self) -> bool {
+        self.occupancy.live.load(Ordering::Acquire) == 0
+    }
+
     pub(crate) fn set(&self, thread: usize, kind: i32) -> bool {
         if thread == 0 {
             return false;

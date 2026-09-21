@@ -1,26 +1,37 @@
 # Getting started
 
-Clone Engine gives your mod an identity of its own while it inherits behavior
-from a vanilla base. It does not convert an existing moveset for you.
+Converting a moveset that sits on a vanilla slot:
+[From a one-slot moveset](FROM_A_ONE_SLOT_MOVESET.md).
 
-## Install the runtime
+## 1. Install the engine
 
-Clone Engine goes in the global plugin directory:
+The engine goes in the global plugin folder:
 
 ```text
-atmosphere/contents/01006A800016E000/romfs/skyline/plugins/
+atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_clone_engine.nro
 ```
 
-A pack's own code goes inside that pack's ARCropolis mod directory as
-`plugin.nro`, never in the global directory.
+A pack's own code goes inside that pack's mod folder as `plugin.nro`, never in
+the global folder. A pack made of files only has no `plugin.nro` at all.
 
-## Start from a template
+## 2. Copy a template
 
-- [Fighter](../../custom_fighters/template/)
-- [Item](../../custom_items/template/)
-- [Item owned by a fighter](../../custom_items/fighter_owned_template/)
+- [Fighter](../../custom_fighters/template_v2/)
+- [Item](../../custom_items/template_v2/)
 - [Stage](../../custom_stages/template/)
 
-Copy the whole template, then change every identity name in it before you add
-content. Those names are permanent; the numbers the engine hands back are not,
-so never write one into a file name or a config file.
+Copy the whole template folder, then change every name in it before you add
+your own content: the name in `fighter!(..)` and `Manifest::new(..)` (or in
+`fighter.toml` for a pack without code), the folder names under `fighter/`,
+`item/` or `stage/`, and the Smashline agent names.
+
+## 3. Names are permanent, numbers are not
+
+The kinds and ids the engine hands out change with the player's other mods.
+Never write one into a file name or a config file.
+
+## 4. Read the log
+
+The engine reports what it did in Skyline's log. Look for lines starting with
+`[fighterpack]`, `[itempack]`, `[stagepack]` and `[clone_engine]`. A line
+saying `refused` or `REFUSED` names the reason a pack did not load.

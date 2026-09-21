@@ -1,92 +1,98 @@
-# Items and the Training menu
+# Items
 
-A custom item gets its own kind and its own:
+A custom item gets its own model, animations, `param.prc`, scripts,
+statuses, shared-file settings and Training menu cell. Effects and sounds
+come from the base item's banks. Start from
+[custom_items/template_v2](../../custom_items/template_v2/).
 
-- model, textures, motion and `param.prc`;
-- game, effect and sound animcmd;
-- statuses, layered over the base item's;
-- common float parameters, changed for your item only;
-- Training menu cell, with a name, help text and optional icon.
+## Declaring the item
 
-A custom item's effects and sounds come from its base item's banks. If the base
-item belongs to a fighter, that fighter's effect bank is loaded as well, so the
-item keeps its effects with the fighter absent from the match. Start from
-[`custom_items/template`](../../custom_items/template/).
+In the plugin, before anything else:
 
-## A content-only pack needs no plugin
+```rust
+use clone_engine_api::v2::{item, ItemManifest};
+use clone_engine_api::ItemStatusLine;
 
-Put an `item.toml` beside the pack's `config.json` and the engine registers it
-at boot. Two keys are the minimum:
+item!(WAWA, "wawa");
+
+#[skyline::main(name = "wawa")]
+pub fn main() {
+    let manifest = ItemManifest::new(
+        "wawa", // resource name: files under item/wawa, script name
+        63,     // base kind: the vanilla item it is built on (63 = Killing Edge)
+    )
+    .base_item("killsword")           // the base's name, for the log
+    .spawn_per(30)                    // natural drop weight; most vanilla items are 20 to 50
+    .spawn_from(&["box", "barrel"])   // containers that can hold it
+    .common("throw_speed_mul", 0.75); // a field of item/common/param/param.prc, for this item only
+    let Ok(kind) = WAWA.register(manifest) else { return };
+
+    WAWA.status(ItemStatusLine::Init, "THROW", throw_init); // status line, a status name of the base item, function
+}
+```
+
+Or as an `item.toml` beside the pack's `config.json`, in which case the
+plugin (if any) skips `register`:
 
 ```toml
-base_kind     = 63      # the vanilla item you build on (63 = Killing Edge)
-resource_name = "wawa"  # your files live under item/wawa
+base_kind     = 63                  # the vanilla item you build on (63 = Killing Edge)
+resource_name = "wawa"              # your files live under item/wawa
+base_item     = "killsword"         # optional: names the base in the log
+spawn_per  = 30                     # optional: natural drop weight
+spawn_max  = 2                      # optional, with spawn_min; both default to 1
+spawn_from = "box, barrel, capsule" # optional: containers that can hold it
+
+[common]
+throw_speed_mul = 0.75
+life = 300                          # a whole number is an integer field
 ```
 
-The optional keys are `base_item`, which names the base in the log, `agent_name`,
-which defaults to `resource_name`, `ui_id`, which defaults to
-`ui_item_<resource_name>`, and `training_order`.
+Optional keys: `agent_name` (script name, defaults to `resource_name`),
+`ui_id` (defaults to `ui_item_<resource_name>`), `training_order`. Drops
+follow the item switch of your base item: when the player turns the base off,
+your item is off too. Several items in one pack are `[[item]]` blocks with
+the same keys (engines after `0.2.1-beta.1`).
 
-## A plugin does not pick a number either
+Statuses are registered at startup, by name; they are the base item's and the
+lines are `Setting`, `JointSrt`, `Init`, `Update`, `Coroutine`, `Exit`.
 
-Pass `KIND_AUTO` to `allocate_item`. It registers the item and returns the kind
-the engine assigned, stepping over anything another pack already took. Hold it
-in a `CloneItemKind`, which caches the number and can recover it later from the
-resource name.
+To spawn or give the item from code:
 
 ```rust
-use clone_engine_api::{CloneItemKind, ItemCloneRegistration, KIND_AUTO};
-
-static WAWA: CloneItemKind = CloneItemKind::new("wawa");
-
-let kind = clone_engine_api::allocate_item(&ItemCloneRegistration::new(
-    KIND_AUTO,
-    63,
-    "wawa",
-    "wawa",
-))?;
-WAWA.store(kind);
+ItemModule::have_item(
+    boma,                                             // the fighter that gets the item
+    smash::app::ItemKind(WAWA.kind().get().unwrap()), // the clone's kind, wrapped in the game's type
+    0, 0, false, false,                               // the game's own arguments, as for a vanilla item
+);
 ```
 
-Everything that wants a kind takes `WAWA.raw()`, including the `ItemModule`
-calls that spawn or attach the item. Those take the game's own
-`smash::app::ItemKind` wrapper around the number:
+Packs written before `item.toml` register the item in code with
+`allocate_item`; that still works and is in
+[Deprecated: the long form](../DEPRECATED.md#items).
+
+## An item whose settings live on a fighter
+
+Some items (Steve's blocks, base kind `0x1ae`) read their settings from a
+fighter's `vl.prc`. `owner_param` gives your item its own values, by fighter
+and field name, without touching the fighter:
 
 ```rust
-ItemModule::have_item(boma, smash::app::ItemKind(WAWA.raw()), 0, 0, false, false);
+ItemManifest::new("wawa_block", 0x1ae)
+    .owner_param("pickel", "life", 600.0)       // owner fighter (Steve), a field of its vl.prc, value
+    .owner_param("pickel", "auto_damage", 0.0)
 ```
 
-`register_item` with a number you chose still works, and a pack written before
-`allocate_item` keeps running. It is the worse option: the number has to be at
-least `FIRST_CUSTOM_ITEM_KIND` (0x36A) and unique across every custom item the
-user has installed, and neither you nor the engine can enforce that for a
-number two packs hardcoded.
-
-## An item whose parameters live on a fighter
-
-A few vanilla items keep parameters in a fighter's `vl.prc` rather than in their
-own `param.prc`. Steve's blocks are the usual example: lifetime and break damage
-are Steve's fighter parameters. Clone from one of those and your item reads the
-same value, so changing it would change the fighter.
-
-Give your item its own copy instead. Pass your kind, the owner fighter's kind, a
-4 byte aligned offset below `0x4000` into that fighter's parameters, and the
-value:
-
-```rust
-clone_engine_api::item_owner_param_set_i32(BLOCK.raw(), 0x58, 0x518, 600)?;
-clone_engine_api::item_owner_param_set_f32(BLOCK.raw(), 0x58, 0x520, 0.0)?;
+```toml
+[owner_params]
+pickel.life = 600
+pickel.auto_damage = 0
 ```
 
-Do it once at startup. The override applies only while your item is read, so the
-fighter and any vanilla copy of the item are untouched.
+Set every field that decides the same outcome: a block ends on `life` or
+`auto_damage`, whichever comes first.
 
-Set every parameter that decides the same outcome. A Steve block ends on
-whichever comes first, `life` frames or `auto_damage` wearing it down, so a
-longer `life` on its own changes nothing.
-
-[`custom_items/fighter_owned_template`](../../custom_items/fighter_owned_template/)
-is a working example of exactly this.
+[custom_items/template_v2](../../custom_items/template_v2/) does exactly
+this in code with `owner_param("pickel", "life").set(600.0)`.
 
 ## File layout
 
@@ -99,21 +105,18 @@ item/wawa/script/animcmd/body/effect.lc
 item/wawa/script/animcmd/body/sound.lc
 ```
 
-Items have no aggregate directory. Every `new-dir-files` group must therefore be
-keyed by the leaf directory that holds the files, and the model directories must
-not appear in `new-dir-infos-base`. If you key a group on a parent directory
-instead, the files never load and nothing in the log tells you why.
+In `config.json`, key every `new-dir-files` group by the folder that directly
+holds the files (`item/wawa/model/body/c00`), and keep the model folders out
+of `new-dir-infos-base`. Otherwise the files never load and the log says
+nothing.
 
 ## Boot log
 
-The engine prints one line per pack:
-
-```
+```text
 [itempack] 2 item.toml pack(s) under sd:/ultimate/mods
 [itempack] Wawa Item: public=0x36b base=63 (killsword) resource=wawa ui=ui_item_wawa ui_result=0
 ```
 
 No line at all means no `item.toml` was found. A `REFUSED` line names the
-reason. A kind another pack already took is stepped over automatically, so the
-number in that line changes when the user installs something else. Nothing you
-ship should depend on it.
+reason. The `public=` number is the kind this boot; it changes when other packs
+are installed, and nothing you ship should depend on it.

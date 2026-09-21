@@ -1,13 +1,19 @@
 pub mod fighter_common_copies;
+pub mod fighter_toml;
 pub mod fighter_param_row;
 pub mod fighter_param_thrown;
 pub mod hash;
+pub mod hook_site;
 pub mod item_common_row;
 pub mod item_common_row_table;
 pub mod item_generate;
+pub mod manifest;
+pub mod manifest_builder;
+pub mod owner_param_words;
 pub mod param_swap;
 pub mod slots;
 pub mod text_layout;
+pub mod vtable_copy;
 
 pub use hash::hash40;
 pub use slots::{base_row, clone_row, CLONE_SLOTS, FIRST_CUSTOM_KIND, PARAM_NATIVE_KINDS};

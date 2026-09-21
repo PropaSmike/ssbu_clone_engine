@@ -151,6 +151,30 @@ pub fn parse(text: &str) -> Result<PackDeclaration, ParseError> {
     Ok(out)
 }
 
+pub fn parse_all(text: &str) -> Result<Vec<PackDeclaration>, ParseError> {
+    let blocks = clone_engine_core::manifest::blocks(text, "stage")
+        .map_err(|line| ParseError::Malformed { line })?;
+    blocks
+        .iter()
+        .map(|block| {
+            parse(&block.text).map_err(|error| match error {
+                ParseError::Malformed { line } => ParseError::Malformed {
+                    line: line + block.first_line - 1,
+                },
+                ParseError::BadValue { line, key } => ParseError::BadValue {
+                    line: line + block.first_line - 1,
+                    key,
+                },
+                ParseError::UnknownForm { line, form } => ParseError::UnknownForm {
+                    line: line + block.first_line - 1,
+                    form,
+                },
+                other => other,
+            })
+        })
+        .collect()
+}
+
 impl PackDeclaration {
     pub fn to_clone_stage(&self) -> CloneStage {
         let mut stage = CloneStage::new(&self.place);
@@ -212,8 +236,18 @@ pub fn load_all() {
         declarations.len()
     );
     for (directory, text) in declarations {
-        match parse(&text) {
-            Ok(declaration) => mint(&directory, &declaration),
+        match parse_all(&text) {
+            Ok(parsed) => {
+                if parsed.len() > 1 {
+                    skyline::println!(
+                        "[stagepack] {directory}/stage.toml: {} stages",
+                        parsed.len()
+                    );
+                }
+                for declaration in &parsed {
+                    mint(&directory, declaration);
+                }
+            }
             Err(error) => skyline::println!(
                 "[stagepack] {directory}/stage.toml is not readable: {error:?}; skipped"
             ),

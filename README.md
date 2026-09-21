@@ -1,138 +1,172 @@
 # SSBU Clone Engine
 
-Clone Engine lets a SSBU mod use its own fighter, article, item, or
-stage identity instead of replacing a vanilla slot. A clone inherits 
-behavior from a chosen base, while the engine keeps its files,
-parameters, scripts, UI, articles, Kirby data, and runtime identity separate.
+Clone Engine lets a Smash Ultimate mod add a fighter, item or stage of its
+own, built on a vanilla one, instead of replacing a slot.
 
-13.0.4 only
+Game version 13.0.4 only.
 
-## Dependencies
+## What you need
 
-- Smashline : <https://github.com/HDR-Development/smashline>
-- ParamConfig (Not required but heavily recommended)
-- The CSK Collection (For UI slots addition)
+- Skyline and ARCropolis, the usual mod loaders
+- Smashline
 - NRO Hook
-- ARCropolis & Skyline (Obviously)
+- The CSK Collection, which adds the character and stage select entries
+- ParamConfig, optional but recommended, for changing fighter stats
 
 ## Install
 
+Put the engine in the global plugin folder of your SD card:
+
 ```text
 atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_clone_engine.nro
-atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libsmashline_plugin.nro
 ```
 
-Install each content pack under "ultimate/mods/<pack name>".
-Fighter and item plugins go in their own directories as usual as "plugin.nro".
-Stage packs normally need no NRO: Clone Engine reads their "stage.toml" files
-at boot. A stage uses "plugin.nro" only when it needs custom code.
+Smashline (`libsmashline_plugin.nro`) goes in the same folder.
 
-## Fighters
+Every mod pack goes in its own folder under `ultimate/mods/`. If a pack has
+code, that code is a `plugin.nro` inside the pack's own folder, never in the
+global plugin folder.
 
-Use ["custom_fighters/template"](custom_fighters/template/).
+## A fighter
+
+The plugin registers the fighter, then keeps its CSK, ParamConfig and
+Smashline calls as they were; only the names change:
 
 ```rust
-let fighter = clone_engine_api::CloneRegistration::new(
-    clone_engine_api::KIND_AUTO,
-    0,
-    "ui_chara_my_fighter",
-    "fighter_kind_my_fighter",
-    "my_fighter",
-    "mario",
-);
-let kind = clone_engine_api::allocate(&fighter)?;
+use clone_engine_api::v2::{fighter, Manifest};
 
-smashline::Agent::new("my_fighter")
-    .game_acmd("game_attack11", game_attack11, smashline::Priority::Low)
-    .on_line(smashline::Main, fighter_frame)
-    .install();
+fighter!(MY_FIGHTER, "my_fighter"); // the handle, and the identity
+
+#[skyline::main(name = "my_fighter")]
+pub fn main() {
+    let manifest = Manifest::new(
+        "my_fighter", // name: files under fighter/my_fighter, Smashline agent name
+        "mario",      // base: the vanilla fighter it behaves like
+    )
+    .costumes(8)
+    .own_css();       // the CSK call below publishes the select entry
+    let Ok(kind) = MY_FIGHTER.register(manifest) else { return };
+
+    add_chara_db_entry_info(CharacterDatabaseEntry {
+        ui_chara_id: hash40("ui_chara_my_fighter"),                                 // ui_chara_<name>
+        fighter_kind: Hash40Type::Overwrite(hash40("fighter_kind_my_fighter")),      // fighter_kind_<name>
+        fighter_kind_corps: Hash40Type::Overwrite(hash40("fighter_kind_my_fighter")),
+        ..
+    });
+    param_config::update_float(kind, vec![-1], (hash40("param_special_hi"), hash40("y_spd_air")), 1.5); // the clone's kind, every costume
+    smashline::Agent::new("my_fighter")                                              // scripts under the clone's own name
+        .game_acmd("game_attack11", game_attack11, smashline::Priority::Default)
+        .on_line(smashline::Main, fighter_frame)
+        .install();
+}
 ```
 
-The int kind is assigned automatically. Never hardcode it
-in assets or configuration; use names such as
-"fighter_kind_my_fighter" and keep the value returned by "allocate".
+A pack with no code declares the same thing in a `fighter.toml` next to its
+`config.json`, and the engine publishes the select entry:
+
+```toml
+name = "my_fighter"        # your files live under fighter/my_fighter
+base = "mario"             # the vanilla fighter it behaves like
+display_name = "My Fighter"
+costumes = 8
+series = "mario"
+```
+
+Start from [custom_fighters/template_v2](custom_fighters/template_v2/).
+Packs written before `fighter.toml`, where the plugin registers the fighter
+itself, keep working; that form is documented in
+[docs/DEPRECATED.md](docs/DEPRECATED.md).
+
+## Numbers are not yours to pick
+
+The engine assigns every kind and id at boot, and they change with the
+player's other mods. Use your name (`my_fighter`) everywhere; never write a
+number into a file name or a config.
+
+## Clone Pack Workbench
+
+[Clone Pack Workbench](https://github.com/PropaSmike/clone_pack_workbench)
+builds the pack itself: it writes `config.json`, `fighter.toml`, `item.toml`
+and `stage.toml`, and checks a pack before you install it. Start there for a
+pack without code.
 
 ## Templates
 
-- [Fighter template](custom_fighters/template/): identity, Smashline,
-  ParamConfig, CSK, assets, articles, Kirby, and shared hooks.
-- [Simple item template](custom_items/template/): independent item
-  identity, model, motion, local/common parameters, ACMD, status, and Training
-  UI cell.
-- [Fighter owned item template](custom_items/fighter_owned_template/): an item
-  whose parameters live on a fighter instead of in its own `param.prc`, given
-  its own values without touching that fighter.
-- [Stage template](custom_stages/template/): independent normal,
-  Omega, and Battlefield forms, stage-select entry, parameters, collision,
-  effects, sound, and camera resources.
+| Template | What it shows |
+|---|---|
+| [Fighter](custom_fighters/template_v2/) | Registration by code, the CSK select entry, ParamConfig and engine stats, a Smashline moveset, an article, Kirby copy statuses and a hook |
+| [Item](custom_items/template_v2/) | Registration by code, a status, owner parameters, a vtable hook |
+| [Stage](custom_stages/template/) | A stage with normal, Omega and Battlefield forms and a stage select entry |
 
-## Features
+The deprecated long-form templates, where every registration is written in
+code, are [custom_fighters/template](custom_fighters/template/),
+[custom_items/template](custom_items/template/) and
+[custom_items/fighter_owned_template](custom_items/fighter_owned_template/).
 
-- custom fighter identity and resource routing;
-- Smashline agent-name bridge;
-- CSS entries, colors, UI, effects, sounds, camera, and CPU AI routing;
-- ParamConfig float, integer, slot, structured, and interaction bridges;
-- independent fighter articles and Kirby copy support;
-- simple custom items with private resources, parameters, animcmd, and paged
-  Training item cells;
-- clone-owned item status scripts, for any number of native base kinds;
-- custom stage identity, forms, stage-select capacity/paging, collision/config bridges,
-  and CSK stage rows;
-- checked shared-hook arbitration.
+## What the engine handles
 
-Assist Trophy, Pokemon, and boss item families are available as research features behind
-"research_item_families". They are not compiled into release.
+- fighters: identity, files, character select entry, colours, effects,
+  sounds, camera, CPU behaviour, stats, Final Smash backgrounds
+- articles (a fighter's projectiles and objects), with Kirby copy support
+- items: files, settings, scripts, statuses, Training menu cell, drops
+- stages: identity, forms, stage select entry and paging, collision,
+  settings, music
+- several packs changing the same game function at once
 
-## Build
+Assist Trophies, Pokemon and bosses exist only as a research feature
+(`research_item_families`) and are not in the released engine.
+
+## Documentation
+
+- [Getting started](docs/wiki/GETTING_STARTED.md)
+- [Fighters](docs/wiki/FIGHTERS.md)
+- [From a one-slot moveset](docs/wiki/FROM_A_ONE_SLOT_MOVESET.md)
+- [Stats and parameters](docs/wiki/PARAMETERS.md)
+- [Articles and Kirby](docs/wiki/ARTICLES_AND_KIRBY.md)
+- [Items](docs/wiki/ITEMS.md)
+- [Stages](docs/wiki/STAGES.md)
+- [API reference](docs/API.md), for packs with code
+- [Deprecated: the long form](docs/DEPRECATED.md), for packs written before `fighter.toml`
+
+## Using the API in your plugin
+
+```toml
+[dependencies]
+clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.2.1-beta.1" }
+```
+
+Use the tag of the engine release you installed.
+
+## Building the engine
 
 ```sh
 cargo skyline build --release
 ```
 
-Features prefixed with "research_", "diag_", or
-"selftest_" are excluded from release builds.
-
-## API implementation
-
-```toml
-[dependencies]
-clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.1.0-beta.1" }
-```
-
-## Documentation
-
-- [Getting started](docs/wiki/GETTING_STARTED.md)
-- [Fighters and Smashline](docs/wiki/FIGHTERS.md)
-- [Parameters](docs/wiki/PARAMETERS.md)
-- [Articles and Kirby](docs/wiki/ARTICLES_AND_KIRBY.md)
-- [Items and Training UI](docs/wiki/ITEMS.md)
-- [Stages](docs/wiki/STAGES.md)
-- [Rust API reference](docs/API.md)
+Features named `research_*`, `diag_*` or `selftest_*` are left out of release
+builds.
 
 ## Credits
 
-Clone Engine exists thanks to the work and research of the Smash Ultimate modding community.
-People aren't always the kindest to those who put in the hardest work, so please go show them
-the love and respect they deserve.
+Clone Engine exists thanks to the work and research of the Smash Ultimate
+modding community. People are not always kind to those who put in the hardest
+work, so please show them the respect they deserve.
 
 **Runtime dependencies**
-- [Skyline](https://github.com/skyline-dev/skyline) — shadowninja108, jam1garner, 3096, Raytwo, Genwald, blu-dev, jugeeya, Sammi-Husky
-- [ARCropolis](https://github.com/Raytwo/arcropolis) — Raytwo, blu-dev, Coolsonickirby, jam1garner, jozz024, WuBoytH, itsmeft24, Genwald
-- [Smashline](https://github.com/HDR-Development/smashline) — WuBoytH, blu-dev, FatherOfEgg, moklmaru, plyrthn, Moydow
-- [NRO Hook](https://github.com/ultimate-research/nro-hook-plugin) — jam1garner, jugeeya, blu-dev
-- [The CSK Collection](https://github.com/Coolsonickirby/the_csk_collection_api) — Coolsonickirby, zrksyd
-- [ParamConfig](https://github.com/CSharpM7/lib_paramconfig) — CSharpM7, Coolsonickirby, theincredibleplayer
+- [Skyline](https://github.com/skyline-dev/skyline): shadowninja108, jam1garner, 3096, Raytwo, Genwald, blu-dev, jugeeya, Sammi-Husky
+- [ARCropolis](https://github.com/Raytwo/arcropolis): Raytwo, blu-dev, Coolsonickirby, jam1garner, jozz024, WuBoytH, itsmeft24, Genwald
+- [Smashline](https://github.com/HDR-Development/smashline): WuBoytH, blu-dev, FatherOfEgg, moklmaru, plyrthn, Moydow
+- [NRO Hook](https://github.com/ultimate-research/nro-hook-plugin): jam1garner, jugeeya, blu-dev
+- [The CSK Collection](https://github.com/Coolsonickirby/the_csk_collection_api): Coolsonickirby, zrksyd
+- [ParamConfig](https://github.com/CSharpM7/lib_paramconfig): CSharpM7, Coolsonickirby, theincredibleplayer
 
 **Build dependencies**
-- [skyline-rs](https://github.com/ultimate-research/skyline-rs) — jam1garner, Raytwo, jugeeya, blu-dev, WuBoytH, tech-ticks, Genwald, TheGreenPlanet
-- [skyline-smash](https://github.com/ultimate-research/skyline-smash) — WuBoytH, blu-dev, jobrien97, jam1garner, jugeeya, Ayerbe-Dev, theincredibleplayer, FaultyPine
-- [smash-script](https://github.com/WuBoytH/smash-script) — blu-dev, Claude-1308, Ayerbe-Dev, FaultyPine, WuBoytH
-- [ninput](https://github.com/blu-dev/ninput) — blu-dev
+- [skyline-rs](https://github.com/ultimate-research/skyline-rs): jam1garner, Raytwo, jugeeya, blu-dev, WuBoytH, tech-ticks, Genwald, TheGreenPlanet
+- [skyline-smash](https://github.com/ultimate-research/skyline-smash): WuBoytH, blu-dev, jobrien97, jam1garner, jugeeya, Ayerbe-Dev, theincredibleplayer, FaultyPine
+- [smash-script](https://github.com/WuBoytH/smash-script): blu-dev, Claude-1308, Ayerbe-Dev, FaultyPine, WuBoytH
+- [ninput](https://github.com/blu-dev/ninput): blu-dev
 
 ## License
 
-Clone Engine is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License version 3 as published by the Free
-Software Foundation. It is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+Clone Engine is free software under the GNU General Public License version 3.
+It comes with no warranty. See [LICENSE](LICENSE).

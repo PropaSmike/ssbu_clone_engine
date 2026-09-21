@@ -62,7 +62,10 @@ mod item_clones;
 mod item_common_tables;
 #[cfg(feature = "item_clone_backend")]
 mod item_generate;
+mod fighter_packs;
 mod item_packs;
+mod mount_events;
+mod staffroll;
 #[cfg(feature = "item_clone_backend")]
 mod item_params;
 #[cfg(feature = "item_clone_backend")]
@@ -116,6 +119,7 @@ mod stage_select_slice;
 mod stage_transaction;
 mod text_patch;
 mod thread_context;
+mod clone_vtables;
 
 #[cfg(feature = "css_slot")]
 use skyline::nn::ro::LookupSymbol;
@@ -156,6 +160,28 @@ struct CloneDefinition {
     kirby_copy_full_model: bool,
     css: Option<&'static CloneCssEntry>,
     param_file: &'static core::sync::atomic::AtomicU8,
+    from_manifest: bool,
+}
+
+const KIRBY_COPY_FAMILY_POOL_FIRST: i32 = 0x37d + 19;
+const KIRBY_COPY_FAMILY_POOL_END: i32 = 0x400 + 6;
+
+#[cfg(feature = "css_slot")]
+fn manifest_css(manifest: Option<&ManifestRegistration>) -> Option<&'static CloneCssEntry> {
+    let css = manifest?.css.as_ref()?;
+    Some(Box::leak(Box::new(CloneCssEntry {
+        ui_name: css.ui_name,
+        ui_series: css.ui_series,
+        disp_order: css.disp_order,
+        save_no: css.save_no,
+        exhibit_year: css.exhibit_year,
+        narration: css.narration,
+    })))
+}
+
+#[cfg(not(feature = "css_slot"))]
+fn manifest_css(_manifest: Option<&ManifestRegistration>) -> Option<&'static CloneCssEntry> {
+    None
 }
 
 const PARAM_FILE_UNCHECKED: u8 = 0;
@@ -169,6 +195,20 @@ struct CloneCssEntry {
     disp_order: i8,
     save_no: i8,
     exhibit_year: i16,
+    narration: Option<&'static str>,
+}
+
+pub(crate) struct ManifestRegistration {
+    pub(crate) css: Option<ManifestCss>,
+}
+
+pub(crate) struct ManifestCss {
+    pub(crate) ui_name: &'static str,
+    pub(crate) ui_series: &'static str,
+    pub(crate) disp_order: i8,
+    pub(crate) save_no: i8,
+    pub(crate) exhibit_year: i16,
+    pub(crate) narration: Option<&'static str>,
 }
 
 #[cfg(not(feature = "css_slot"))]
@@ -591,6 +631,234 @@ pub unsafe extern "C" fn clone_engine_kind_for_identity(name: *const c_char) -> 
 
 #[no_mangle]
 pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegistrationV1) -> i32 {
+    register_v1_with(registration, None)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_fighter_kind_by_name_v1(name: *const c_char) -> i32 {
+    let Some(name) = try_borrow_str(name) else {
+        return ERROR_NULL;
+    };
+    if let Some(kind) = custom_articles::fighter_kind_from_str(name) {
+        return kind;
+    }
+    clone_engine_kind_for_identity(name.as_ptr().cast())
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_on_mods_mounted_v1(callback: usize) -> i32 {
+    mount_events::add_listener(callback)
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_kirby_copy_status_family_v1(
+    kind: i32,
+    first: *mut i32,
+    count: *mut i32,
+) -> i32 {
+    let Some(definition) = clone_definitions()
+        .read()
+        .ok()
+        .and_then(|definitions| definitions.iter().copied().find(|definition| definition.kind == kind))
+    else {
+        return ERROR_CUSTOM_KIND;
+    };
+    if definition.copy_status_count <= 0 {
+        return ERROR_UNSUPPORTED;
+    }
+    if !first.is_null() {
+        unsafe { first.write(definition.copy_status_first) };
+    }
+    if !count.is_null() {
+        unsafe { count.write(definition.copy_status_count) };
+    }
+    RESULT_OK
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_article_kind_by_name_v1(
+    kind: i32,
+    name: *const c_char,
+    kirby_copy: u32,
+) -> i32 {
+    let Some(name) = try_borrow_str(name) else {
+        return ERROR_NULL;
+    };
+    if kirby_copy != 0 {
+        return custom_articles::copy_article_kind_by_name(kind, name).unwrap_or(ERROR_NAME);
+    }
+    let Some(definition) = clone_definitions()
+        .read()
+        .ok()
+        .and_then(|definitions| definitions.iter().copied().find(|definition| definition.kind == kind))
+    else {
+        return ERROR_CUSTOM_KIND;
+    };
+    custom_articles::article_kind_by_name(definition.resource_name, name).unwrap_or(ERROR_NAME)
+}
+
+
+unsafe fn item_vtable(kind: i32) -> Option<(*const usize, bool)> {
+    if kind >= item_clones::FIRST_SPARSE_ITEM_KIND {
+        return clone_vtables::clone_table(kind, clone_vtables::Space::Item).map(|table| (table as *const usize, true));
+    }
+    if kind < 0 {
+        return None;
+    }
+    Some(((text_base() + clone_vtables::ITEM_OBJECT_VTABLE) as *const usize, false))
+}
+
+unsafe fn fighter_vtable(kind: i32) -> Option<(*const usize, bool)> {
+    if clone_base(kind).is_some() {
+        return clone_vtables::clone_table(kind, clone_vtables::Space::Fighter).map(|table| (table as *const usize, true));
+    }
+    if !(0..94).contains(&kind) {
+        return None;
+    }
+    let class = *((text_base() + FIGHTER_CLASS_TABLE + kind as usize * 8) as *const u64);
+    if class == 0 {
+        return None;
+    }
+    let table = *(class as *const u64) as *const usize;
+    (!table.is_null()).then_some((table, false))
+}
+
+unsafe fn weapon_vtable(kind: i32) -> Option<(*const usize, bool)> {
+    if custom_articles::custom_weapon_source_kind(kind).is_some() {
+        return clone_vtables::clone_table(kind, clone_vtables::Space::Weapon).map(|table| (table as *const usize, true));
+    }
+    if !(0..custom_articles::FIRST_CUSTOM_WEAPON_KIND).contains(&kind) {
+        return None;
+    }
+    let class = clone_vtables::vanilla_weapon_class(kind);
+    if class == 0 {
+        return None;
+    }
+    let table = *(class as *const usize) as *const usize;
+    (!table.is_null()).then_some((table, false))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_vtable_entry_v1(
+    kind: i32,
+    index: u32,
+    is_weapon: u32,
+    want_pointer: u32,
+) -> u64 {
+    let Some(space) = clone_vtables::Space::from_code(is_weapon) else {
+        return 0;
+    };
+    let table = match space {
+        clone_vtables::Space::Fighter => fighter_vtable(kind),
+        clone_vtables::Space::Weapon => weapon_vtable(kind),
+        clone_vtables::Space::Item => item_vtable(kind),
+    };
+    let Some((table, private)) = table else {
+        return 0;
+    };
+    if index as usize >= space.slots() {
+        return 0;
+    }
+    let entry = table.add(index as usize);
+    let text = text_base();
+    if want_pointer != 0 {
+        if private || (entry as usize) < text {
+            return 0;
+        }
+        return (entry as usize - text) as u64;
+    }
+    if private && clone_vtables::is_overridden(kind, space, index as usize) {
+        return 0;
+    }
+    let function = *entry;
+    if function < text || function >= text_end() {
+        return 0;
+    }
+    (function - text) as u64
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_vtable_override_v1(
+    kind: i32,
+    index: u32,
+    is_weapon: u32,
+    function: u64,
+) -> u64 {
+    let Some(space) = clone_vtables::Space::from_code(is_weapon) else {
+        return 0;
+    };
+    clone_vtables::set_entry(kind, index, space, function as usize, 0).unwrap_or(0) as u64
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_vtable_override_v2(
+    kind: i32,
+    index: u32,
+    is_weapon: u32,
+    function: u64,
+    original_out: u64,
+) -> u32 {
+    let Some(space) = clone_vtables::Space::from_code(is_weapon) else {
+        return 0;
+    };
+    u32::from(clone_vtables::set_entry(kind, index, space, function as usize, original_out as usize).is_some())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_fighter_manifest_register_v1(
+    label: *const c_char,
+    text: *const c_char,
+) -> i32 {
+    let (Some(label), Some(text)) = (try_borrow_str(label), try_borrow_str(text)) else {
+        return ERROR_NULL;
+    };
+    fighter_packs::register_text(label, text)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_item_manifest_register_v1(
+    label: *const c_char,
+    text: *const c_char,
+) -> i32 {
+    let (Some(label), Some(text)) = (try_borrow_str(label), try_borrow_str(text)) else {
+        return ERROR_NULL;
+    };
+    item_packs::register_text(label, text)
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_fighter_manifest_kinds_v1(out: *mut i32, capacity: u32) -> i32 {
+    let kinds = fighter_packs::loaded_kinds();
+    if !out.is_null() {
+        for (index, kind) in kinds.iter().take(capacity as usize).enumerate() {
+            unsafe { out.add(index).write(*kind) };
+        }
+    }
+    kinds.len() as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_fighter_manifest_directory_v1(
+    kind: i32,
+    out: *mut u8,
+    capacity: u32,
+) -> i32 {
+    let Some(directory) = fighter_packs::pack_directory(kind) else {
+        return ERROR_CUSTOM_KIND;
+    };
+    let bytes = directory.as_bytes();
+    if out.is_null() || (capacity as usize) <= bytes.len() {
+        return bytes.len() as i32 + 1;
+    }
+    core::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len());
+    out.add(bytes.len()).write(0);
+    RESULT_OK
+}
+
+pub(crate) unsafe fn register_v1_with(
+    registration: *const CloneRegistrationV1,
+    manifest: Option<ManifestRegistration>,
+) -> i32 {
     if registration.is_null() {
         return ERROR_NULL;
     }
@@ -730,20 +998,42 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
             && existing.copy_status_count == registration.copy_status_count
             && (registration.effect_namespace == 0
                 || existing.effect_namespace == registration.effect_namespace)
-            && (registration.article_namespace == 0
-                || existing.article_namespace == registration.article_namespace)
             && existing.kirby_copy_full_model
                 == (registration.flags & FLAG_KIRBY_COPY_FULL_MODEL != 0)
             && same_articles;
-        if !identical {
+        if !identical && !existing.from_manifest {
             return ERROR_DUPLICATE;
         }
         bases.insert(existing.kind, existing.base_kind);
-        skyline::println!(
-            "[clone_engine] API v1 accepted existing descriptor for kind {} ({})",
-            existing.kind,
-            existing.resource_name
-        );
+        if identical {
+            skyline::println!(
+                "[clone_engine] API v1 accepted existing descriptor for kind {} ({})",
+                existing.kind,
+                existing.resource_name
+            );
+        } else {
+            skyline::println!(
+                "[clone_engine] {} already registered from fighter.toml as kind {}; the plugin's descriptor is ignored{}{}{}{}",
+                existing.resource_name,
+                existing.kind,
+                if existing.base_kind != registration.base_kind { " (base differs)" } else { "" },
+                if u32::from(existing.color_start) != registration.color_start
+                    || u32::from(existing.color_count) != registration.color_count
+                {
+                    " (costumes differ)"
+                } else {
+                    ""
+                },
+                if existing.copy_status_first != registration.copy_status_first
+                    || existing.copy_status_count != registration.copy_status_count
+                {
+                    " (kirby family differs)"
+                } else {
+                    ""
+                },
+                if !same_articles { " (articles differ)" } else { "" }
+            );
+        }
         return if automatic { existing.kind } else { RESULT_OK };
     }
 
@@ -760,38 +1050,106 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
     } else {
         registration.effect_namespace
     };
+    let article_namespace_holder = |namespace: u32| {
+        definitions
+            .iter()
+            .find(|definition| !definition.articles.is_empty() && definition.article_namespace == namespace)
+            .map(|definition| definition.resource_name)
+    };
     let article_namespace = if registration.article_count == 0 {
         0
-    } else if registration.article_namespace == 0 {
-        match (1..=0x0fff).find(|namespace| {
-            !definitions
-                .iter()
-                .any(|definition| definition.article_namespace == *namespace)
-        }) {
-            Some(namespace) => namespace,
-            None => return ERROR_NAMESPACE,
-        }
     } else {
-        registration.article_namespace
+        let asked = registration.article_namespace;
+        let holder = if asked == 0 { None } else { article_namespace_holder(asked) };
+        if asked != 0 && holder.is_none() {
+            asked
+        } else {
+            match (1..=0x0fff).rev().find(|namespace| article_namespace_holder(*namespace).is_none()) {
+                Some(namespace) => {
+                    if let Some(holder) = holder {
+                        skyline::println!(
+                            "[clone_engine] {resource_name} asked for article namespace {asked}, which {holder} holds; it gets {namespace} instead (a runtime tag, nothing in the pack refers to it)"
+                        );
+                    }
+                    namespace
+                }
+                None => return ERROR_NAMESPACE,
+            }
+        }
     };
 
-    if bases.contains_key(&registration.custom_kind)
-        || definitions.iter().any(|definition| {
-            definition.ui_chara == ui_chara
-                || definition.fighter_kind_name == fighter_kind_name
-                || definition.resource_name == resource_name
-        })
-        || (registration.article_count > 0
-            && definitions.iter().any(|definition| {
-                !definition.articles.is_empty() && definition.article_namespace == article_namespace
-            }))
-        || definitions.iter().any(|definition| {
-            definition.base_kind == registration.base_kind
-                && definition.effect_namespace == effect_namespace
-        })
-    {
+    let taken = if bases.contains_key(&registration.custom_kind) {
+        Some(format!("kind {} is already registered", registration.custom_kind))
+    } else if let Some(other) = definitions.iter().find(|definition| {
+        definition.ui_chara == ui_chara
+            || definition.fighter_kind_name == fighter_kind_name
+            || definition.resource_name == resource_name
+    }) {
+        Some(format!(
+            "{} (kind {}) already uses ui_chara {ui_chara}, fighter kind name {fighter_kind_name} or resource name {resource_name}",
+            other.resource_name, other.kind
+        ))
+    } else {
+        definitions
+            .iter()
+            .find(|definition| {
+                definition.base_kind == registration.base_kind && definition.effect_namespace == effect_namespace
+            })
+            .map(|other| {
+                format!(
+                    "{} (kind {}) already holds effect namespace {effect_namespace} on base {}",
+                    other.resource_name, other.kind, registration.base_kind
+                )
+            })
+    };
+    if let Some(reason) = taken {
+        skyline::println!("[clone_engine] {resource_name} refused (ERROR_DUPLICATE): {reason}");
         return ERROR_DUPLICATE;
     }
+
+    let copy_status_first = if registration.copy_status_count > 0 {
+        let count = registration.copy_status_count;
+        let overlaps = |first: i32, definition: &CloneDefinition| {
+            definition.copy_status_count > 0
+                && first < definition.copy_status_first + definition.copy_status_count
+                && definition.copy_status_first < first + count
+        };
+        if registration.copy_status_first == 0 {
+            let mut candidate = KIRBY_COPY_FAMILY_POOL_FIRST;
+            while candidate + count <= KIRBY_COPY_FAMILY_POOL_END
+                && definitions.iter().any(|definition| overlaps(candidate, definition))
+            {
+                candidate += 1;
+            }
+            if candidate + count > KIRBY_COPY_FAMILY_POOL_END {
+                skyline::println!(
+                    "[clone_engine] {resource_name}: no free Kirby copy status family of {count} in {KIRBY_COPY_FAMILY_POOL_FIRST:#x}..{KIRBY_COPY_FAMILY_POOL_END:#x}"
+                );
+                return ERROR_DUPLICATE;
+            }
+            skyline::println!(
+                "[clone_engine] {resource_name}: Kirby copy status family assigned at {candidate:#x} (+{count})"
+            );
+            candidate
+        } else {
+            if let Some(other) = definitions
+                .iter()
+                .find(|definition| overlaps(registration.copy_status_first, definition))
+            {
+                skyline::println!(
+                    "[clone_engine] {resource_name}: Kirby copy status family {:#x}+{count} overlaps {}'s {:#x}+{}",
+                    registration.copy_status_first,
+                    other.resource_name,
+                    other.copy_status_first,
+                    other.copy_status_count
+                );
+                return ERROR_DUPLICATE;
+            }
+            registration.copy_status_first
+        }
+    } else {
+        registration.copy_status_first
+    };
 
     let (ui_chara, _) = leak_registration_name(ui_chara);
     let (fighter_kind_name, _) = leak_registration_name(fighter_kind_name);
@@ -825,7 +1183,7 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
         base_resource_name_cstr,
         color_start: registration.color_start as u8,
         color_count: registration.color_count as u8,
-        copy_status_first: registration.copy_status_first,
+        copy_status_first,
         copy_status_count: registration.copy_status_count,
         effect_namespace,
         article_namespace,
@@ -833,7 +1191,8 @@ pub unsafe extern "C" fn clone_engine_register_v1(registration: *const CloneRegi
         owns_param_resources: registration.flags & FLAG_OWNS_PARAM_RESOURCES != 0,
         param_file: Box::leak(Box::new(core::sync::atomic::AtomicU8::new(PARAM_FILE_UNCHECKED))),
         kirby_copy_full_model: registration.flags & FLAG_KIRBY_COPY_FULL_MODEL != 0,
-        css: None,
+        css: manifest_css(manifest.as_ref()),
+        from_manifest: manifest.is_some(),
     }));
 
     #[cfg(feature = "native_table_backend")]
@@ -1116,7 +1475,7 @@ pub unsafe extern "C" fn clone_engine_article_index_v1(fighter_kind: i32, weapon
     #[skyline::from_offset(OFF_STATIC_FIGHTER_DATA)]
     fn static_fighter_data(kind: i32) -> *const StaticFighterData;
 
-    let blob = static_fighter_data(fighter_kind);
+    let blob = static_fighter_data(clone_base(fighter_kind).unwrap_or(fighter_kind));
     if blob.is_null() || (*blob).static_article_info.is_null() {
         return -1;
     }
@@ -1591,9 +1950,6 @@ pub extern "C" fn clone_engine_param_override_v1(
         } else {
             available || param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN
         };
-        if accepted {
-            ensure_param_getter_brackets_installed();
-        }
         let n = PARAM_REGISTER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < PARAM_REGISTER_LOG_LIMIT {
             dbg_log!(
@@ -1623,9 +1979,6 @@ pub extern "C" fn clone_engine_param_int_override_v1(
         let accepted = unsafe {
             param_overrides::push_int_to_param_config(kind, &slots, (param_type, param_hash), value)
         };
-        if accepted {
-            ensure_param_getter_brackets_installed();
-        }
         let op = clone_engine_core::fighter_param_row::Op::SetInt(value);
         let row = if !accepted {
             String::from("row: not recorded")
@@ -1693,7 +2046,7 @@ param_getter_brackets! {
 }
 
 #[cfg(feature = "css_slot")]
-fn ensure_param_getter_brackets_installed() {
+pub(crate) fn ensure_param_getter_brackets_installed() {
     if PARAM_BRACKETS_INSTALLED
         .compare_exchange(
             false,
@@ -1704,9 +2057,9 @@ fn ensure_param_getter_brackets_installed() {
         .is_ok()
     {
         install_param_getter_brackets();
-        dbg_log!(
-            "[parambridge] getter brackets installed after ParamConfig's first accepted writer"
-        );
+        dbg_log_public(&String::from(
+            "[parambridge] param getter brackets installed at the first fighter construction, outside every ParamConfig instance's hooks: a pack's own ParamConfig calls with its clone kind apply to the clone",
+        ));
     }
 }
 
@@ -2668,9 +3021,24 @@ unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
     let resolved = match clone_base(kind) {
         Some(base) => {
             diag_reroute_log!(fighter_class_resolver_hook, kind, base);
+            if let Some(class) = clone_vtables::fighter_class_for(kind, base) {
+                return class as u64;
+            }
             base
         }
-        None => kind,
+        None => {
+            #[cfg(feature = "css_slot")]
+            if !CONSTRUCTION_CONTEXT.is_idle() {
+                if let Some(clone) = active_construction_kind() {
+                    if clone_base(clone) == Some(kind) {
+                        if let Some(class) = clone_vtables::fighter_class_for(clone, kind) {
+                            return class as u64;
+                        }
+                    }
+                }
+            }
+            kind
+        }
     };
     if (0..94).contains(&resolved) {
         let slot = text_base() + FIGHTER_CLASS_TABLE + resolved as usize * 8;
@@ -3787,6 +4155,10 @@ pub fn main() {
 
     #[cfg(feature = "kirby_copy_motions")]
     kirby_motions::install();
+
+    #[cfg(feature = "css_slot")]
+    fighter_packs::load_all();
+    mount_events::subscribe();
 
     #[cfg(feature = "item_clone_backend")]
     item_packs::load_all();

@@ -611,8 +611,18 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
 pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[28].x() as i32;
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
+        crate::clone_vtables::report_vanilla_weapon_construction(
+            weapon_kind,
+            (ctx.registers[20].x() as usize).wrapping_sub(crate::clone_vtables::WEAPON_CLASS_SUBOBJECT),
+            ctx.registers[0].x() as usize,
+        );
         return;
     };
+    crate::clone_vtables::report_weapon_construction(
+        weapon_kind,
+        (ctx.registers[20].x() as usize).wrapping_sub(crate::clone_vtables::WEAPON_CLASS_SUBOBJECT),
+        ctx.registers[0].x() as usize,
+    );
 
     let owner = custom_articles::source_weapon_owner_kind(weapon_kind);
     let loaded = match owner {
@@ -729,8 +739,30 @@ macro_rules! custom_article_source_kind_sites {
 
 custom_article_source_kind_sites! {
     install_custom_article_source_kind_sites;
-    custom_article_kind_spec(0, 0x33be790, "spec singleton 0x529c400");
     custom_article_kind_table_452a(0, 0x33aa1e0, "per-kind table 0x452abd8");
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::offsets::OFF_WEAPON_CLASS_RECACHE, inline)]
+unsafe fn custom_article_class_recache(ctx: &mut skyline::hooks::InlineCtx) {
+    let asked = ctx.registers[20].w() as i32;
+    let object = ctx.registers[19].x() as usize;
+    let answered = ctx.registers[0].x() as usize;
+    if let Some(class) = crate::clone_vtables::recache_weapon_class(asked, object, answered) {
+        ctx.registers[0].set_x(class as u64);
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::offsets::OFF_WEAPON_CLASS_RESOLVER)]
+unsafe fn custom_article_kind_spec(kind: u32) -> u64 {
+    let Some(source) = custom_articles::custom_weapon_source_kind(kind as i32) else {
+        return call_original!(kind);
+    };
+    if let Some(class) = crate::clone_vtables::weapon_class_for(kind as i32, source) {
+        return class as u64;
+    }
+    call_original!(source as u32)
 }
 
 #[cfg(feature = "css_slot")]
@@ -1760,6 +1792,7 @@ pub(crate) fn install_custom_resource_name_hooks() {
     install_custom_article_agent_gate_hooks();
     install_custom_article_gate_base_hooks();
     install_custom_article_source_kind_sites();
+    skyline::install_hooks!(custom_article_kind_spec, custom_article_class_recache);
     install_module_190_probes();
     install_article_motion_diagnostics();
     install_article_motion_scope_bridge();

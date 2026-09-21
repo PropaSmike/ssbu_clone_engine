@@ -13,5 +13,7 @@ default = ["smash"]
 smash = ["dep:skyline_smash"]
 
 [dependencies]
+clone_engine_core = { path = "../clone_engine_core" }
+clone_engine_macros = { path = "../clone_engine_macros" }
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
-skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git", rev = "58aee32a5838379cadd120c8e62fd0e0ea9e5ad7", optional = true }
+skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash", optional = true }
