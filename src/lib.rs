@@ -255,7 +255,11 @@ impl CloneDefinition {
 
     #[cfg(feature = "css_slot")]
     fn css_color_count(&self) -> u8 {
-        costume_slots::effective_color_count(self.fighter_kind_name, self.color_count)
+        costume_slots::effective_color_count(
+            self.fighter_kind_name,
+            self.color_count,
+            self.color_start,
+        )
     }
 }
 
@@ -322,6 +326,8 @@ static REGISTRY: OnceLock<RwLock<HashMap<i32, i32>>> = OnceLock::new();
 static REGISTRATION_GATE: OnceLock<Mutex<()>> = OnceLock::new();
 static REGISTRATION_CLOSED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+const REGISTRATION_INIT_WAIT_MILLIS: u32 = 5_000;
+
 static REGISTRATION_TOO_EARLY_LOGGED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 static SMASHLINE_BRIDGE_VERSION: core::sync::atomic::AtomicU32 =
@@ -881,13 +887,16 @@ pub(crate) unsafe fn register_v1_with(
 
     #[cfg(feature = "native_table_backend")]
     if native_tables::status() & BACKEND_STATUS_STATIC_TABLES_READY == 0 {
+        let waited = native_tables::ensure_static_tables(REGISTRATION_INIT_WAIT_MILLIS);
+        let ready = native_tables::status() & BACKEND_STATUS_STATIC_TABLES_READY != 0;
         if !REGISTRATION_TOO_EARLY_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
             skyline::println!(
-                "[clone_engine] registration arrived before the engine's own init; \
-                 the caller should retry (this is load order, not a bad descriptor)"
+                "[clone_engine] a registration arrived before the engine's own init: built the static tables from the caller's thread after {waited}ms, ready={ready}"
             );
         }
-        return ERROR_BACKEND_UNAVAILABLE;
+        if !ready {
+            return ERROR_BACKEND_UNAVAILABLE;
+        }
     }
 
     let automatic = registration.custom_kind == KIND_AUTO;

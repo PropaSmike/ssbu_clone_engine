@@ -54,6 +54,8 @@ static SLOTS: [Slot; MAX_ADDRESSES] = [const {
 
 static REGISTRATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+static INIT_STARTED: AtomicBool = AtomicBool::new(false);
+static INIT_FINISHED: AtomicBool = AtomicBool::new(false);
 static SELF_TEST_OK: AtomicBool = AtomicBool::new(false);
 static INSTALL_FAILED: AtomicBool = AtomicBool::new(false);
 
@@ -143,8 +145,11 @@ pub enum Register {
 }
 
 pub fn initialize() -> Result<(), &'static str> {
+    if INIT_STARTED.swap(true, Ordering::AcqRel) {
+        return settled();
+    }
     INITIALIZED.store(true, Ordering::Release);
-    match self_test() {
+    let verdict = match self_test() {
         Ok(()) => {
             SELF_TEST_OK.store(true, Ordering::Release);
             Ok(())
@@ -153,8 +158,25 @@ pub fn initialize() -> Result<(), &'static str> {
             SELF_TEST_OK.store(false, Ordering::Release);
             Err(reason)
         }
+    };
+    INIT_FINISHED.store(true, Ordering::Release);
+    verdict
+}
+
+fn settled() -> Result<(), &'static str> {
+    let mut waited = 0;
+    while !INIT_FINISHED.load(Ordering::Acquire) && waited < INIT_WAIT_MILLIS {
+        std::thread::sleep(core::time::Duration::from_millis(1));
+        waited += 1;
+    }
+    if SELF_TEST_OK.load(Ordering::Acquire) {
+        Ok(())
+    } else {
+        Err("another thread's self-test has not passed")
     }
 }
+
+const INIT_WAIT_MILLIS: u32 = 5_000;
 
 pub fn status() -> u32 {
     let mut value = 0;
@@ -182,7 +204,10 @@ fn ready() -> bool {
 
 pub unsafe fn register(text_base: usize, spec: HookSpec, callback: usize) -> Register {
     if !ready() {
-        return Register::Unavailable;
+        let _ = initialize();
+        if !ready() {
+            return Register::Unavailable;
+        }
     }
     let address = match validated_address(text_base, spec) {
         Ok(address) => address,
