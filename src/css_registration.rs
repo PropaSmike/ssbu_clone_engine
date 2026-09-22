@@ -322,7 +322,10 @@ pub(crate) unsafe fn register_one_csk_css_slot(
             UnsignedByteType::Overwrite(0),
         );
     }
-    ui_indices.insert(hash40("color_start_index"), UnsignedByteType::Overwrite(0));
+    ui_indices.insert(
+        hash40("color_start_index"),
+        UnsignedByteType::Overwrite(definition.color_start),
+    );
     ui_fallbacks.insert(
         hash40("original_ui_chara_hash"),
         Hash40Type::Overwrite(base_ui),
@@ -393,11 +396,12 @@ pub(crate) unsafe fn register_one_csk_css_slot(
     }
 
     skyline::println!(
-        "[css118] registered {} with CSK name_id={}, colors={}..{} -> {} -> kind {}; fighter/{}/",
+        "[css118] registered {} with CSK name_id={}, colors={}..{} (color_start_index {}) -> {} -> kind {}; fighter/{}/",
         definition.ui_chara,
         css.ui_name,
         definition.color_start,
         definition.color_start + definition.color_count - 1,
+        definition.color_start,
         definition.fighter_kind_name,
         definition.kind,
         definition.resource_name

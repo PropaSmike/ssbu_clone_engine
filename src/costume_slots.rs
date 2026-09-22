@@ -101,7 +101,7 @@ pub(crate) fn register(identity: &str, highest_slot: i32) -> bool {
     declare(identity, highest_slot as u32)
 }
 
-pub(crate) fn effective_color_count(identity: &str, registered: u8) -> u8 {
+pub(crate) fn effective_color_count(identity: &str, registered: u8, first_slot: u8) -> u8 {
     if COUNT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
         return registered;
     }
@@ -111,8 +111,14 @@ pub(crate) fn effective_color_count(identity: &str, registered: u8) -> u8 {
     let Some(highest) = declared.get(identity).copied() else {
         return registered;
     };
-    let needed = (highest + 1).min(MAX_SLOT_INDEX + 1) as u16;
-    needed.max(u16::from(registered)).min(255) as u8
+    if highest < u32::from(first_slot) {
+        return registered;
+    }
+    let needed = (highest - u32::from(first_slot) + 1).min(MAX_SLOT_INDEX + 1) as u16;
+    needed
+        .max(u16::from(registered))
+        .min(256 - u16::from(first_slot))
+        .min(255) as u8
 }
 
 #[cfg(test)]

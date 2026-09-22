@@ -149,6 +149,8 @@ impl NativeTables {
 
 static STATUS: AtomicU32 = AtomicU32::new(BACKEND_STATUS_COMPILED);
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+static INIT_FINISHED: AtomicBool = AtomicBool::new(false);
 static TABLES: OnceLock<NativeTables> = OnceLock::new();
 
 fn is_hook_instruction(opcode: u32) -> bool {
@@ -247,6 +249,27 @@ pub(crate) fn initialize() {
     if INITIALIZED.swap(true, Ordering::AcqRel) {
         return;
     }
+    build_static_tables();
+    INIT_FINISHED.store(true, Ordering::Release);
+}
+
+pub(crate) fn ensure_static_tables(wait_millis: u32) -> u32 {
+    if status() & BACKEND_STATUS_STATIC_TABLES_READY != 0 {
+        return 0;
+    }
+    initialize();
+    let mut waited = 0;
+    while waited < wait_millis
+        && status() & BACKEND_STATUS_STATIC_TABLES_READY == 0
+        && !INIT_FINISHED.load(Ordering::Acquire)
+    {
+        std::thread::sleep(core::time::Duration::from_millis(1));
+        waited += 1;
+    }
+    waited
+}
+
+fn build_static_tables() {
     skyline::println!(
         "[native_tables] feature compiled: capacity={} manifest_sha256={} anchors={}",
         BACKEND_CAPACITY,
