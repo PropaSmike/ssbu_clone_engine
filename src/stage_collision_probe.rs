@@ -12,9 +12,9 @@ const ELEMENTS_TO_WALK: usize = 1;
 
 const REPORT_CALLS: u32 = 6;
 
-const OFF_SUBOBJECT_INIT: usize = 0x261f760;
+const OFF_SUBOBJECT_INIT: usize = 0x2620450;
 
-const SINGLETON_SLOT: usize = 0x53299d8;
+const SINGLETON_SLOT: usize = 0x532c9d8;
 const SINGLETON_MAP: usize = 0x1c0;
 
 const SUBOBJECT_KEY: usize = 0x8;
@@ -23,29 +23,29 @@ const DESCRIPTOR_SETTING: usize = 0x18;
 
 const REPORT_INITS: u32 = 8;
 
-const OFF_PICT_NAME_INIT: usize = 0x2d9b220;
+const OFF_PICT_NAME_INIT: usize = 0x2d9c330;
 const PICT_NAME_INIT_OPCODE: u32 = 0xd10303ff;
 
-const PICT_LANGUAGE_INDEX: usize = 0x523c00c;
+const PICT_LANGUAGE_INDEX: usize = 0x523f00c;
 
 const PICT_LANGUAGE_VECTOR: usize = 0x450;
 const PICT_LANGUAGE_RECORD_SIZE: usize = 0x2c;
 const REPORT_PICT_CALLS: u32 = 4;
 
-const OFF_PICT_SCHEMA_RESOLVER: usize = 0x2d9f170;
+const OFF_PICT_SCHEMA_RESOLVER: usize = 0x2da0280;
 const PICT_SCHEMA_RESOLVER_OPCODE: u32 = 0xaa0103e9;
 const PICT_LANGUAGE_FIELD: u64 = 0x122943f952;
 const REPORT_SCHEMA_CALLS: u32 = 24;
 
-const OFF_STDAT_LIST_READY: usize = 0x25ffa7c;
+const OFF_STDAT_LIST_READY: usize = 0x260076c;
 const STDAT_LIST_READY_OPCODE: u32 = 0xa943e3f3;
-const OFF_STDAT_EXTENSION_RESULT: usize = 0x25ffac0;
+const OFF_STDAT_EXTENSION_RESULT: usize = 0x26007b0;
 const STDAT_EXTENSION_RESULT_OPCODE: u32 = 0x36000220;
-const OFF_STDAT_REGISTER_CALL: usize = 0x25ffb00;
+const OFF_STDAT_REGISTER_CALL: usize = 0x26007f0;
 const STDAT_REGISTER_CALL_OPCODE: u32 = 0x94006514;
-const OFF_STDAT_REGISTER_RETURN: usize = 0x25ffb04;
+const OFF_STDAT_REGISTER_RETURN: usize = 0x26007f4;
 const STDAT_REGISTER_RETURN_OPCODE: u32 = 0x6b1902bf;
-const OFF_STDAT_SCAN_FINISH: usize = 0x25ffc38;
+const OFF_STDAT_SCAN_FINISH: usize = 0x2600928;
 const STDAT_SCAN_FINISH_OPCODE: u32 = 0x9100e3e0;
 
 const RESOURCE_CATEGORY_BASE: usize = 0xc8;
@@ -53,7 +53,7 @@ const RESOURCE_CATEGORY_STRIDE: usize = 0x30;
 const STDAT_RESOURCE_CATEGORY: usize = 3;
 const REPORT_STDAT_CANDIDATES: u32 = 12;
 
-const ARC_SERVICE_GLOBAL: usize = 0x5331f20;
+const ARC_SERVICE_GLOBAL: usize = 0x5334f20;
 const ARC_SERVICE_ARC: usize = 0x78;
 const ARC_FS_HEADER: usize = 0x40;
 const ARC_FILE_PATHS: usize = 0x60;
@@ -81,7 +81,7 @@ unsafe fn follow(base: *const u8, offset: usize) -> Option<*const u8> {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = 0x2cb45b0)]
+#[skyline::hook(offset = 0x2cb5660)]
 unsafe fn stage_update_probe(stage: *const u8, delta: f32) -> u64 {
     use core::sync::atomic::Ordering::Relaxed;
     if LAST_STAGE.swap(stage as usize, Relaxed) != stage as usize {
@@ -612,7 +612,7 @@ pub(crate) fn install() {
         );
     }
     skyline::println!(
-        "[stagecol] probe armed on the stage update at 0x2cb45b0; \
+        "[stagecol] probe armed on the stage update at 0x2cb5660; \
          {REPORT_CALLS} call(s) per stage, {ELEMENTS_TO_WALK} element(s) each"
     );
     skyline::println!(
@@ -664,15 +664,15 @@ mod tests {
 
     #[test]
     fn the_stdat_flow_sites_match_the_fingerprinted_disassembly() {
-        assert_eq!(OFF_STDAT_LIST_READY, 0x25ffa7c);
+        assert_eq!(OFF_STDAT_LIST_READY, 0x260076c);
         assert_eq!(STDAT_LIST_READY_OPCODE, 0xa943e3f3);
-        assert_eq!(OFF_STDAT_EXTENSION_RESULT, 0x25ffac0);
+        assert_eq!(OFF_STDAT_EXTENSION_RESULT, 0x26007b0);
         assert_eq!(STDAT_EXTENSION_RESULT_OPCODE, 0x36000220);
-        assert_eq!(OFF_STDAT_REGISTER_CALL, 0x25ffb00);
+        assert_eq!(OFF_STDAT_REGISTER_CALL, 0x26007f0);
         assert_eq!(STDAT_REGISTER_CALL_OPCODE, 0x94006514);
-        assert_eq!(OFF_STDAT_REGISTER_RETURN, 0x25ffb04);
+        assert_eq!(OFF_STDAT_REGISTER_RETURN, 0x26007f4);
         assert_eq!(STDAT_REGISTER_RETURN_OPCODE, 0x6b1902bf);
-        assert_eq!(OFF_STDAT_SCAN_FINISH, 0x25ffc38);
+        assert_eq!(OFF_STDAT_SCAN_FINISH, 0x2600928);
         assert_eq!(STDAT_SCAN_FINISH_OPCODE, 0x9100e3e0);
         assert_eq!(
             RESOURCE_CATEGORY_BASE + STDAT_RESOURCE_CATEGORY * RESOURCE_CATEGORY_STRIDE,
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn the_pre_setup_offsets_match_the_disassembly() {
-        assert_eq!(SINGLETON_SLOT, 0x5329000 + 0x9d8);
+        assert_eq!(SINGLETON_SLOT, 0x532c000 + 0x9d8);
         assert_eq!(SINGLETON_MAP, 0x1c0);
         assert_eq!(SUBOBJECT_KEY, 0x8);
         assert_eq!(SUBOBJECT_VECTOR, 0xc8);
@@ -706,18 +706,18 @@ mod tests {
 
     #[test]
     fn the_subobject_init_is_hooked_at_its_entry() {
-        assert_eq!(OFF_SUBOBJECT_INIT, 0x261f760);
+        assert_eq!(OFF_SUBOBJECT_INIT, 0x2620450);
     }
 
     #[test]
     fn the_pictochat_offsets_match_the_disassembly() {
-        assert_eq!(OFF_PICT_NAME_INIT, 0x2d9b220);
+        assert_eq!(OFF_PICT_NAME_INIT, 0x2d9c330);
         assert_eq!(PICT_NAME_INIT_OPCODE, 0xd10303ff);
-        assert_eq!(PICT_LANGUAGE_INDEX, 0x523c00c);
+        assert_eq!(PICT_LANGUAGE_INDEX, 0x523f00c);
         assert_eq!(PICT_LANGUAGE_VECTOR, 0x450);
         assert_eq!(PICT_LANGUAGE_RECORD_SIZE, 0x2c);
         assert_eq!(SUBSYSTEM + PICT_LANGUAGE_VECTOR, 0xb88);
-        assert_eq!(OFF_PICT_SCHEMA_RESOLVER, 0x2d9f170);
+        assert_eq!(OFF_PICT_SCHEMA_RESOLVER, 0x2da0280);
         assert_eq!(PICT_SCHEMA_RESOLVER_OPCODE, 0xaa0103e9);
         assert_eq!(PICT_LANGUAGE_FIELD, 0x122943f952);
     }

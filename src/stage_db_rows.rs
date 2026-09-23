@@ -225,7 +225,7 @@ static PENDING: Mutex<Vec<(u64, u16)>> = Mutex::new(Vec::new());
 
 #[cfg(not(test))]
 pub unsafe fn resolve() -> Option<ParamTree> {
-    let global = core::ptr::read_volatile((crate::text_base() + 0x532E730) as *const usize);
+    let global = core::ptr::read_volatile((crate::text_base() + 0x5331730) as *const usize);
     if global == 0 {
         return None;
     }

@@ -1,4 +1,4 @@
-pub(crate) const COMMON_HANDLE_GLOBAL: usize = 0x52C31E0;
+pub(crate) const COMMON_HANDLE_GLOBAL: usize = 0x52cb1e0;
 pub(crate) static ITEM_COMMON_FLOATS: [(u64, u32); 161] = [
     (0x002bcf8826c, 0x8),
     (0x005ec462584, 0x0),

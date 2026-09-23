@@ -65,19 +65,19 @@ macro_rules! custom_article_scaled_name_hooks {
 custom_article_scaled_name_hooks! {
     install_custom_article_scaled_weapon_name_hooks, custom_articles::source_weapon_name,
         crate::smashline_names::vanilla_weapon_name;
-    custom_weapon_name_game_acmd(8, 3, 0x33ace8c);
-    custom_weapon_name_sound_acmd(8, 3, 0x33aed4c);
-    custom_weapon_name_effect_acmd(8, 3, 0x33addec);
-    custom_weapon_name_status(8, 3, 0x33abf64);
+    custom_weapon_name_game_acmd(8, 3, 0x33b01bc);
+    custom_weapon_name_sound_acmd(8, 3, 0x33b207c);
+    custom_weapon_name_effect_acmd(8, 3, 0x33b111c);
+    custom_weapon_name_status(8, 3, 0x33af294);
 }
 
 custom_article_scaled_name_hooks! {
     install_custom_article_scaled_owner_name_hooks, custom_articles::source_weapon_owner_name,
         crate::smashline_names::vanilla_weapon_owner_name;
-    custom_weapon_owner_name_game_acmd(8, 2, 0x33ace7c);
-    custom_weapon_owner_name_sound_acmd(8, 2, 0x33aed3c);
-    custom_weapon_owner_name_effect_acmd(8, 2, 0x33adddc);
-    custom_weapon_owner_name_status(8, 2, 0x33abf54);
+    custom_weapon_owner_name_game_acmd(8, 2, 0x33b01ac);
+    custom_weapon_owner_name_sound_acmd(8, 2, 0x33b206c);
+    custom_weapon_owner_name_effect_acmd(8, 2, 0x33b110c);
+    custom_weapon_owner_name_status(8, 2, 0x33af284);
 }
 
 macro_rules! custom_article_agent_gate_hooks {
@@ -102,18 +102,18 @@ macro_rules! custom_article_agent_gate_hooks {
 
 custom_article_agent_gate_hooks! {
     install_custom_article_agent_gate_hooks;
-    custom_weapon_agent_gate_status(0x33abf24);
-    custom_weapon_agent_gate_game_acmd(0x33ace2c);
-    custom_weapon_agent_gate_sound_acmd(0x33aecec);
-    custom_weapon_agent_gate_effect_acmd(0x33add8c);
+    custom_weapon_agent_gate_status(0x33af254);
+    custom_weapon_agent_gate_game_acmd(0x33b015c);
+    custom_weapon_agent_gate_sound_acmd(0x33b201c);
+    custom_weapon_agent_gate_effect_acmd(0x33b10bc);
 }
 
 custom_article_name_hooks! {
     install_custom_article_weapon_name_hooks, custom_articles::param_lookup_weapon_name;
-    custom_weapon_name_param(21, 27, 0x33b6830);
-    custom_weapon_name_map_collision(21, 2, 0x33b69f0);
-    custom_weapon_name_visibility(21, 2, 0x33b6d14);
-    custom_weapon_name_visibility_data(21, 2, 0x33b6c80);
+    custom_weapon_name_param(21, 27, 0x33b9b60);
+    custom_weapon_name_map_collision(21, 2, 0x33b9d20);
+    custom_weapon_name_visibility(21, 2, 0x33ba044);
+    custom_weapon_name_visibility_data(21, 2, 0x33b9fb0);
 }
 
 macro_rules! custom_article_owner_kind_hooks {
@@ -169,22 +169,22 @@ fn weapon_owner_kind_for_params(weapon_kind: i32) -> Option<i32> {
 
 custom_article_owner_kind_hooks! {
     install_custom_article_owner_kind_hooks, weapon_owner_kind_for_params;
-    custom_weapon_owner_kind_param(21, 26, 0x33b6628);
+    custom_weapon_owner_kind_param(21, 26, 0x33b9958);
 }
 
 custom_article_owner_kind_hooks! {
     install_custom_article_creator_owner_kind_hooks, custom_articles::source_weapon_owner_kind;
-    custom_weapon_owner_kind_game_acmd(22, 8, 0x33acf78);
-    custom_weapon_owner_kind_sound_acmd(22, 8, 0x33aee38);
-    custom_weapon_owner_kind_effect_acmd(22, 8, 0x33aded8);
-    custom_weapon_owner_kind_status(22, 8, 0x33ac040);
+    custom_weapon_owner_kind_game_acmd(22, 8, 0x33b02a8);
+    custom_weapon_owner_kind_sound_acmd(22, 8, 0x33b2168);
+    custom_weapon_owner_kind_effect_acmd(22, 8, 0x33b1208);
+    custom_weapon_owner_kind_status(22, 8, 0x33af370);
 }
 
 #[cfg(feature = "css_slot")]
 const WEAPON_RECORD_SLOTS: usize = 64;
 
 const ARTICLE_SPEC_DESCRIPTOR_SLOT: u64 = 0x1b8;
-const FIGHTER_PARAM_SINGLETON: u64 = 0x52bb3b0;
+const FIGHTER_PARAM_SINGLETON: u64 = 0x52c43b0;
 const INHERITED_KIND_LOG_FLOOR: i32 = 280;
 
 const FIGHTER_PARAM_RECORD_BASE: u64 = 0x60;
@@ -243,7 +243,7 @@ fn current_builder_kind() -> i32 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33b5f44, inline)]
+#[skyline::hook(offset = 0x33b9274, inline)]
 pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks::InlineCtx) {
     const WEAPON_RECORD_STRIDE: i64 = 0xe8;
 
@@ -409,7 +409,7 @@ pub(crate) unsafe fn article_init_owner_payload(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-const RESOURCE_LOADER: usize = 0x5331f20;
+const RESOURCE_LOADER: usize = 0x533af20;
 #[cfg(feature = "css_slot")]
 const ARTICLE_LVD_FILE_INDEX: u64 = 0x128;
 #[cfg(feature = "css_slot")]
@@ -418,7 +418,7 @@ const RESOURCE_INDEX_MISSING: u32 = 0xffffff;
 const ARTICLE_LVD_COLLISIONS: u64 = 0x168;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33bf610)]
+#[skyline::hook(offset = 0x33c2940)]
 pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
     if article == 0 {
         return;
@@ -607,7 +607,7 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33b6fb8, inline)]
+#[skyline::hook(offset = 0x33ba2e8, inline)]
 pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[28].x() as i32;
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
@@ -676,7 +676,7 @@ pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::Inlin
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33bab50, inline)]
+#[skyline::hook(offset = 0x33bde80, inline)]
 pub(crate) unsafe fn article_param_fetch_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = current_builder_kind();
     if kind < INHERITED_KIND_LOG_FLOOR {
@@ -708,7 +708,7 @@ pub(crate) unsafe fn article_param_fetch_probe(ctx: &mut skyline::hooks::InlineC
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e09a8, inline)]
+#[skyline::hook(offset = 0x17e0768, inline)]
 pub(crate) unsafe fn custom_article_owner_category(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
     if let Some(category) = custom_articles::custom_weapon_owner_category(weapon_kind) {
@@ -739,7 +739,7 @@ macro_rules! custom_article_source_kind_sites {
 
 custom_article_source_kind_sites! {
     install_custom_article_source_kind_sites;
-    custom_article_kind_table_452a(0, 0x33aa1e0, "per-kind table 0x452abd8");
+    custom_article_kind_table_452a(0, 0x33ad510, "per-kind table 0x4533bd8");
 }
 
 #[cfg(feature = "css_slot")]
@@ -766,7 +766,7 @@ unsafe fn custom_article_kind_spec(kind: u32) -> u64 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0890, inline)]
+#[skyline::hook(offset = 0x17e0650, inline)]
 pub(crate) unsafe fn custom_article_path_weapon_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[23].x() as i32;
     if let Some(base) = custom_articles::weapon_name_table_bias(weapon_kind) {
@@ -857,7 +857,7 @@ pub(crate) unsafe fn article_agent_kind_spoof_leave(ctx: &mut skyline::hooks::In
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33abee0)]
+#[skyline::hook(offset = 0x33af210)]
 pub(crate) unsafe fn article_status_agent_create(
     object: *mut u8,
     boma: *mut u8,
@@ -1142,7 +1142,7 @@ pub(crate) unsafe fn change_motion_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x339fee0)]
+#[skyline::hook(offset = 0x33a3210)]
 pub(crate) unsafe fn weapon_motion_setup_probe(object: *mut u8) -> u64 {
     if object.is_null() {
         return call_original!(object);
@@ -1289,16 +1289,16 @@ macro_rules! custom_article_gate_base_hooks {
 
 custom_article_gate_base_hooks! {
     install_custom_article_gate_base_hooks;
-    custom_article_gate_motion(0x339ff90, 8, 0);
+    custom_article_gate_motion(0x33a32c0, 8, 0);
     custom_article_gate_0x3db770(0x3db770, 9, 8);
     custom_article_gate_0x641b40(0x641b40, 9, 8);
     custom_article_gate_0x64588c(0x64588c, 8, 9);
-    custom_article_gate_0x33a486c(0x33a486c, 8, 9);
-    custom_article_gate_0x33b6530(0x33b6530, 22, 21);
+    custom_article_gate_0x33a7b9c(0x33a7b9c, 8, 9);
+    custom_article_gate_0x33b9860(0x33b9860, 22, 21);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33afc00)]
+#[skyline::hook(offset = 0x33b2f30)]
 pub(crate) unsafe fn custom_article_capability_index(weapon_kind: i32) -> i32 {
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
         return call_original!(weapon_kind);
@@ -1410,7 +1410,7 @@ unsafe fn shared_article_not_loaded(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0840)]
+#[skyline::hook(offset = 0x17e0600)]
 pub(crate) unsafe fn custom_article_path_probe(
     out: *mut u32,
     weapon_kind: i32,
@@ -1529,21 +1529,21 @@ pub(crate) unsafe fn tag_custom_article_cache_key(key: u64, site: &str) -> u64 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17eea04, inline)]
+#[skyline::hook(offset = 0x17ee7c4, inline)]
 pub(crate) unsafe fn custom_article_cache_key_single(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[22].x();
     ctx.registers[22].set_x(tag_custom_article_cache_key(key, "single"));
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17eed48, inline)]
+#[skyline::hook(offset = 0x17eeb08, inline)]
 pub(crate) unsafe fn custom_article_cache_key_variant(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[1].x();
     ctx.registers[1].set_x(tag_custom_article_cache_key(key, "variant"));
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17f0924, inline)]
+#[skyline::hook(offset = 0x17f06e4, inline)]
 pub(crate) unsafe fn custom_article_cache_key_direct(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[21].x();
     ctx.registers[21].set_x(tag_custom_article_cache_key(key, "direct"));
@@ -1571,7 +1571,7 @@ const ADDED_RESOURCE_INDEX_FLOOR: u32 = 0x8_0000;
 const BARE_WEAPON_KIND_CEILING: u64 = 0x1000;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17dded0)]
+#[skyline::hook(offset = 0x17ddc90)]
 pub(crate) unsafe fn custom_article_data_cache_insert(
     tree: *mut u8,
     key: u64,
@@ -1603,7 +1603,7 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
             let n = ARTICLE_DATA_EMPTY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             if n < ARTICLE_DATA_COPY_REPORTS {
                 dbg_log!(
-                    "[articlemiss] #{n} REFUSED key={key:#x} search={index:#x} file={file_path:#x} stop={stop} copy_kind={copy_kind:?}; inserting this record would store a null at +0x28 and the next lookup dereferences it at 0x17defc4, so the game own empty return at 0x17ddf00 is used instead"
+                    "[articlemiss] #{n} REFUSED key={key:#x} search={index:#x} file={file_path:#x} stop={stop} copy_kind={copy_kind:?}; inserting this record would store a null at +0x28 and the next lookup dereferences it at 0x17ded84, so the game own empty return at 0x17ddcc0 is used instead"
                 );
             }
             return 0;
@@ -1669,13 +1669,13 @@ pub(crate) unsafe fn tag_custom_article_data_lookup(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a03c4, inline)]
+#[skyline::hook(offset = 0x33a36f4, inline)]
 pub(crate) unsafe fn custom_article_data_lookup_primary(ctx: &mut skyline::hooks::InlineCtx) {
     tag_custom_article_data_lookup(ctx, "primary");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a9798, inline)]
+#[skyline::hook(offset = 0x33acac8, inline)]
 pub(crate) unsafe fn custom_article_data_lookup_variant(ctx: &mut skyline::hooks::InlineCtx) {
     tag_custom_article_data_lookup(ctx, "variant");
 }
@@ -1708,13 +1708,13 @@ pub(crate) unsafe fn log_article_data_result(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a03c8, inline)]
+#[skyline::hook(offset = 0x33a36f8, inline)]
 pub(crate) unsafe fn custom_article_data_result_primary(ctx: &mut skyline::hooks::InlineCtx) {
     log_article_data_result(ctx, 0x30, "primary");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a979c, inline)]
+#[skyline::hook(offset = 0x33acacc, inline)]
 pub(crate) unsafe fn custom_article_data_result_variant(ctx: &mut skyline::hooks::InlineCtx) {
     log_article_data_result(ctx, 0x20, "variant");
 }
@@ -1753,59 +1753,59 @@ macro_rules! declare_resource_name_hooks {
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_contextual_custom_resource_name_hooks, handle_custom_resource_name;
-    custom_name_model_1(0x17e9aa4, 2);
-    custom_name_model_2(0x17e9b94, 2);
+    custom_name_model_1(0x17e9864, 2);
+    custom_name_model_2(0x17e9954, 2);
 }
 
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_w1_custom_resource_name_hooks, handle_custom_resource_name_w1;
-    custom_name_path_02(0x17df95c, 2);
-    custom_name_path_03(0x17df888, 2);
-    custom_name_path_18(0x17df920, 2);
-    custom_name_path_19(0x17df934, 2);
-    custom_name_path_20(0x17df8a8, 2);
-    custom_name_path_21(0x17df948, 2);
-    custom_name_path_22(0x17df970, 2);
-    custom_name_path_23(0x17df984, 2);
-    custom_name_path_24(0x17df8bc, 2);
-    custom_name_path_25(0x17df8d0, 2);
-    custom_name_path_26(0x17df8e4, 2);
-    custom_name_path_27(0x17df998, 2);
-    custom_name_path_28(0x17df9ac, 2);
-    custom_name_path_29(0x17df9c0, 2);
-    custom_name_path_30(0x17df8f8, 2);
-    custom_name_path_31(0x17df90c, 2);
-    custom_name_path_32(0x17df9d4, 2);
+    custom_name_path_02(0x17df71c, 2);
+    custom_name_path_03(0x17df648, 2);
+    custom_name_path_18(0x17df6e0, 2);
+    custom_name_path_19(0x17df6f4, 2);
+    custom_name_path_20(0x17df668, 2);
+    custom_name_path_21(0x17df708, 2);
+    custom_name_path_22(0x17df730, 2);
+    custom_name_path_23(0x17df744, 2);
+    custom_name_path_24(0x17df67c, 2);
+    custom_name_path_25(0x17df690, 2);
+    custom_name_path_26(0x17df6a4, 2);
+    custom_name_path_27(0x17df758, 2);
+    custom_name_path_28(0x17df76c, 2);
+    custom_name_path_29(0x17df780, 2);
+    custom_name_path_30(0x17df6b8, 2);
+    custom_name_path_31(0x17df6cc, 2);
+    custom_name_path_32(0x17df794, 2);
 }
 
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_w20_custom_resource_name_hooks, handle_custom_resource_name_w20;
-    custom_name_path_04(0x17dfcfc, 2);
-    custom_name_path_08(0x17e9094, 2);
-    custom_name_path_09(0x17e9118, 2);
-    custom_name_path_10(0x17e91b8, 2);
-    custom_name_path_11(0x17e9238, 2);
-    custom_name_path_12(0x17e9348, 2);
-    custom_name_path_13(0x17e936c, 2);
-    custom_name_path_14(0x17e9494, 2);
-    custom_name_path_15(0x17e9600, 2);
-    custom_name_path_17(0x17f0058, 2);
+    custom_name_path_04(0x17dfabc, 2);
+    custom_name_path_08(0x17e8e54, 2);
+    custom_name_path_09(0x17e8ed8, 2);
+    custom_name_path_10(0x17e8f78, 2);
+    custom_name_path_11(0x17e8ff8, 2);
+    custom_name_path_12(0x17e9108, 2);
+    custom_name_path_13(0x17e912c, 2);
+    custom_name_path_14(0x17e9254, 2);
+    custom_name_path_15(0x17e93c0, 2);
+    custom_name_path_17(0x17efe18, 2);
 }
 
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_w21_custom_resource_name_hooks, handle_custom_resource_name_w21;
-    custom_name_path_05(0x17e0340, 2);
-    custom_name_path_06(0x17e040c, 2);
-    custom_name_path_16(0x17e9d58, 2);
+    custom_name_path_05(0x17e0100, 2);
+    custom_name_path_06(0x17e01cc, 2);
+    custom_name_path_16(0x17e9b18, 2);
 }
 
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_w19_custom_resource_name_hooks, handle_custom_resource_name_w19;
-    custom_name_path_07(0x17e7558, 2);
+    custom_name_path_07(0x17e7318, 2);
 }
 
 #[cfg(feature = "css_slot")]
@@ -1815,7 +1815,7 @@ declare_resource_name_hooks! {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17df4f0, inline)]
+#[skyline::hook(offset = 0x17df2b0, inline)]
 pub(crate) unsafe fn custom_name_path_root(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[1].x() as i32;
     if let Some(definition) = clone_definition(kind) {
@@ -1882,5 +1882,5 @@ pub(crate) fn install_custom_resource_name_hooks() {
 #[cfg(feature = "css_slot")]
 declare_resource_name_hooks! {
     install_custom_module_name_hook, handle_custom_base_module_name;
-    custom_base_module_name(0x17e4bcc, 22);
+    custom_base_module_name(0x17e498c, 22);
 }

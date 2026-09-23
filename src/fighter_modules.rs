@@ -12,8 +12,8 @@ macro_rules! module_log {
     }};
 }
 
-const DYNAMIC_MODULE_MANAGER: usize = 0x5326cd0;
-const FILESYSTEM: usize = 0x5331f20;
+const DYNAMIC_MODULE_MANAGER: usize = 0x532ecd0;
+const FILESYSTEM: usize = 0x5339f20;
 const MODULE_TREE: usize = 0x38;
 const COMMAND_DEQUE: usize = 0x80;
 const MANAGER_EVENT: usize = 0x50;
@@ -23,13 +23,13 @@ const MODULE_REFCOUNT: usize = 0x134;
 #[skyline::from_offset(0x22b59c0)]
 fn extend_deque(deque: *mut Deque);
 
-#[skyline::from_offset(0x353e330)]
+#[skyline::from_offset(0x35410b0)]
 fn get_search_path_index(index: &mut u32, bytes: *const u8);
 
-#[skyline::from_offset(0x353e4e0)]
+#[skyline::from_offset(0x3541260)]
 fn get_file_path_from_search_path(search_path: u32) -> u32;
 
-#[skyline::from_offset(0x3540450)]
+#[skyline::from_offset(0x35431d0)]
 fn add_to_res_service(filesystem: *mut u64, file_path: u32);
 
 extern "C" {

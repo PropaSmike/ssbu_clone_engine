@@ -10,8 +10,8 @@ use clone_engine_api::{
     RESULT_OK,
 };
 
-const OFF_UI_DB_HASH_LOOKUP: usize = 0x3269FD0;
-const OFF_UI_DB_NAME_ID: usize = 0x327F680;
+const OFF_UI_DB_HASH_LOOKUP: usize = 0x326b0e0;
+const OFF_UI_DB_NAME_ID: usize = 0x3280790;
 const OFF_TRAINING_ORDINARY_LIST_DONE: usize = 0x1BB8308;
 const OFF_TRAINING_POKEMON_LIST_DONE: usize = 0x1BB8374;
 const OFF_TRAINING_ASSIST_LIST_DONE: usize = 0x1BB83E0;
@@ -761,7 +761,7 @@ unsafe fn training_cursor_commit(ctx: &mut skyline::hooks::InlineCtx) {
     }
     if inner != 0 && inner & 7 == 0 {
         let set_cursor: unsafe extern "C" fn(*mut usize, i32, i32, bool) =
-            core::mem::transmute(crate::text_base() + 0x3783660);
+            core::mem::transmute(crate::text_base() + 0x3784770);
         let cursor_slot = (inner + 0x7C0) as *mut usize;
         set_cursor(cursor_slot, 1, 1, true);
 

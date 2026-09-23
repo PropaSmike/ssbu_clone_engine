@@ -1822,7 +1822,7 @@ unsafe fn effect_req_follow_probe(ctx: &mut skyline::hooks::InlineCtx) {
 static POCKET_NAME_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-#[skyline::hook(offset = 0x17e0840)]
+#[skyline::hook(offset = 0x17e0780)]
 unsafe fn weapon_name_owner_tables(a0: u64, kind: i32, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
@@ -1891,9 +1891,9 @@ static ARTICLE_ANIMCMD_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::
 
 #[cfg(feature = "css_slot")]
 article_animcmd_agent_hooks! {
-    article_game_agent_create(0x33acde0, "game");
-    article_effect_agent_create(0x33add40, "effect");
-    article_sound_agent_create(0x33aeca0, "sound");
+    article_game_agent_create(0x33adef0, "game");
+    article_effect_agent_create(0x33aee50, "effect");
+    article_sound_agent_create(0x33afdb0, "sound");
 }
 
 #[cfg(feature = "css_slot")]
@@ -3888,7 +3888,7 @@ unsafe fn take_pending_effect_kind(handle: u32) -> Option<(i32, i32)> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x355f8f0)]
+#[skyline::hook(offset = 0x3560a00)]
 unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: *const u32) -> u32 {
     {
         static ENTRY_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
@@ -3980,7 +3980,7 @@ pub(crate) static ARTICLE_OWNER_OVERRIDE: crate::thread_context::ThreadScopedKin
     crate::thread_context::ThreadScopedKind::new("article_owner_override");
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0a4c, inline)]
+#[skyline::hook(offset = 0x17e098c, inline)]
 unsafe fn custom_article_owner_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
     if let Some(owner) = custom_articles::custom_weapon_owner_name(weapon_kind) {
@@ -4006,7 +4006,7 @@ unsafe fn custom_article_owner_name(ctx: &mut skyline::hooks::InlineCtx) {
     let n = ARTICLE_OWNER_NAME_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 24 {
         dbg_log!(
-            "[articleowner] #{n} true_kind={} base={} namespace={} get_file=0x17e0a4c",
+            "[articleowner] #{n} true_kind={} base={} namespace={} get_file=0x17e098c",
             definition.kind,
             definition.base_resource_name,
             definition.resource_name
@@ -4026,7 +4026,7 @@ fn custom_article_definition(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e098c, inline)]
+#[skyline::hook(offset = 0x17e08cc, inline)]
 unsafe fn custom_article_weapon_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[23].x() as i32;
     if let Some(name) = custom_articles::custom_weapon_name(weapon_kind) {
@@ -4369,7 +4369,7 @@ pub fn main() {
     {
         skyline::install_hooks!(article_probes::observer_purge_refcount_probe);
         skyline::println!(
-            "[clone_engine] installed the observer purge refcount probe at 0x37ae244; tag [purge], and [purge] UNDERFLOW means a listener node is being destroyed twice"
+            "[clone_engine] installed the observer purge refcount probe at 0x37af354; tag [purge], and [purge] UNDERFLOW means a listener node is being destroyed twice"
         );
         skyline::install_hooks!(kirby_article_init_probe, kirby_article_init_guard,);
         skyline::println!(
@@ -4470,10 +4470,10 @@ pub fn main() {
                 "[clone_engine] installed true-kind Kirby copy bridges: native ability tables use each clone's base kind while models use copy_<resource>_fitkirby"
             );
             skyline::println!(
-                "[clone_engine] kirbyreg: load-time kirbycopy dir registrar 0x17effe0 bridges custom kinds to their base (fix for the Kirby+kind119 fighter/none/kirbycopy miss APPCRASH); parent 0x17efb80 observed. Tag [kirbyreg]."
+                "[clone_engine] kirbyreg: load-time kirbycopy dir registrar 0x17eff20 bridges custom kinds to their base (fix for the Kirby+kind119 fighter/none/kirbycopy miss APPCRASH); parent 0x17efac0 observed. Tag [kirbyreg]."
             );
             skyline::println!(
-                "[clone_engine] wpn probes + resource-slot BRIDGE: per-fighter preload 0x17eeae0 + loader continuation 0x607e44/0x607e74/0x607f28/0x607f98 bracketed; slot walker 0x17f1aa0 remaps raw clone kinds to their base (fix for the Kirby+kind119 APPCRASH pinned at slot enter w2=0x77). Tag [wpn]."
+                "[clone_engine] wpn probes + resource-slot BRIDGE: per-fighter preload 0x17eea20 + loader continuation 0x607e44/0x607e74/0x607f28/0x607f98 bracketed; slot walker 0x17f19e0 remaps raw clone kinds to their base (fix for the Kirby+kind119 APPCRASH pinned at slot enter w2=0x77). Tag [wpn]."
             );
             skyline::println!(
                 "[clone_engine] kirby copy RECORD MECHANISM v14: clone slot registration now runs Nintendo's complete creator under the true kind, with a descriptor-owned four-name record and base-owned bodymotion/sound. Native list nodes and teardown replace the old one-member approximation. Tags [kirbynative]/[kirbyrec]/[kirbycreator]."
@@ -4491,16 +4491,16 @@ pub fn main() {
         );
         skyline::install_hook!(resmgr_insert_hook);
         skyline::println!(
-            "[clone_engine] v49: installed read-only resource-cache trace at 0x17d1d70; logs caller, returned map census, and active byte for Mario/custom kinds after the native call. Tag [resmgr49]."
+            "[clone_engine] v49: installed read-only resource-cache trace at 0x17d1cb0; logs caller, returned map census, and active byte for Mario/custom kinds after the native call. Tag [resmgr49]."
         );
         skyline::install_hook!(load_dispatch_kind_hook);
         skyline::println!(
-            "[clone_engine] v33: load-dispatch 0x17e5c00 PASSES kind 118 through unchanged so construction can retain the true kind. Tag [loaddisp]."
+            "[clone_engine] v33: load-dispatch 0x17e5b40 PASSES kind 118 through unchanged so construction can retain the true kind. Tag [loaddisp]."
         );
         skyline::install_hook!(path_builder_remap_hook);
         #[cfg(not(feature = "css_slot"))]
         skyline::println!(
-            "[clone_engine] v33: path-builder 0x17df460 remaps w1 118->0 so the true-118 load resolves fighter/mario assets without changing [load_obj+0x58]. Tag [pathb]."
+            "[clone_engine] v33: path-builder 0x17df3a0 remaps w1 118->0 so the true-118 load resolves fighter/mario assets without changing [load_obj+0x58]. Tag [pathb]."
         );
         #[cfg(feature = "css_slot")]
         skyline::println!(
@@ -4515,11 +4515,11 @@ pub fn main() {
         skyline::install_hook!(load_final_register_call_hook);
         #[cfg(not(feature = "css_slot"))]
         skyline::println!(
-            "[clone_engine] v33: final BL callback mutates saved w1 118->0; Skyline's trampoline executes 0x17e4940 exactly once as kind 0. Construction identity remains independently 118. Tag [loadfinal]."
+            "[clone_engine] v33: final BL callback mutates saved w1 118->0; Skyline's trampoline executes 0x17e4880 exactly once as kind 0. Construction identity remains independently 118. Tag [loadfinal]."
         );
         #[cfg(feature = "css_slot")]
         skyline::println!(
-            "[clone_engine] v46: final BL callback keeps key 118; Skyline's trampoline executes 0x17e4940 once after its module-name fallback was aliased at boot. Tag [loadfinal]."
+            "[clone_engine] v46: final BL callback keeps key 118; Skyline's trampoline executes 0x17e4880 once after its module-name fallback was aliased at boot. Tag [loadfinal]."
         );
         #[cfg(feature = "css_slot")]
         skyline::install_hooks!(
@@ -4529,7 +4529,7 @@ pub fn main() {
         );
         #[cfg(feature = "css_slot")]
         skyline::println!(
-            "[clone_engine] v46: retained custom-object-only readiness probes at group 0x17eb180, entry 0x17e4790, and base 0x17e28c0 with startup-only sampling. Observation only; tag [ready118]."
+            "[clone_engine] v46: retained custom-object-only readiness probes at group 0x17eb0c0, entry 0x17e46d0, and base 0x17e2800 with startup-only sampling. Observation only; tag [ready118]."
         );
         #[cfg(not(feature = "diag_article_initspoof"))]
         skyline::install_hook!(fighter_init_kind_bridge);
@@ -4568,7 +4568,7 @@ pub fn main() {
     {
         skyline::install_hook!(path_builder_trace_hook);
         skyline::println!(
-            "[clone_engine] v15: installed canonical path-builder trace (0x17df460): kind>0x75 calls always logged, first 24 kind<=0x75 calls logged, pure observation (no spoof)"
+            "[clone_engine] v15: installed canonical path-builder trace (0x17df3a0): kind>0x75 calls always logged, first 24 kind<=0x75 calls logged, pure observation (no spoof)"
         );
     }
 
@@ -4585,14 +4585,14 @@ fn report_clone_runtime_hooks() {
     {
         const LOAD_BEARING: &[&str] = &[
             "fighter_init_kind_bridge(0x6079d0) kind+name+kind-array bridge",
-            "fighter_scoped_resource_path_hook(0x17e88d0) namespace + base fallback",
+            "fighter_scoped_resource_path_hook(0x17e8810) namespace + base fallback",
             "fighter_params(0x70c580) per-instance vl.prc payload for clone/base coexistence",
             "fighter_param_rows(0x6867e0, 0x60b6b0, per-frame 0x3a84e0 + Fighter phases 107/109/110/111-115 at 0x614630 0x6164a0 0x616580 0x619810 0x619850 0x619890 0x61a0a0 0x3a8bc0; aux record under 0x34af10) fighter_param + fighter_param_motion row swap for direct readers",
             "fighter_common_copies(accessor+0x2758 param object; binders 0x736a90 common 0x782c00 item 0x7741f0 etc 0x798540 power_up 0x761f70 effect) per-fighter copies of the six shared param files patched for clones; kind bind 0x77d100 re-patches the detached power_up object at param object+0x1b10",
             "fighter_param_thrown(thunk 0x20a8000 + lua call 0x20a81b4 for thrown_offset 0x720f90; entry hooks 0x7210e0 donkey 0x7211a0 ridley 0x721380 gaogaen 0x721240 diddy 0x7212e0 mii 0x721430 demon_command 0x7214d0 demon_special_lw) hold offsets adjusted for clones at the accessor",
-            "model_path_namespace_hook(0x17e9a00) MODEL namespace",
-            "path_builder_remap_hook(0x17df460) path namespace",
-            "load_dispatch_kind_hook(0x17e5c00) load-dispatch kind",
+            "model_path_namespace_hook(0x17e9940) MODEL namespace",
+            "path_builder_remap_hook(0x17df3a0) path namespace",
+            "load_dispatch_kind_hook(0x17e5b40) load-dispatch kind",
             "load_final_register_call_hook resource registration kind",
             "kind_validity_gate_hook(0x65dd70) kind validity",
             "clone_fighter_status_create(0x64bbd0) Smashline status agent name scope",
