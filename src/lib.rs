@@ -2031,29 +2031,105 @@ static PARAM_REGISTER_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::A
 const PARAM_REGISTER_LOG_LIMIT: u32 = 160;
 
 #[cfg(feature = "css_slot")]
+unsafe fn param_getter_native(module: u64, member: usize, slot: usize) -> Option<(u64, u64)> {
+    let object = if member == 0 {
+        module
+    } else {
+        core::ptr::read_volatile((module as usize + member) as *const u64)
+    };
+    if object < 0x1000 {
+        return None;
+    }
+    let vtable = core::ptr::read_volatile(object as usize as *const u64);
+    if vtable < 0x1000 {
+        return None;
+    }
+    let target = core::ptr::read_volatile((vtable as usize + slot) as *const u64);
+    if target < 0x1000 {
+        return None;
+    }
+    Some((object, target))
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn install_param_getter_bracket(
+    offset: usize,
+    expected: &[u32; clone_engine_core::hook_site::PROLOGUE_WORDS],
+    handler: usize,
+    tag: &str,
+) {
+    let site = text_base() + offset;
+    let mut live = [0u32; clone_engine_core::hook_site::PROLOGUE_WORDS];
+    for (index, word) in live.iter_mut().enumerate() {
+        *word = core::ptr::read_volatile((site + index * 4) as *const u32);
+    }
+    if live != *expected {
+        let why = match clone_engine_core::hook_site::relocation_hazard(&live) {
+            Some(hazard) => hazard.reason(),
+            None => "the thunk does not read as vanilla",
+        };
+        dbg_log_public(&format!(
+            "[parambridge] {tag} at {offset:#x} left alone: {why} (live {live:#010x?}); a pack's ParamConfig calls on this getter keep the vanilla path"
+        ));
+        return;
+    }
+    let words = [
+        0x5800_0051u32,
+        0xd61f_0220,
+        handler as u32,
+        (handler >> 32) as u32,
+    ];
+    if text_patch::write_words(site, &words) {
+        dbg_log_public(&format!(
+            "[parambridge] {tag} at {offset:#x} bridged by a 16 byte trampoline to {handler:#x}, so the thunk after it keeps its first instruction"
+        ));
+        return;
+    }
+    dbg_log_public(&format!(
+        "[parambridge] {tag} at {offset:#x} REFUSED by the page; this getter keeps the vanilla path"
+    ));
+}
+
+#[cfg(feature = "css_slot")]
 macro_rules! param_getter_brackets {
-    ($($name:ident($offset:expr) -> $ret:ty;)*) => {
+    ($($name:ident($offset:expr, $member:expr, $slot:expr, $words:expr) -> $ret:ty;)*) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset)]
-            unsafe fn $name(module: u64, param_type: u64, param_hash: u64) -> $ret {
+            unsafe extern "C" fn $name(module: u64, param_type: u64, param_hash: u64) -> $ret {
                 let _param_context = PARAM_CONTEXT.enter(current_thread_key());
-                call_original!(module, param_type, param_hash)
+                let Some((object, target)) = param_getter_native(module, $member, $slot) else {
+                    return <$ret>::default();
+                };
+                let native: unsafe extern "C" fn(u64, u64, u64) -> $ret =
+                    core::mem::transmute(target);
+                native(object, param_type, param_hash)
             }
         )*
 
         #[cfg(feature = "css_slot")]
         fn install_param_getter_brackets() {
-            skyline::install_hooks!($($name),*);
+            $(
+                unsafe {
+                    install_param_getter_bracket(
+                        $offset,
+                        &$words,
+                        $name as *const () as usize,
+                        stringify!($name),
+                    );
+                }
+            )*
         }
     };
 }
 
 #[cfg(feature = "css_slot")]
 param_getter_brackets! {
-    param_config_int_bracket(0x4e53a0) -> i32;
-    param_config_int64_bracket(0x4e53b0) -> i64;
-    param_config_float_bracket(0x4e53e0) -> f32;
+    param_config_int_bracket(0x4e53a0, 0x38, 0x20,
+        [0xf940_1c00, 0xf940_0008, 0xf940_1103, 0xd61f_0060]) -> i32;
+    param_config_int64_bracket(0x4e53b0, 0, 0x260,
+        [0xf940_0008, 0xf941_3103, 0xd61f_0060, 0x0000_0000]) -> i64;
+    param_config_float_bracket(0x4e53e0, 0x38, 0x30,
+        [0xf940_1c00, 0xf940_0008, 0xf940_1903, 0xd61f_0060]) -> f32;
 }
 
 #[cfg(feature = "css_slot")]

@@ -774,7 +774,7 @@ pub(crate) unsafe fn custom_article_path_weapon_name(ctx: &mut skyline::hooks::I
     }
 }
 
-#[cfg(feature = "css_slot")]
+#[cfg(all(feature = "css_slot", feature = "diag_article"))]
 #[skyline::hook(offset = 0x48aba4, inline)]
 pub(crate) unsafe fn module_190_factory(ctx: &mut skyline::hooks::InlineCtx) {
     static SEEN: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
@@ -1337,14 +1337,14 @@ pub unsafe extern "C" fn clone_engine_article_status_v1(
     }
 }
 
-#[cfg(feature = "css_slot")]
+#[cfg(all(feature = "css_slot", feature = "diag_article"))]
 pub(crate) static MODULE_PROBE_SEEN: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 macro_rules! module_190_probes {
     ($install:ident; $($name:ident($offset:expr, $tag:expr, [$($reg:expr),*]));* $(;)?) => {
         $(
-            #[cfg(feature = "css_slot")]
+            #[cfg(all(feature = "css_slot", feature = "diag_article"))]
             #[skyline::hook(offset = $offset, inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let n = MODULE_PROBE_SEEN.load(core::sync::atomic::Ordering::Relaxed);
@@ -1360,7 +1360,7 @@ macro_rules! module_190_probes {
             }
         )*
 
-        #[cfg(feature = "css_slot")]
+        #[cfg(all(feature = "css_slot", feature = "diag_article"))]
         fn $install() {
             skyline::install_hooks!($($name,)*);
         }
@@ -1840,10 +1840,14 @@ pub(crate) fn install_custom_resource_name_hooks() {
     install_custom_article_gate_base_hooks();
     install_custom_article_source_kind_sites();
     skyline::install_hooks!(custom_article_kind_spec, custom_article_class_recache);
-    install_module_190_probes();
+    #[cfg(feature = "diag_article")]
+    {
+        install_module_190_probes();
+        skyline::install_hooks!(module_190_factory);
+    }
     install_article_motion_diagnostics();
     install_article_motion_scope_bridge();
-    skyline::install_hooks!(module_190_factory, article_status_agent_create,);
+    skyline::install_hooks!(article_status_agent_create,);
     skyline::install_hooks!(
         custom_article_weapon_record_base,
         custom_article_capability_index,
