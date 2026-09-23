@@ -3,7 +3,7 @@ use super::*;
 use clone_engine_core::param_swap::{BaseState, CloneState};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
-const PARAM_SINGLETON: usize = 0x52bb3b0;
+const PARAM_SINGLETON: usize = 0x52c33b0;
 const PARAM_RECORD_BASE: usize = 0x60;
 const PARAM_RECORD_STRIDE: usize = 0x38;
 const PARAM_RECORD_REFCOUNT: usize = 0x0;
@@ -14,10 +14,10 @@ const PARAM_LOADER_B: usize = 0x721ca0;
 const PARAM_RECORD_PAYLOAD_B: usize = 0x28;
 const PARAM_RECORD_OWNER_B: usize = 0x30;
 const PARAM_MUTEX: usize = 0x1988;
-const PARAM_MUTEX_LOCK: usize = 0x39c1490;
-const PARAM_MUTEX_UNLOCK: usize = 0x39c14a0;
-const PARAM_FILE_LOADER: usize = 0x5331f20;
-const PARAM_FILE_REQUEST: usize = 0x3540450;
+const PARAM_MUTEX_LOCK: usize = 0x39c4210;
+const PARAM_MUTEX_UNLOCK: usize = 0x39c4220;
+const PARAM_FILE_LOADER: usize = 0x5339f20;
+const PARAM_FILE_REQUEST: usize = 0x35431d0;
 const PARAM_PATH_TYPE_A: i32 = 12;
 const PARAM_PATH_TYPE_B: i32 = 13;
 
@@ -211,7 +211,7 @@ pub(crate) unsafe fn request_resource_file(index: i32) {
     request(loader, index);
 }
 
-const SEARCH_PATH_TO_FILE_PATH: usize = 0x353e4e0;
+const SEARCH_PATH_TO_FILE_PATH: usize = 0x3541260;
 
 unsafe fn file_path_index(search: i32) -> Option<i32> {
     type Convert = unsafe extern "C" fn(u32) -> u32;

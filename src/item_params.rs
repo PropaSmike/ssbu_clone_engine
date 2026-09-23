@@ -36,10 +36,10 @@ impl ItemContentCategory {
 
     pub(crate) const fn main_root_offset(self) -> usize {
         match self {
-            Self::Item => 0x42C2080,
-            Self::Assist => 0x437ADC0,
-            Self::Pokemon => 0x444236F,
-            Self::Boss | Self::KoopagExternal => 0x4348902,
+            Self::Item => 0x42ca080,
+            Self::Assist => 0x4382dc0,
+            Self::Pokemon => 0x444a36f,
+            Self::Boss | Self::KoopagExternal => 0x4350902,
         }
     }
 }
@@ -498,7 +498,7 @@ unsafe extern "C" fn lookup_probe(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-const ARC_SERVICE_GLOBAL: usize = 0x5331F20;
+const ARC_SERVICE_GLOBAL: usize = 0x5339f20;
 const ARC_SERVICE_ARC: usize = 0x78;
 const ARC_FS_HEADER: usize = 0x40;
 const ARC_FILE_PATHS: usize = 0x60;
@@ -648,7 +648,7 @@ unsafe fn resource_data(index: u32) -> Option<usize> {
     (data != 0).then_some(data)
 }
 
-const OFF_RESOURCE_REQUEST: usize = 0x3540450;
+const OFF_RESOURCE_REQUEST: usize = 0x35431d0;
 
 static REQUESTED: [AtomicBool; MAX_CLONE_KINDS] =
     [const { AtomicBool::new(false) }; MAX_CLONE_KINDS];
@@ -1700,7 +1700,7 @@ pub(crate) fn ready() -> bool {
     PREFLIGHT_OK.load(Ordering::Acquire) && HOOKS_INSTALLED.load(Ordering::Acquire)
 }
 
-const COMMON_ACCESSOR_GLOBAL: usize = 0x52C31E0;
+const COMMON_ACCESSOR_GLOBAL: usize = 0x52cb1e0;
 const COMMON_GATE_ARRAY: usize = 0xEF8;
 const COMMON_ROW_ARRAY: usize = 0x73188;
 const COMMON_ROW_STRIDE: usize = 0x64;
@@ -1770,7 +1770,7 @@ pub(crate) fn report_common_params() {
             n
         };
         let real = core::ptr::read_volatile(accessor as *const usize);
-        let expected_vtable = crate::text_base() + 0x5077D30;
+        let expected_vtable = crate::text_base() + 0x507fd30;
         let vtable = if heap(real) {
             core::ptr::read_volatile((real + 0x20) as *const usize)
         } else {

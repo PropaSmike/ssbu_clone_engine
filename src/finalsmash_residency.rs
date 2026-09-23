@@ -1,11 +1,11 @@
 use core::sync::atomic::Ordering;
 
 const OFF_FINALSMASH_LOAD_GATE: usize = 0x60d490;
-const OFF_LOAD_DIRECTORY: usize = 0x35407a0;
-const OFF_PRELOAD_FINALSMASH_LOOKUP: usize = 0x17e760c;
-const PRELOAD_LOOKUP_RETURN: usize = 0x17e7680;
+const OFF_LOAD_DIRECTORY: usize = 0x3543520;
+const OFF_PRELOAD_FINALSMASH_LOOKUP: usize = 0x17e740c;
+const PRELOAD_LOOKUP_RETURN: usize = 0x17e7480;
 const DIRECTORY_NOT_FOUND: u32 = 0xffffff;
-const RESOURCE_SERVICE: usize = 0x5331f20;
+const RESOURCE_SERVICE: usize = 0x5339f20;
 const LOWEST_PLAUSIBLE_POINTER: usize = 0x1_0000;
 const SEARCH_KEY_MASK: u64 = 0xffffffffff;
 const MAX_MODEL_PROBES: usize = 4;
@@ -496,10 +496,10 @@ pub(crate) fn install() {
         load_directory_hook
     );
     crate::dbg_log_public(
-        "[fsload] armed. The loading screen preload at 0x17e74a4 indexes LOWERCASE_FIGHTER_NAMES \
+        "[fsload] armed. The loading screen preload at 0x17e72a4 indexes LOWERCASE_FIGHTER_NAMES \
          under a 0x75 bound, so a minted clone kind falls through to the literal name none and \
          asks for a directory the arc does not have. Nothing is queued in the only phase where \
-         the async reader services work, and the model build at 0x35c22e0 later dereferences a \
+         the async reader services work, and the model build at 0x35c5060 later dereferences a \
          registered but empty record. The base directory is substituted at that one call site, \
          and 0x60d490 falls back to the game own skip while any model probe is still empty.",
     );

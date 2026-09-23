@@ -2,7 +2,7 @@ use crate::stage_ledger::hash40;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-const ARC_SERVICE_GLOBAL: usize = 0x5331F20;
+const ARC_SERVICE_GLOBAL: usize = 0x5334f20;
 const ARC_SERVICE_ARC: usize = 0x78;
 const ARC_FS_HEADER: usize = 0x40;
 const ARC_FILE_PATHS: usize = 0x60;

@@ -1,19 +1,19 @@
 #![allow(dead_code)]
 
-pub const OFF_STAGE_BASE_PRE_SETUP: usize = 0x25D8E00;
+pub const OFF_STAGE_BASE_PRE_SETUP: usize = 0x25d9af0;
 
 pub const PRE_SETUP_OPCODE: u32 = 0x6DB733ED;
 
 pub const STAGE_ID: usize = 0x08;
 
-pub const OPEN_SITE: usize = 0x25DCC64;
+pub const OPEN_SITE: usize = 0x25dd954;
 pub const OPEN_OPCODE: u32 = 0x6D4223E9;
 pub const OPEN_STAGE_REG: usize = 20;
 
 pub const CLOSE_SITES: [(usize, u32, usize); 3] = [
-    (0x2602918, 0xF9419A68, 19),
-    (0x2602CAC, 0xF9419AA8, 21),
-    (0x2606888, 0xF9419A68, 19),
+    (0x2603608, 0xF9419A68, 19),
+    (0x260399c, 0xF9419AA8, 21),
+    (0x2607578, 0xF9419A68, 19),
 ];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -137,9 +137,9 @@ mod live {
         };
     }
 
-    close_site!(close_at_2602918, 0x2602918, 19);
-    close_site!(close_at_2602cac, 0x2602CAC, 21);
-    close_site!(close_at_2606888, 0x2606888, 19);
+    close_site!(close_at_2602918, 0x2603608, 19);
+    close_site!(close_at_2602cac, 0x260399c, 21);
+    close_site!(close_at_2606888, 0x2607578, 19);
 
     pub fn install() {
         unsafe {
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn the_offsets_are_the_ones_stage_config_uses() {
         assert_eq!(STAGE_ID, 0x08);
-        assert_eq!(OFF_STAGE_BASE_PRE_SETUP, 0x25D8E00);
+        assert_eq!(OFF_STAGE_BASE_PRE_SETUP, 0x25d9af0);
     }
 
     #[test]
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(OPEN_OPCODE, expected);
         assert_eq!(
             OPEN_STAGE_REG, 20,
-            "x20 is what 0x25dcbcc read the StageID from"
+            "x20 is what 0x25dd8bc read the StageID from"
         );
     }
 

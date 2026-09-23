@@ -145,7 +145,7 @@ mod tests {
     fn the_stage_id_clamp_is_widened() {
         let bound = STAGE_BOUNDS
             .iter()
-            .find(|bound| bound.address == 0x178ab8c)
+            .find(|bound| bound.address == 0x178a6ac)
             .expect("the StageID clamp must be widened");
         assert_eq!(bound.table, "stage_id");
         assert_eq!(bound.old_value, 363);
@@ -178,7 +178,7 @@ mod tests {
             );
             assert!((bound.new_value as usize) <= place.expanded_length);
         }
-        for address in [0x32b21fc, 0x32b244c, 0x240ca5c, 0x240cfec] {
+        for address in [0x32b330c, 0x32b355c, 0x240d74c, 0x240dcdc] {
             assert!(unrolled.iter().any(|bound| bound.address == address));
         }
     }
@@ -198,7 +198,7 @@ mod tests {
             assert_eq!(bound.old_opcode & 0x1F, bound.new_opcode & 0x1F);
             assert_eq!((bound.new_opcode >> 5) & 0xFFFF, 512 * 0x48);
         }
-        assert!(byte_length.iter().any(|bound| bound.address == 0x1739ec8));
+        assert!(byte_length.iter().any(|bound| bound.address == 0x17399e8));
     }
 
     #[test]
@@ -231,7 +231,7 @@ mod tests {
         }
         let resolver = STAGE_REFERENCES
             .iter()
-            .find(|r| r.adrp_at == 0x32b3d6c)
+            .find(|r| r.adrp_at == 0x32b4e7c)
             .expect("the place resolver must be in the census");
         assert_eq!(resolver.table, "stage_place");
         assert_eq!(resolver.delta, 0x30);
@@ -241,7 +241,7 @@ mod tests {
     fn the_place_resolver_scan_bound_is_widened() {
         let bound = STAGE_BOUNDS
             .iter()
-            .find(|bound| bound.address == 0x32b3d9c)
+            .find(|bound| bound.address == 0x32b4eac)
             .expect("the resolver's scan bound must be qualified");
         assert_eq!(bound.table, "stage_place");
         assert_eq!(bound.old_value, 138);
@@ -254,17 +254,17 @@ mod tests {
         let id = by_name("stage_id");
         assert_eq!(
             (id.address, id.element_size, id.native_length),
-            (0x45497E8, 0x48, 364)
+            (0x454c7e8, 0x48, 364)
         );
         let place = by_name("stage_place");
         assert_eq!(
             (place.address, place.element_size, place.native_length),
-            (0x4548258, 0x28, 138)
+            (0x454b258, 0x28, 138)
         );
         let aux = by_name("stage_place_aux");
         assert_eq!(
             (aux.address, aux.element_size, aux.native_length),
-            (0x4545B70, 0x20, 138)
+            (0x4548b70, 0x20, 138)
         );
         assert_eq!(
             place.address + place.element_size * place.native_length,
@@ -276,7 +276,7 @@ mod tests {
         bound.old_value as usize == table.element_size * table.native_length
     }
 
-    const UNROLLED_TAIL: &[usize] = &[0x240ca5c, 0x240cfec, 0x32b21fc, 0x32b244c];
+    const UNROLLED_TAIL: &[usize] = &[0x240d74c, 0x240dcdc, 0x32b330c, 0x32b355c];
 
     #[test]
     fn every_bound_widens_to_its_own_tables_expanded_length() {

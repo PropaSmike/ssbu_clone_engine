@@ -210,28 +210,28 @@ pub(crate) fn donor_for(id: u32) -> Option<u32> {
     None
 }
 
-const STAGE_FACTORY_DISPATCH: usize = 0x2633d10;
+const STAGE_FACTORY_DISPATCH: usize = 0x2634a00;
 const STAGE_FACTORY_DISPATCH_OPCODE: u32 = 0x7105ad1f;
 
-const STAGE_DATA_FACTORY_DISPATCH: usize = 0x240ef9c;
+const STAGE_DATA_FACTORY_DISPATCH: usize = 0x240fc8c;
 const STAGE_DATA_FACTORY_DISPATCH_OPCODE: u32 = 0x7105ad1f;
 
-const STAGE_DATA_CACHE_GATE: usize = 0x25e3c80;
+const STAGE_DATA_CACHE_GATE: usize = 0x25e4970;
 const STAGE_DATA_CACHE_GATE_OPCODE: u32 = 0xb5000168;
 
-const STAGE_DATA_DONOR_GATE: usize = 0x245c810;
+const STAGE_DATA_DONOR_GATE: usize = 0x245d500;
 const STAGE_DATA_DONOR_GATE_OPCODE: u32 = 0x7103451f;
 
-const STAGE_STDAT_METADATA_LOOKUP: usize = 0x25ff924;
+const STAGE_STDAT_METADATA_LOOKUP: usize = 0x2600614;
 const STAGE_STDAT_METADATA_LOOKUP_OPCODE: u32 = 0x5280090a;
 
-const END_FLAT_STAGE_ID_GATE: usize = 0x28348fc;
+const END_FLAT_STAGE_ID_GATE: usize = 0x28356ac;
 const END_FLAT_STAGE_ID_GATE_OPCODE: u32 = 0x71000d3f;
 
-const END_FOUR_PLATE_GATE: usize = 0x2835ed4;
+const END_FOUR_PLATE_GATE: usize = 0x2836c84;
 const END_FOUR_PLATE_GATE_OPCODE: u32 = 0x7100113f;
 
-const END_BATTLE_DECORATION_DECISION: usize = 0x28394a4;
+const END_BATTLE_DECORATION_DECISION: usize = 0x283a254;
 const END_BATTLE_DECORATION_DECISION_OPCODE: u32 = 0xf9418a6a;
 
 #[cfg(feature = "stage_mint_places")]
@@ -494,7 +494,7 @@ mod tests {
     fn the_census_holds_only_flat_stage_id_tables() {
         assert_eq!(STAGE_SWITCHES.len(), STAGE_SWITCH_COUNT);
         assert_eq!(STAGE_SWITCH_COUNT, 4);
-        assert!(STAGE_SWITCHES.iter().any(|s| s.cmp_at == 0x2633d10));
+        assert!(STAGE_SWITCHES.iter().any(|s| s.cmp_at == 0x2634a00));
         for switch in STAGE_SWITCHES {
             assert!(switch.entries <= 364, "{:#x}", switch.cmp_at);
             assert_eq!((switch.new_cmp_opcode >> 10) & 0xFFF, 511);
@@ -510,7 +510,7 @@ mod tests {
         let switch = switch_at(STAGE_FACTORY_DISPATCH);
         assert_eq!(switch.cmp_at, STAGE_FACTORY_DISPATCH);
         assert_eq!(switch.cmp_opcode, STAGE_FACTORY_DISPATCH_OPCODE);
-        assert_ne!(STAGE_FACTORY_DISPATCH, 0x2633c90);
+        assert_ne!(STAGE_FACTORY_DISPATCH, 0x2634980);
     }
 
     #[test]
@@ -518,41 +518,41 @@ mod tests {
         let switch = switch_at(STAGE_DATA_FACTORY_DISPATCH);
         assert_eq!(switch.cmp_at, STAGE_DATA_FACTORY_DISPATCH);
         assert_eq!(switch.cmp_opcode, STAGE_DATA_FACTORY_DISPATCH_OPCODE);
-        assert_eq!(switch.jump_table, 0x44fd898);
-        assert_eq!(switch.default_target, 0x24135dc);
-        assert_eq!(STAGE_DATA_FACTORY_DISPATCH, 0x240ef9c);
+        assert_eq!(switch.jump_table, 0x4500898);
+        assert_eq!(switch.default_target, 0x24142cc);
+        assert_eq!(STAGE_DATA_FACTORY_DISPATCH, 0x240fc8c);
     }
 
     #[test]
     fn runtime_data_cache_gate_preserves_native_replacement_lifecycle() {
-        assert_eq!(STAGE_DATA_CACHE_GATE, 0x25e3c80);
+        assert_eq!(STAGE_DATA_CACHE_GATE, 0x25e4970);
         assert_eq!(STAGE_DATA_CACHE_GATE_OPCODE, 0xb5000168);
-        assert!(STAGE_DATA_CACHE_GATE < 0x25e3c8c);
-        assert!(STAGE_DATA_CACHE_GATE < 0x25e3c98);
+        assert!(STAGE_DATA_CACHE_GATE < 0x25e497c);
+        assert!(STAGE_DATA_CACHE_GATE < 0x25e4988);
     }
 
     #[test]
     fn runtime_data_identity_gate_intercepts_only_the_loaded_id() {
-        assert_eq!(STAGE_DATA_DONOR_GATE, 0x245c810);
+        assert_eq!(STAGE_DATA_DONOR_GATE, 0x245d500);
         assert_eq!(STAGE_DATA_DONOR_GATE_OPCODE, 0x7103451f);
-        assert_ne!(STAGE_DATA_DONOR_GATE, 0x245c804);
+        assert_ne!(STAGE_DATA_DONOR_GATE, 0x245d4f4);
     }
 
     #[test]
     fn stdat_metadata_bridge_runs_after_the_widened_bound() {
-        assert_eq!(STAGE_STDAT_METADATA_LOOKUP, 0x25ff924);
+        assert_eq!(STAGE_STDAT_METADATA_LOOKUP, 0x2600614);
         assert!(crate::stage_bounds::STAGE_BOUNDS
             .iter()
-            .any(|bound| bound.address == 0x25ff954
+            .any(|bound| bound.address == 0x2600644
                 && bound.old_value == 26208
                 && bound.new_value == 36864));
         assert_eq!(STAGE_STDAT_METADATA_LOOKUP_OPCODE, 0x5280090a);
-        assert_ne!(STAGE_STDAT_METADATA_LOOKUP, 0x25ff91c);
+        assert_ne!(STAGE_STDAT_METADATA_LOOKUP, 0x260060c);
     }
 
     #[test]
     fn entries_are_rebased_so_every_case_lands_where_it_did() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let new_base = aligned_base(TEXT + 0x1000_0000, (TEXT + switch.jump_table) & 0xFFF);
         let plan = plan(switch, new_base, TEXT, read_entry, read_word).unwrap();
@@ -568,7 +568,7 @@ mod tests {
 
     #[test]
     fn everything_past_the_vanilla_cases_takes_the_default() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let new_base = aligned_base(TEXT + 0x1000_0000, (TEXT + switch.jump_table) & 0xFFF);
         let plan = plan(switch, new_base, TEXT, read_entry, read_word).unwrap();
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn a_minted_id_takes_its_donors_case() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let new_base = aligned_base(TEXT + 0x1000_0000, (TEXT + switch.jump_table) & 0xFFF);
         let mut plan = plan(switch, new_base, TEXT, read_entry, read_word).unwrap();
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn a_minted_donor_is_refused() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let mut plan = plan(
             switch,
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn a_table_further_than_an_i32_offset_is_refused() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let far = aligned_base(TEXT + 0xC000_0000, (TEXT + switch.jump_table) & 0xFFF);
         assert!(matches!(
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn a_changed_site_stops_the_pass() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, _) = image(switch);
         let read_word = |address: usize| {
             if address == TEXT + switch.cmp_at {
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn a_table_that_is_not_page_congruent_is_refused() {
-        let switch = switch_at(0x2633d10);
+        let switch = switch_at(0x2634a00);
         let (read_entry, read_word) = image(switch);
         let skewed = aligned_base(TEXT + 0x1000_0000, (TEXT + switch.jump_table) & 0xFFF) + 4;
         assert!(matches!(

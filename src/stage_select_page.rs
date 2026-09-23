@@ -28,7 +28,7 @@ pub const OFF_BUILD_PANELS: usize = 0x1B2A1F0;
 pub const OFF_HOLDER_MEMBER_DTOR: usize = 0x1B29A50;
 pub const HOLDER_MEMBER_OFFSET: usize = 0x208;
 
-pub const OFF_FIND_BY_DISP_ORDER: usize = 0x32B2500;
+pub const OFF_FIND_BY_DISP_ORDER: usize = 0x32b3610;
 
 pub const RESULT_TAG: u64 = 0x69;
 
@@ -552,7 +552,7 @@ mod tests {
         assert_eq!(OFF_HOLDER_MEMBER_DTOR, 0x1B29A50);
         assert_ne!(OFF_HOLDER_MEMBER_DTOR, 0x1B29EB0);
         assert_eq!(HOLDER_MEMBER_OFFSET, 0x208);
-        assert_eq!(OFF_FIND_BY_DISP_ORDER, 0x32B2500);
+        assert_eq!(OFF_FIND_BY_DISP_ORDER, 0x32b3610);
     }
 
     #[test]

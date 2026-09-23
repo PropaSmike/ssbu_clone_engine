@@ -15,12 +15,12 @@ struct ExpectedOpcode {
 
 include!("native_tables_13_0_4.rs");
 
-const NAME_UPPER_OFFSET: usize = 0x4f80a70;
-const NAME_LOWER_OFFSET: usize = 0x4f80e20;
-const NAME_TITLE_OFFSET: usize = 0x4f811d0;
-const KIND_HASH_OFFSET: usize = 0x453b1c0;
-const COMPACT_HASH_OFFSET: usize = 0x453bc58;
-const CLASS_DESCRIPTOR_OFFSET: usize = 0x529bfd0;
+const NAME_UPPER_OFFSET: usize = 0x4f83a70;
+const NAME_LOWER_OFFSET: usize = 0x4f83e20;
+const NAME_TITLE_OFFSET: usize = 0x4f841d0;
+const KIND_HASH_OFFSET: usize = 0x453e1c0;
+const COMPACT_HASH_OFFSET: usize = 0x453ec58;
+const CLASS_DESCRIPTOR_OFFSET: usize = 0x529efd0;
 const NAME_HASH_NATIVE_LEN: usize = 118;
 const COMPACT_NATIVE_LEN: usize = 94;
 

@@ -4,8 +4,8 @@ use crate::finalsmash_residency::{
     directory_index_for, directory_load_flags, fiber_note, resource_service,
 };
 
-const OFF_LOAD_DIRECTORY: usize = 0x35407a0;
-const OFF_LOAD_CONTEXT_REGISTER: usize = 0x17e2e30;
+const OFF_LOAD_DIRECTORY: usize = 0x3543ad0;
+const OFF_LOAD_CONTEXT_REGISTER: usize = 0x17e2bf0;
 const APPEND_OWNER_KIND: i32 = 82;
 const CTX_COLOR: usize = 0x64;
 const CTX_NAME_FLAG: usize = 0x7d;

@@ -9,9 +9,9 @@ use std::sync::RwLock;
 
 const OFF_GENERATOR_SETUP: usize = 0x15d7530;
 const OFF_ITEM_LOT: usize = 0x15bae00;
-const OFF_GAME_ALLOCATE: usize = 0x392dce0;
-const OFF_GAME_FREE: usize = 0x392e590;
-const KIND_MASK_GLOBAL: usize = 0x52c34a0;
+const OFF_GAME_ALLOCATE: usize = 0x3930a60;
+const OFF_GAME_FREE: usize = 0x3931310;
+const KIND_MASK_GLOBAL: usize = 0x52cb4a0;
 const ALLOCATION_ALIGN: u32 = 0x10;
 const HEAP_FLOOR: usize = 0x10_0000_0000;
 const LOG_LIMIT: u32 = 64;

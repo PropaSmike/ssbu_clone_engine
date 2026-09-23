@@ -12,7 +12,7 @@ use crate::{clone_base, dbg_log_public, offsets, text_base, FIGHTER_CLASS_TABLE,
 pub(crate) const FIGHTER_SLOTS: usize = 147;
 pub(crate) const WEAPON_SLOTS: usize = 104;
 pub(crate) const ITEM_SLOTS: usize = 181;
-pub(crate) const ITEM_OBJECT_VTABLE: usize = 0x5070488;
+pub(crate) const ITEM_OBJECT_VTABLE: usize = 0x5079488;
 const HEADER: usize = 3;
 const ITEM_HEADER: usize = 2;
 
