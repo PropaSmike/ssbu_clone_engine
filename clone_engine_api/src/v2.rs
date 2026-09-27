@@ -581,6 +581,28 @@ pub fn set_vtable_entry(kind: i32, index: u32, is_weapon: bool, function: *const
     set_vtable_entry_in(kind, index, u32::from(is_weapon), function)
 }
 
+type CommonVtableOverrideFn = unsafe extern "C" fn(i32, u32, u32, usize) -> usize;
+static COMMON_VTABLE_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_common_vtable_entry(kind: i32, slot: u32, function: *const ()) -> Option<usize> {
+    set_common_vtable_entry_in(kind, slot, SPACE_FIGHTER, function)
+}
+
+pub fn set_common_vtable_entry_in(
+    kind: i32,
+    slot: u32,
+    space: u32,
+    function: *const (),
+) -> Option<usize> {
+    let address = resolve(
+        &COMMON_VTABLE_OVERRIDE_FN,
+        b"clone_engine_common_vtable_override_v1\0",
+    )?;
+    let set: CommonVtableOverrideFn = unsafe { core::mem::transmute(address) };
+    let previous = unsafe { set(kind, slot, space, function as usize) };
+    (previous != 0).then_some(previous)
+}
+
 pub const SPACE_FIGHTER: u32 = 0;
 pub const SPACE_WEAPON: u32 = 1;
 pub const SPACE_ITEM: u32 = 2;
@@ -590,6 +612,58 @@ pub fn set_vtable_entry_in(kind: i32, index: u32, space: u32, function: *const (
     let set: VtableOverrideFn = unsafe { core::mem::transmute(address) };
     let previous = unsafe { set(kind, index, space, function as u64) };
     (previous != 0).then_some(previous as usize)
+}
+
+type CommonVtableOverride2Fn = unsafe extern "C" fn(i32, u32, u32, usize, usize) -> u32;
+static COMMON_VTABLE_OVERRIDE_2_FN: AtomicUsize = AtomicUsize::new(0);
+
+fn set_common_vtable_entry_followed(
+    kind: i32,
+    slot: u32,
+    space: u32,
+    function: *const (),
+    original: &AtomicUsize,
+) -> Option<bool> {
+    let address = resolve(
+        &COMMON_VTABLE_OVERRIDE_2_FN,
+        b"clone_engine_common_vtable_override_v2\0",
+    )?;
+    let set: CommonVtableOverride2Fn = unsafe { core::mem::transmute(address) };
+    let taken = unsafe {
+        set(
+            kind,
+            slot,
+            space,
+            function as usize,
+            original as *const AtomicUsize as usize,
+        )
+    };
+    Some(taken != 0)
+}
+
+type CopyCommonOverrideFn = unsafe extern "C" fn(i32, u32, usize, usize) -> u32;
+static COPY_COMMON_OVERRIDE_FN: AtomicUsize = AtomicUsize::new(0);
+
+fn set_copy_common_vtable_entry_followed(
+    kind: i32,
+    slot: u32,
+    function: *const (),
+    original: &AtomicUsize,
+) -> Option<bool> {
+    let address = resolve(
+        &COPY_COMMON_OVERRIDE_FN,
+        b"clone_engine_copy_common_vtable_override_v2\0",
+    )?;
+    let set: CopyCommonOverrideFn = unsafe { core::mem::transmute(address) };
+    let taken = unsafe {
+        set(
+            kind,
+            slot,
+            function as usize,
+            original as *const AtomicUsize as usize,
+        )
+    };
+    Some(taken != 0)
 }
 
 fn set_vtable_entry_followed(
@@ -623,6 +697,10 @@ impl Item {
     pub fn set_vtable_entry(&self, index: u32, function: *const ()) -> Option<usize> {
         set_vtable_entry_in(self.kind().get()?, index, SPACE_ITEM, function)
     }
+
+    pub fn set_common_vtable_entry(&self, slot: u32, function: *const ()) -> Option<usize> {
+        set_common_vtable_entry_in(self.kind().get()?, slot, SPACE_ITEM, function)
+    }
 }
 
 impl Fighter {
@@ -635,6 +713,24 @@ impl Fighter {
     pub fn set_vtable_entry(&self, index: u32, function: *const ()) -> Option<usize> {
         set_vtable_entry(self.kind().get()?, index, false, function)
     }
+
+    pub fn set_common_vtable_entry(&self, slot: u32, function: *const ()) -> Option<usize> {
+        set_common_vtable_entry(self.kind().get()?, slot, function)
+    }
+}
+
+impl Fighter {
+    pub fn set_copy_common_vtable_entry(
+        &self,
+        slot: u32,
+        function: *const (),
+        original: &'static AtomicUsize,
+    ) -> bool {
+        let Some(kind) = self.kind().get() else {
+            return false;
+        };
+        set_copy_common_vtable_entry_followed(kind, slot, function, original).unwrap_or(false)
+    }
 }
 
 impl Article {
@@ -646,6 +742,10 @@ impl Article {
 
     pub fn set_vtable_entry(&self, index: u32, function: *const ()) -> Option<usize> {
         set_vtable_entry(self.weapon_kind()?, index, true, function)
+    }
+
+    pub fn set_common_vtable_entry(&self, slot: u32, function: *const ()) -> Option<usize> {
+        set_common_vtable_entry_in(self.weapon_kind()?, slot, SPACE_WEAPON, function)
     }
 }
 
@@ -674,6 +774,36 @@ impl Override {
 
     pub fn install(&self) -> Result<(), Error> {
         let (kind, index, space, what) = match &self.site {
+            Site::FighterCommonSlot(fighter, index) => (
+                fighter.kind().get(),
+                *index,
+                SPACE_FIGHTER,
+                format!("{}'s common vtable slot {index}", fighter.identity),
+            ),
+            Site::CopyCommonSlot(fighter, index) => (
+                fighter.kind().get(),
+                *index,
+                SPACE_FIGHTER,
+                format!(
+                    "{}'s copy common vtable slot {index}, which runs on Kirby",
+                    fighter.identity
+                ),
+            ),
+            Site::WeaponCommonSlot(fighter, article, index) => (
+                fighter.article(article).weapon_kind(),
+                *index,
+                SPACE_WEAPON,
+                format!(
+                    "{}'s article {article} common vtable slot {index}",
+                    fighter.identity
+                ),
+            ),
+            Site::ItemCommonSlot(item, index) => (
+                item.kind().get(),
+                *index,
+                SPACE_ITEM,
+                format!("item {}'s common vtable slot {index}", item.identity),
+            ),
             Site::FighterSlot(fighter, index) => (
                 fighter.kind().get(),
                 *index,
@@ -707,7 +837,27 @@ impl Override {
             );
             return Err(Error::EngineUnavailable);
         };
-        match set_vtable_entry_followed(kind, index, space, self.function, &self.original) {
+        if let Site::CopyCommonSlot(..) = self.site {
+            match set_copy_common_vtable_entry_followed(kind, index, self.function, &self.original)
+            {
+                Some(true) => return Ok(()),
+                Some(false) => {
+                    elog!("[clone_engine] {}: {what} was refused", self.name);
+                    return Err(Error::InvalidName);
+                }
+                None => return Err(Error::EngineUnavailable),
+            }
+        }
+        let common = matches!(
+            self.site,
+            Site::FighterCommonSlot(..) | Site::WeaponCommonSlot(..) | Site::ItemCommonSlot(..)
+        );
+        let taken = if common {
+            set_common_vtable_entry_followed(kind, index, space, self.function, &self.original)
+        } else {
+            set_vtable_entry_followed(kind, index, space, self.function, &self.original)
+        };
+        match taken {
             Some(true) => return Ok(()),
             Some(false) => {
                 elog!(
@@ -735,6 +885,10 @@ pub enum Site {
     FighterSlot(&'static Fighter, u32),
     WeaponSlot(&'static Fighter, &'static str, u32),
     ItemSlot(&'static Item, u32),
+    FighterCommonSlot(&'static Fighter, u32),
+    CopyCommonSlot(&'static Fighter, u32),
+    WeaponCommonSlot(&'static Fighter, &'static str, u32),
+    ItemCommonSlot(&'static Item, u32),
 }
 
 pub struct Hook {
@@ -786,6 +940,10 @@ impl Hook {
                 fighter.article(article).vtable_entry(*index).unwrap_or(0)
             }
             Site::ItemSlot(item, index) => item.vtable_entry(*index).unwrap_or(0),
+            Site::FighterCommonSlot(..)
+            | Site::WeaponCommonSlot(..)
+            | Site::ItemCommonSlot(..)
+            | Site::CopyCommonSlot(..) => 0,
         };
         if found != 0 {
             self.resolved.store(found, Ordering::Release);
@@ -801,6 +959,20 @@ impl Hook {
                 format!("{}'s article {article} vtable slot {index}", fighter.identity)
             }
             Site::ItemSlot(item, index) => format!("item {}'s vtable slot {index}", item.identity),
+            Site::FighterCommonSlot(fighter, index) => {
+                format!("{}'s common vtable slot {index}", fighter.identity)
+            }
+            Site::WeaponCommonSlot(fighter, article, index) => format!(
+                "{}'s article {article} common vtable slot {index}",
+                fighter.identity
+            ),
+            Site::ItemCommonSlot(item, index) => {
+                format!("item {}'s common vtable slot {index}", item.identity)
+            }
+            Site::CopyCommonSlot(fighter, index) => format!(
+                "{}'s copy common vtable slot {index}",
+                fighter.identity
+            ),
         }
     }
 

@@ -122,6 +122,7 @@ mod stage_transaction;
 mod text_patch;
 mod thread_context;
 mod clone_vtables;
+mod common_vtables;
 
 #[cfg(feature = "css_slot")]
 use skyline::nn::ro::LookupSymbol;
@@ -1577,6 +1578,12 @@ pub(crate) fn enter_pending_weapon_kind(
     PENDING_WEAPON_KIND.enter(unsafe { current_thread_key() }, kind)
 }
 
+pub(crate) fn pending_weapon_kind() -> Option<i32> {
+    PENDING_WEAPON_KIND
+        .active(unsafe { current_thread_key() })
+        .filter(|kind| *kind >= 0)
+}
+
 macro_rules! nonshare_hook {
     ($name:ident, $off:expr) => {
         #[skyline::hook(offset = $off)]
@@ -1917,7 +1924,100 @@ unsafe fn clone_fighter_status_create(object: u64, boma: u64, lua_state: u64) ->
     if spoof.is_some() {
         core::ptr::write_volatile(kind_field, kind);
     }
+    common_vtables::on_fighter_agent(object, result);
     result
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_copy_common_vtable_override_v2(
+    kind: i32,
+    slot: u32,
+    function: usize,
+    original_out: usize,
+) -> u32 {
+    #[cfg(feature = "css_slot")]
+    {
+        match common_vtables::register_copy(kind, slot, function, original_out) {
+            Ok(_) => {
+                dbg_log_public(&format!(
+                    "[clone_engine] copy common vtable: kind {kind} slot {slot} ({}) taken; it runs on KIRBY while he holds this ability",
+                    clone_engine_core::common_vtable::slot_name(slot).unwrap_or("?"),
+                ));
+                1
+            }
+            Err(()) => {
+                dbg_log_public(&format!(
+                    "[clone_engine] copy common vtable: kind {kind} slot {slot} REFUSED; a copy hook needs a clone kind and a system line slot"
+                ));
+                0
+            }
+        }
+    }
+    #[cfg(not(feature = "css_slot"))]
+    {
+        let _ = (kind, slot, function, original_out);
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_common_vtable_override_v2(
+    kind: i32,
+    slot: u32,
+    space: u32,
+    function: usize,
+    original_out: usize,
+) -> u32 {
+    #[cfg(feature = "css_slot")]
+    {
+        match common_vtables::register_followed(kind, slot, space, function, original_out) {
+            Ok(_) => 1,
+            Err(()) => {
+                dbg_log_public(&format!(
+                    "[clone_engine] common vtable: kind {kind} slot {slot} space {space} REFUSED"
+                ));
+                0
+            }
+        }
+    }
+    #[cfg(not(feature = "css_slot"))]
+    {
+        let _ = (kind, slot, space, function, original_out);
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn clone_engine_common_vtable_override_v1(
+    kind: i32,
+    slot: u32,
+    space: u32,
+    function: usize,
+) -> usize {
+    #[cfg(feature = "css_slot")]
+    {
+        match common_vtables::register(kind, slot, space, function) {
+            Ok(previous) => {
+                dbg_log_public(&format!(
+                    "[clone_engine] common vtable: {} kind {kind} slot {slot} ({}) taken",
+                    if space == common_vtables::SPACE_WEAPON { "weapon" } else { "fighter" },
+                    clone_engine_core::common_vtable::slot_name(slot).unwrap_or("?"),
+                ));
+                previous.unwrap_or(0)
+            }
+            Err(()) => {
+                dbg_log_public(&format!(
+                    "[clone_engine] common vtable: kind {kind} slot {slot} space {space} REFUSED"
+                ));
+                0
+            }
+        }
+    }
+    #[cfg(not(feature = "css_slot"))]
+    {
+        let _ = (kind, slot, space, function);
+        0
+    }
 }
 
 #[no_mangle]
@@ -4179,6 +4279,7 @@ fn smashline_bridge_version() -> u32 {
         return version;
     }
     report_smashline_name_support();
+    common_vtables::note_smashline();
     SMASHLINE_BRIDGE_VERSION.load(core::sync::atomic::Ordering::Acquire)
 }
 
@@ -4214,6 +4315,7 @@ pub extern "C" fn clone_engine_smashline_bridge_version() -> u32 {
 pub fn main() {
     skyline::println!("[clone_engine] init (SSBU 13.0.4 create_agent clone engine)");
     report_smashline_name_support();
+    common_vtables::note_smashline();
 
     #[cfg(feature = "stage_relocate")]
     stage_transaction::apply_select_cap("early");
