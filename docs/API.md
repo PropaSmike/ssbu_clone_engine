@@ -283,9 +283,9 @@ with none hands back whatever the register holds.
 | `slot = slot::item::NAME, item = ITEM` | Same, in the item's own copy (181 entries). First parameter is the item object. `INITIALIZE(item, id, kind, flag, record)` at every spawn, `kind` is the base's; `START(item)` after it; `UPDATE_1..UPDATE_9(item)` each frame in order, statuses run inside them. Unnamed entries are `UNKn`. |
 | `common_slot = slot::common::NAME` | Replace that entry in the agent's own copy of the shared `L2CFighterCommon` vtable. First parameter is the agent. Slots 10 and 12 return `L2CValue`. Add `article = "name"` for `L2CWeaponCommon`, `item = ITEM` for an item agent (slots 0 to 9). |
 | `copy_slot = slot::common::NAME` | Replace that entry on Kirby, while he holds this fighter's copy ability. Slots 10 to 14 only, and it stands alone. |
-| `offset = 0x...` | Hook game code that is not a vtable entry, shared with other packs. Up to six integer or pointer parameters, integer, pointer or no return. |
-| `me = <parameter>` | Offset form only: skip the call unless that parameter is this fighter's. `of = OTHER` names another fighter. |
-| `expect = [w0, w1, w2, w3]` | Offset form: the words expected at the address. Without it the address must be an untouched function start. |
+| `offset = 0x...` | Hook game code that is not a vtable entry, shared with other packs: each call goes to the first hook that takes it, in load order, then to the game. Up to six integer or pointer parameters, integer, pointer or no return. Every hook on one address declares the same parameter count. |
+| `me = <parameter>` | Offset form only: skip the call unless that parameter is this fighter's. `of = OTHER` names another fighter. Without it the hook takes every call, and hooks loaded after it on that address never run. |
+| `expect = [w0, w1, w2, w3]` | Offset form: the words expected at the address. Without it the address must be an untouched function start, or one another pack already hooks through the engine. |
 
 `install_hooks!(a, b, ...)` installs them, after registration. A hook on the
 base's function through plain `#[skyline::hook]` also runs for the clone;

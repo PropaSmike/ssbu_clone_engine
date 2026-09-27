@@ -1003,9 +1003,10 @@ impl Hook {
             Some(expect) => expect,
             None => {
                 let live = self.live_words(offset).ok_or(Error::EngineUnavailable)?;
-                if !clone_engine_core::hook_site::entry_looks_untouched(&live) {
+                let shared = crate::shared_hook_words(offset);
+                let Some(words) = clone_engine_core::hook_site::entry_words(&live, shared) else {
                     elog!(
-                        "[clone_engine] hook {} at {:#x} ({}): the site is not an untouched function entry ({:#010x} {:#010x}); another plugin hooked it exclusively, or the offset is wrong",
+                        "[clone_engine] hook {} at {:#x} ({}): the site is not an untouched function entry ({:#010x} {:#010x}) and no other pack shares it through the engine; another plugin hooked it exclusively, or the offset is wrong",
                         self.name,
                         offset,
                         self.describe(),
@@ -1013,8 +1014,8 @@ impl Hook {
                         live[1]
                     );
                     return Err(Error::Engine(crate::ERROR_HOOK_PREFLIGHT));
-                }
-                live
+                };
+                words
             }
         };
         let registration =

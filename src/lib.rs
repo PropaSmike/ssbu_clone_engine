@@ -1374,6 +1374,21 @@ pub unsafe extern "C" fn clone_engine_shared_hook_original_v1(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn clone_engine_shared_hook_words_v1(offset: u64, words: *mut [u32; 4]) -> u32 {
+    if words.is_null() || offset == 0 {
+        return 0;
+    }
+    let _registration_guard = registration_gate().lock().unwrap();
+    match shared_hooks::recorded_words(text_base(), offset) {
+        Some(found) => {
+            *words = found;
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn clone_engine_add_costume_slots_v1(
     identity: *const c_char,
     highest_slot: i32,
