@@ -325,6 +325,19 @@ fn self_test() -> Result<(), &'static str> {
     Ok(())
 }
 
+pub fn recorded_words(text_base: usize, offset: u64) -> Option<[u32; PROLOGUE_WORDS]> {
+    let relative = usize::try_from(offset).ok()?;
+    if relative == 0 || relative >= MAIN_TEXT_END {
+        return None;
+    }
+    let slot = &SLOTS[find_slot(text_base.checked_add(relative)?)?];
+    let mut words = [0u32; PROLOGUE_WORDS];
+    for (word, stored) in words.iter_mut().zip(slot.expected_opcodes.iter()) {
+        *word = stored.load(Ordering::Acquire);
+    }
+    Some(words)
+}
+
 pub unsafe fn original(text_base: usize, offset: u64, args: &[u64; 6]) -> u64 {
     let Ok(relative) = usize::try_from(offset) else {
         return 0;

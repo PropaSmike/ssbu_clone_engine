@@ -510,6 +510,7 @@ type SharedHookFn = unsafe extern "C" fn(u64, usize) -> i32;
 type SharedHookV2Fn = unsafe extern "C" fn(*const SharedHookRegistrationV1) -> i32;
 type SharedHookStatusFn = unsafe extern "C" fn() -> u32;
 type SharedHookOriginalFn = unsafe extern "C" fn(u64, *const [u64; 6]) -> u64;
+type SharedHookWordsFn = unsafe extern "C" fn(u64, *mut [u32; 4]) -> u32;
 type RegisterItemV1Fn = unsafe extern "C" fn(*const CloneItemRegistrationV1) -> i32;
 type RegisterItemFamilyV2Fn = unsafe extern "C" fn(*const CloneItemFamilyRegistrationV2) -> i32;
 type RegisterItemUiV1Fn = unsafe extern "C" fn(*const CloneItemUiRegistrationV1) -> i32;
@@ -567,6 +568,7 @@ static SHARED_HOOK_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_V2_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static SHARED_HOOK_ORIGINAL_FN: AtomicUsize = AtomicUsize::new(0);
+static SHARED_HOOK_WORDS_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_ITEM_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_KIND_FOR_IDENTITY_FN: AtomicUsize = AtomicUsize::new(0);
 static ITEM_KIND_HELD_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1449,6 +1451,16 @@ pub unsafe fn shared_hook_original(offset: u64, args: &[u64; 6]) -> u64 {
     };
     let function: SharedHookOriginalFn = std::mem::transmute(address);
     function(offset, args as *const [u64; 6])
+}
+
+pub fn shared_hook_words(offset: u64) -> Option<[u32; 4]> {
+    let address = resolve(
+        &SHARED_HOOK_WORDS_FN,
+        b"clone_engine_shared_hook_words_v1\0",
+    )?;
+    let function: SharedHookWordsFn = unsafe { std::mem::transmute(address) };
+    let mut words = [0u32; 4];
+    (unsafe { function(offset, &mut words) } == 1).then_some(words)
 }
 
 pub fn pocket_holder_kind(module_accessor: u64) -> i32 {

@@ -29,6 +29,13 @@ pub fn entry_looks_untouched(words: &[u32; PROLOGUE_WORDS]) -> bool {
     first != B_OPCODE && first != BL_OPCODE
 }
 
+pub fn entry_words(
+    live: &[u32; PROLOGUE_WORDS],
+    shared: Option<[u32; PROLOGUE_WORDS]>,
+) -> Option<[u32; PROLOGUE_WORDS]> {
+    shared.or_else(|| entry_looks_untouched(live).then_some(*live))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hazard {
     BackwardLiteral { index: usize, word: u32 },
@@ -149,6 +156,30 @@ mod tests {
     #[test]
     fn zero_words_never_pass() {
         assert!(!entry_looks_untouched(&[0, 1, 1, 1]));
+    }
+
+    const PLANTED: [u32; 4] = [0x5800_0051, 0xd61f_0220, 0x1234_5678, 0x9abc_def0];
+
+    #[test]
+    fn a_shared_entry_takes_the_words_the_engine_recorded() {
+        assert_eq!(
+            entry_words(&PLANTED, Some(GANONDORF_ON_LINK_EVENT)),
+            Some(GANONDORF_ON_LINK_EVENT)
+        );
+    }
+
+    #[test]
+    fn an_untouched_entry_takes_its_live_words() {
+        assert_eq!(
+            entry_words(&GANONDORF_ON_LINK_EVENT, None),
+            Some(GANONDORF_ON_LINK_EVENT)
+        );
+    }
+
+    #[test]
+    fn an_entry_another_plugin_hooked_is_refused() {
+        assert_eq!(entry_words(&PLANTED, None), None);
+        assert_eq!(entry_words(&[0x1400_0010, 1, 1, 1], None), None);
     }
 
     #[test]
