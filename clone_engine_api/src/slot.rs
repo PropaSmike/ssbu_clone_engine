@@ -440,3 +440,14 @@ pub mod item {
     pub const HAVE: u32 = 179;
     pub const UNK180: u32 = 180;
 }
+
+pub mod common {
+    pub use clone_engine_core::common_vtable::{
+        CLEAN_COROUTINE, COROUTINE_YIELD, DELETER, DESTRUCTOR, GET_UNUSED_COROUTINE_INDEX,
+        IS_COROUTINE_RELEASE_CONTROL, RESET, RESUME_COROUTINE, SET_COROUTINE_RELEASE_CONTROL,
+        SET_STATUS_SCRIPTS, START_COROUTINE, SUB_BEGIN_ADDED_LINES, SUB_END_ADDED_LINES,
+        SYS_LINE_STATUS_END_CONTROL, SYS_LINE_SYSTEM_INIT,
+    };
+
+    pub const COUNT: u32 = clone_engine_core::common_vtable::SLOTS as u32;
+}

@@ -23,6 +23,10 @@ pub fn install(kind: i32) {
 
     // fighter_param.prc attribute: read straight out of the row by main, so the engine
     let applied = TEMPLATE.param("run_speed_max").mul(1.10);
+    // an integer attribute
+    let applied = applied & TEMPLATE.param("jump_squat_frame").int(3);
+    // one costume only: .slot(costume) before the value
+    let applied = applied & TEMPLATE.param("jump_y").slot(last).mul(0.95);
     // fighter_param_motion.prc field: ("param_motion", field)
     let applied = applied & TEMPLATE.param("param_motion").sub("escape_air_slide_distance").set(60.0);
     // one of the six fighter/common/param/ files: ("common", field); set shield_reset with shield_max

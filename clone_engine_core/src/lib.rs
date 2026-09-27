@@ -1,3 +1,5 @@
+pub mod article_lvd;
+pub mod common_vtable;
 pub mod fighter_common_copies;
 pub mod fighter_toml;
 pub mod fighter_param_row;

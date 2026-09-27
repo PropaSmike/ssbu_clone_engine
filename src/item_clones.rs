@@ -1681,12 +1681,26 @@ static SET_STATUS_ORIGINALS: [AtomicUsize; NATIVE_ITEM_COUNT] =
     [const { AtomicUsize::new(0) }; NATIVE_ITEM_COUNT];
 static SET_STATUS_HOOK_LOCK: Mutex<()> = Mutex::new(());
 
+pub(crate) unsafe fn agent_vtable_slots(vtable: usize) -> Option<usize> {
+    let nro = item_nro_base();
+    if nro == 0 {
+        return None;
+    }
+    let relative = vtable.checked_sub(nro)?;
+    crate::item_status_tables::ITEM_STATUS_AGENTS
+        .iter()
+        .flatten()
+        .find(|candidate| candidate.vtable as usize == relative)
+        .map(|candidate| candidate.slots as usize)
+}
+
 unsafe fn status_agent_base_kind(agent: *mut u8) -> Option<i32> {
     if agent.is_null() {
         return None;
     }
     let nro = item_nro_base();
-    let vtable = core::ptr::read_volatile(agent as *const usize);
+    let held = core::ptr::read_volatile(agent as *const usize);
+    let vtable = crate::common_vtables::original_vtable(held).unwrap_or(held);
     let relative = vtable.checked_sub(nro)?;
     crate::item_status_tables::ITEM_STATUS_AGENTS
         .iter()
@@ -1800,6 +1814,11 @@ unsafe extern "C" fn item_agent_dispatch_bridge(
     }
     if let Some(kind) = custom_kind {
         bind_active_agent(boma as usize, agent as usize);
+        crate::common_vtables::install(
+            crate::common_vtables::SPACE_ITEM,
+            kind,
+            agent as u64,
+        );
         #[cfg(feature = "item_selftest")]
         arm_status_selftest();
         let hooked = if scripts_for(kind).is_empty() {

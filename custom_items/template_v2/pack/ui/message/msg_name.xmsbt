@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmsbt>
+  <entry label="nam_item_template_item">
+    <text>Template Item</text>
+  </entry>
+  <entry label="nam_item_help_template_item">
+    <text>A custom item made with Clone Engine.</text>
+  </entry>
+</xmsbt>

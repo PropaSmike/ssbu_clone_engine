@@ -4,10 +4,10 @@ Registration in code, from before `fighter.toml`, `item.toml`, `stage.toml`
 and `v2`. Still works; not for new packs. Each section names the replacement
 in [API.md](API.md).
 
-Templates: [fighter](../custom_fighters/template/),
-[item](../custom_items/template/),
-[item owned by a fighter](../custom_items/fighter_owned_template/),
-[stage](../custom_stages/template/).
+The long-form fighter and item templates are retired; the
+[fighter](../custom_fighters/template_v2/) and
+[item](../custom_items/template_v2/) templates show the same features the new
+way. The [stage](../custom_stages/template/) template still uses these calls.
 
 ## Fighters
 

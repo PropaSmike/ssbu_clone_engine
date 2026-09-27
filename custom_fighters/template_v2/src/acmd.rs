@@ -44,6 +44,16 @@ pub unsafe extern "C" fn sound_attack11(agent: &mut L2CAgentBase) {
     }
 }
 
+pub unsafe extern "C" fn expression_attack11(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        ControlModule::set_rumble(
+            agent.module_accessor, Hash40::new("rbkind_attacks"), 0, false,
+            *BATTLE_OBJECT_ID_INVALID as u32,
+        );
+    }
+}
+
 pub unsafe extern "C" fn game_appeallw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 12.0);
     if macros::is_excute(agent) {

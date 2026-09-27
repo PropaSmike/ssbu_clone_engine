@@ -94,14 +94,12 @@ pack without code.
 
 | Template | What it shows |
 |---|---|
-| [Fighter](custom_fighters/template_v2/) | Registration by code, the CSK select entry, ParamConfig and engine stats, a Smashline moveset, an article, Kirby copy statuses and a hook |
-| [Item](custom_items/template_v2/) | Registration by code, a status, owner parameters, a vtable hook |
+| [Fighter](custom_fighters/template_v2/) | Registration by code, a capability check, the CSK select entry, ParamConfig and engine stats, a Smashline moveset, an article with its own scripts and ParamConfig behaviours, a Kirby copy with its own motions, article and scripts, and slot, common, copy and offset hooks |
+| [Item](custom_items/template_v2/) | Registration by code, a capability check, a pack skeleton, a status, common and owner parameters, natural drops, and item and common vtable hooks |
 | [Stage](custom_stages/template/) | A stage with normal, Omega and Battlefield forms and a stage select entry |
 
-The deprecated long-form templates, where every registration is written in
-code, are [custom_fighters/template](custom_fighters/template/),
-[custom_items/template](custom_items/template/) and
-[custom_items/fighter_owned_template](custom_items/fighter_owned_template/).
+The long-form API is in [DEPRECATED.md](docs/DEPRECATED.md). Its templates
+are retired; the ones above show everything they did.
 
 ## What the engine handles
 
@@ -165,6 +163,9 @@ work, so please show them the respect they deserve.
 - [skyline-smash](https://github.com/ultimate-research/skyline-smash): WuBoytH, blu-dev, jobrien97, jam1garner, jugeeya, Ayerbe-Dev, theincredibleplayer, FaultyPine
 - [smash-script](https://github.com/WuBoytH/smash-script): blu-dev, Claude-1308, Ayerbe-Dev, FaultyPine, WuBoytH
 - [ninput](https://github.com/blu-dev/ninput): blu-dev
+
+**Research**
+- [smash-vtables](https://github.com/theincredibleplayer/smash-vtables): theincredibleplayer
 
 ## License
 

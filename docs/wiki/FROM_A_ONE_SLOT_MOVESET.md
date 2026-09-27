@@ -69,16 +69,17 @@ keeps the last one. Every manifest method is in the
 | `#[skyline::hook(offset = get_agent_virtual_function(*FIGHTER_KIND_MARIO, 46, false, false))]` with a costume check inside | `#[hook(slot = slot::fighter::ON_LINK_EVENT)]`; same slot, but written into the clone's own list, so no check |
 | `Patch::in_text(get_agent_virtual_function(kind, 48, false, true)).data(my_fn)` | the same attribute; the clone has its own copy of Mario's list, so Mario keeps his |
 | `#[skyline::hook(offset = 0x...)]` on code that is not a vtable entry | `#[hook(offset = 0x..., me = weapon)]`; the check is in the attribute |
+| `#[skyline::hook(offset = 0x...)]` on an `L2CFighterCommon` entry, which every fighter shares, with a kind check inside | `#[hook(common_slot = slot::common::SYS_LINE_SYSTEM_INIT)]`; written into this clone's own copy of that vtable, so no check, and another pack can hook the same entry |
 | the same hook when nobody else will ever hook that address | `#[skyline::hook]` with `WAWA.is(...)` inside still works, but only one mod can have it |
 
 ```rust
 #[hook(slot = slot::fighter::ON_LINK_EVENT)]
-unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event: u64) {
+unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event: u64) -> u64 {
     call_original!(class, object, event)
 }
 
 #[hook(slot = slot::weapon::ON_ATTACK, article = "fireball")]
-unsafe fn fireball_hit(class: u64, weapon: *mut smash::app::Weapon, log: u32) {
+unsafe fn fireball_hit(class: u64, weapon: *mut smash::app::Weapon, log: u32) -> u32 {
     call_original!(class, weapon, log)
 }
 ```
@@ -87,6 +88,10 @@ The first parameter is the class object; the fighter or weapon comes second,
 as in the one-slot signature. `get_agent_virtual_function` is in
 `clone_engine_api::v2` with the tutorials' signature, and
 `WAWA.set_vtable_entry(index, f)` writes an entry by hand.
+
+The agent vtable that every fighter shares is `common_slot` rather than
+`slot`, and there the agent itself is the first parameter. See
+[Common vtables](../API.md#common-vtables).
 
 ## Parameters
 

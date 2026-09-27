@@ -424,11 +424,24 @@ pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
         return;
     }
     let mut index = core::ptr::read_volatile((article + ARTICLE_LVD_FILE_INDEX) as *const u32);
-    if let Some(ours) = lvd_remap(index) {
+    let read = ground_module_owner_kind(article);
+    let kind = match read {
+        Some(kind) if custom_articles::custom_weapon_source_kind(kind).is_some() => Some(kind),
+        _ => crate::pending_weapon_kind().or(read),
+    };
+    if kind.is_none() {
+        static KIND_LOG: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+        if !KIND_LOG.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            dbg_log!(
+                "[articlelvd] could not read the kind of the article parsing file {index:#x}; using the first clone registered for it"
+            );
+        }
+    }
+    if let Some(ours) = lvd_remap(index, kind) {
         static REMAP_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
         if REMAP_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
             dbg_log!(
-                "[articlelvd] the setup resolved the SOURCE file {index:#x}; pointing the parse                  at the clone's own {ours:#x} instead"
+                "[articlelvd] weapon {kind:?}: the setup resolved the source file {index:#x}; parsing the clone's own {ours:#x} instead"
             );
         }
         core::ptr::write_volatile((article + ARTICLE_LVD_FILE_INDEX) as *mut u32, ours);
@@ -460,47 +473,54 @@ pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
 }
 
 #[cfg(feature = "css_slot")]
-const LVD_REMAP_SLOTS: usize = 32;
+static LVD_REMAP: std::sync::RwLock<clone_engine_core::article_lvd::RemapTable> =
+    std::sync::RwLock::new(clone_engine_core::article_lvd::RemapTable::new());
 
 #[cfg(feature = "css_slot")]
-static LVD_REMAP: [(core::sync::atomic::AtomicU32, core::sync::atomic::AtomicU32);
-    LVD_REMAP_SLOTS] = [const {
-    (
-        core::sync::atomic::AtomicU32::new(RESOURCE_INDEX_MISSING),
-        core::sync::atomic::AtomicU32::new(RESOURCE_INDEX_MISSING),
-    )
-}; LVD_REMAP_SLOTS];
+fn note_lvd_remap(source: u32, kind: i32, clone: u32) {
+    if let Ok(mut table) = LVD_REMAP.write() {
+        table.note(source, kind, clone);
+    }
+}
 
 #[cfg(feature = "css_slot")]
-fn note_lvd_remap(source: u32, clone: u32) {
-    for (from, to) in LVD_REMAP.iter() {
-        match from.compare_exchange(
-            RESOURCE_INDEX_MISSING,
-            source,
-            core::sync::atomic::Ordering::AcqRel,
-            core::sync::atomic::Ordering::Acquire,
-        ) {
-            Ok(_) => {
-                to.store(clone, core::sync::atomic::Ordering::Release);
-                return;
-            }
-            Err(found) if found == source => return,
-            Err(_) => continue,
+fn lvd_remap(source: u32, kind: Option<i32>) -> Option<u32> {
+    LVD_REMAP
+        .read()
+        .ok()?
+        .lookup(source, kind)
+        .filter(|index| *index != RESOURCE_INDEX_MISSING)
+}
+
+#[cfg(feature = "css_slot")]
+const MODULE_OWNER_ACCESSOR: u64 = 0x20;
+
+#[cfg(feature = "css_slot")]
+unsafe fn ground_module_owner_kind(module: u64) -> Option<i32> {
+    let accessor = core::ptr::read_volatile((module + MODULE_OWNER_ACCESSOR) as *const u64);
+    if accessor < 0x1000 || accessor % 8 != 0 {
+        return None;
+    }
+    let accessor = accessor as *mut smash::app::BattleObjectModuleAccessor;
+    let kind = smash::app::utility::get_kind(&mut *accessor);
+    (kind >= 0).then_some(kind)
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn keep_article_lvd_resident(weapon_kind: i32) {
+    let clones = match LVD_REMAP.read() {
+        Ok(table) => table.clones_of(weapon_kind),
+        Err(_) => return,
+    };
+    for index in clones {
+        if crate::fighter_params::file_resident(index).is_err() {
+            crate::fighter_params::request_resource_file(index as i32);
         }
     }
 }
 
 #[cfg(feature = "css_slot")]
-fn lvd_remap(source: u32) -> Option<u32> {
-    LVD_REMAP.iter().find_map(|(from, to)| {
-        (from.load(core::sync::atomic::Ordering::Acquire) == source)
-            .then(|| to.load(core::sync::atomic::Ordering::Acquire))
-            .filter(|index| *index != RESOURCE_INDEX_MISSING)
-    })
-}
-
-#[cfg(feature = "css_slot")]
-const ARTICLE_COSTUME_SLOTS: usize = 8;
+const ARTICLE_COSTUME_SLOTS: usize = clone_engine_core::article_lvd::COSTUMES;
 
 #[cfg(feature = "css_slot")]
 static LVD_REQUESTED: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
@@ -512,6 +532,7 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
         .iter()
         .any(|slot| slot.load(core::sync::atomic::Ordering::Acquire) == weapon_kind)
     {
+        keep_article_lvd_resident(weapon_kind);
         return;
     }
 
@@ -539,20 +560,42 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
         .and_then(|name| name.to_str().ok())
         .unwrap_or("?");
 
-    let mut found = 0;
-    for costume in 0..ARTICLE_COSTUME_SLOTS {
-        let ours = format!("fighter/{owner}/model/{name}/c{costume:02}/{source}.lvd");
-        let vanilla = format!("fighter/{source_owner}/model/{source}/c{costume:02}/{source}.lvd");
-        let Some(index) = crate::item_params::scan_file_path_index(crate::hash40::hash40(&ours))
-        else {
+    let scan = |path: String| crate::item_params::scan_file_path_index(crate::hash40::hash40(&path));
+    let shipped: Vec<Option<u32>> = (0..ARTICLE_COSTUME_SLOTS)
+        .map(|costume| scan(format!("fighter/{owner}/model/{name}/c{costume:02}/{source}.lvd")))
+        .collect();
+    let vanilla: Vec<Option<u32>> = (0..ARTICLE_COSTUME_SLOTS)
+        .map(|costume| {
+            scan(format!(
+                "fighter/{source_owner}/model/{source}/c{costume:02}/{source}.lvd"
+            ))
+        })
+        .collect();
+    let found = shipped.iter().flatten().count();
+    let plan = clone_engine_core::article_lvd::plan(&shipped);
+    for (costume, chosen) in plan.chosen.iter().enumerate() {
+        let (Some((_, index)), Some(from)) = (chosen, vanilla[costume]) else {
             continue;
         };
-        crate::fighter_params::request_resource_file(index as i32);
-        found += 1;
-        if let Some(from) = crate::item_params::scan_file_path_index(crate::hash40::hash40(&vanilla))
-        {
-            note_lvd_remap(from, index);
-        }
+        note_lvd_remap(from, weapon_kind, *index);
+    }
+    keep_article_lvd_resident(weapon_kind);
+    if !plan.borrowed.is_empty() {
+        let pairs: Vec<String> = plan
+            .borrowed
+            .iter()
+            .map(|(costume, from)| format!("c{costume:02}<-c{from:02}"))
+            .collect();
+        dbg_log!(
+            "[articlelvd] weapon {weapon_kind}: {name} ships no {source}.lvd for {} costume(s), borrowing the nearest: {}",
+            pairs.len(),
+            pairs.join(" ")
+        );
+    }
+    if found == 0 && vanilla.iter().any(Option::is_some) {
+        dbg_log!(
+            "[articlelvd] weapon {weapon_kind}: its source {source_owner}/{source} has collision but {name} ships no fighter/{owner}/model/{name}/cNN/{source}.lvd, so it will have none"
+        );
     }
 
     for slot in LVD_REQUESTED.iter() {
@@ -870,7 +913,9 @@ pub(crate) unsafe fn article_status_agent_create(
     };
     let minted = custom_articles::custom_weapon_source_kind(kind).is_some();
     if !minted {
-        return call_original!(object, boma, lua_state);
+        let agent = call_original!(object, boma, lua_state);
+        crate::common_vtables::on_weapon_agent(object as u64, agent as u64);
+        return agent;
     }
 
     {
@@ -911,6 +956,7 @@ pub(crate) unsafe fn article_status_agent_create(
     if source.is_some() {
         core::ptr::write_volatile(kind_field, kind);
     }
+    crate::common_vtables::on_weapon_agent(object as u64, agent as u64);
 
     dbg_log!(
         "[articleagent] creator returned {:#x} vtable {:#x}",

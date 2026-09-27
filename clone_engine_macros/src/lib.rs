@@ -7,6 +7,8 @@ use syn::{Expr, FnArg, Ident, ItemFn, LitInt, Pat, ReturnType, Token, Type};
 struct HookArgs {
     offset: Option<Expr>,
     slot: Option<Expr>,
+    common_slot: Option<Expr>,
+    copy_slot: Option<Expr>,
     article: Option<Expr>,
     item: Option<Expr>,
     me: Option<Ident>,
@@ -19,6 +21,8 @@ impl Parse for HookArgs {
         let mut args = HookArgs {
             offset: None,
             slot: None,
+            common_slot: None,
+            copy_slot: None,
             article: None,
             item: None,
             me: None,
@@ -35,6 +39,8 @@ impl Parse for HookArgs {
             match key.as_str() {
                 "offset" => args.offset = Some(pair.value),
                 "slot" => args.slot = Some(pair.value),
+                "common_slot" => args.common_slot = Some(pair.value),
+                "copy_slot" => args.copy_slot = Some(pair.value),
                 "article" => args.article = Some(pair.value),
                 "item" => args.item = Some(pair.value),
                 "me" => {
@@ -54,7 +60,7 @@ impl Parse for HookArgs {
                 _ => {
                     return Err(syn::Error::new_spanned(
                         pair.path,
-                        "unknown key; use offset or slot (with article for a weapon's), me, of, expect",
+                        "unknown key; use offset, slot, common_slot or copy_slot (with article for a weapon's, item for an item's), me, of, expect",
                     ))
                 }
             }
@@ -103,7 +109,8 @@ struct Signature {
     output: Type,
 }
 
-fn signature(function: &ItemFn, allow_float: bool) -> Result<Signature, syn::Error> {
+fn signature(function: &ItemFn, vtable_entry: bool) -> Result<Signature, syn::Error> {
+    let allow_float = vtable_entry;
     let mut names = Vec::new();
     let mut types = Vec::new();
     for input in &function.sig.inputs {
@@ -119,7 +126,13 @@ fn signature(function: &ItemFn, allow_float: bool) -> Result<Signature, syn::Err
                 "the shared broker passes x0..x5 only: a float parameter cannot be hooked by offset; a vtable slot (slot = ...) takes it",
             ));
         }
-        if is_by_value_struct(&typed.ty) {
+        if matches!(&*typed.ty, Type::Reference(_)) && vtable_entry {
+            return Err(syn::Error::new_spanned(
+                &typed.ty,
+                "take the object as a raw pointer (*mut ...), not a reference",
+            ));
+        }
+        if is_by_value_struct(&typed.ty) && !vtable_entry {
             return Err(syn::Error::new_spanned(
                 &typed.ty,
                 "hook parameters must be integers, floats or raw pointers (a reference or by-value struct is not a register); use #[skyline::hook] with FIGHTER.is(...) inside, which is exclusive to your pack",
@@ -138,7 +151,7 @@ fn signature(function: &ItemFn, allow_float: bool) -> Result<Signature, syn::Err
             "the shared broker returns x0 only: a float return cannot be hooked by offset; a vtable slot (slot = ...) returns it",
         ));
     }
-    if is_by_value_struct(&output) {
+    if is_by_value_struct(&output) && !vtable_entry {
         return Err(syn::Error::new_spanned(
             &output,
             "the hook must return an integer, a float, a raw pointer or nothing",
@@ -147,11 +160,71 @@ fn signature(function: &ItemFn, allow_float: bool) -> Result<Signature, syn::Err
     Ok(Signature { names, types, output })
 }
 
+const SYSTEM_LINES: [(&str, u64, usize, bool); 5] = [
+    ("SYS_LINE_SYSTEM_INIT", 10, 1, true),
+    ("SUB_BEGIN_ADDED_LINES", 11, 2, false),
+    ("SYS_LINE_STATUS_END_CONTROL", 12, 1, true),
+    ("SUB_END_ADDED_LINES", 13, 1, false),
+    ("RESET", 14, 1, false),
+];
+
+fn system_line(slot: &Expr) -> Option<(&'static str, usize, bool)> {
+    let found = match slot {
+        Expr::Path(path) => {
+            let last = path.path.segments.last()?.ident.to_string();
+            SYSTEM_LINES.iter().find(|(name, _, _, _)| *name == last)
+        }
+        Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(int), .. }) => {
+            let value = int.base10_parse::<u64>().ok()?;
+            SYSTEM_LINES.iter().find(|(_, index, _, _)| *index == value)
+        }
+        _ => None,
+    }?;
+    Some((found.0, found.2, found.3))
+}
+
+fn check_system_line(slot: &Expr, function: &ItemFn) -> Result<(), syn::Error> {
+    let Some((name, parameters, through_x8)) = system_line(slot) else {
+        return Ok(());
+    };
+    let returns_value = match &function.sig.output {
+        ReturnType::Default => false,
+        ReturnType::Type(_, ty) => is_by_value_struct(ty),
+    };
+    if through_x8 && !returns_value {
+        return Err(syn::Error::new_spanned(
+            &function.sig,
+            format!(
+                "slot::common::{name} returns an L2CValue through x8: declare the hook -> L2CValue and return what call_original! gives back"
+            ),
+        ));
+    }
+    if !through_x8 && returns_value {
+        return Err(syn::Error::new_spanned(
+            &function.sig.output,
+            format!(
+                "slot::common::{name} returns no struct, so the game leaves x8 unset: declare -> u64 (or nothing) and return what call_original! gives back"
+            ),
+        ));
+    }
+    if function.sig.inputs.len() != parameters {
+        return Err(syn::Error::new_spanned(
+            &function.sig.inputs,
+            if parameters == 1 {
+                format!("slot::common::{name} takes the agent only: (agent: *mut ...)")
+            } else {
+                format!("slot::common::{name} takes the agent and an L2CValue: (agent: *mut ..., value: L2CValue)")
+            },
+        ));
+    }
+    Ok(())
+}
+
 fn slot_override(args: &HookArgs, function: &ItemFn, site: proc_macro2::TokenStream) -> TokenStream {
     if let Some(me) = &args.me {
         return syn::Error::new_spanned(
             me,
-            "me is not needed with slot = ...: the entry lives in this fighter's own vtable and only its objects reach it",
+            "me is not needed with slot = ... or common_slot = ...: the entry lives in this clone's own vtable and only its objects reach it",
         )
         .to_compile_error()
         .into();
@@ -214,6 +287,54 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
         Some(of) => quote!(#of),
         None => quote!(crate::__CLONE_ENGINE_FIGHTER),
     };
+    if let Some(copy) = &args.copy_slot {
+        if args.offset.is_some() || args.slot.is_some() || args.common_slot.is_some() {
+            return syn::Error::new_spanned(
+                copy,
+                "copy_slot = slot::common::... stands alone: it is the entry Kirby runs while he holds this fighter's ability",
+            )
+            .to_compile_error()
+            .into();
+        }
+        if let Err(error) = check_system_line(copy, &function) {
+            return error.to_compile_error().into();
+        }
+        let site = quote!(::clone_engine_api::v2::Site::CopyCommonSlot(#fighter_of, (#copy) as u32));
+        return slot_override(&args, &function, site);
+    }
+    if let Some(common) = &args.common_slot {
+        if args.offset.is_some() || args.slot.is_some() {
+            return syn::Error::new_spanned(
+                common,
+                "give common_slot = slot::common::... or slot = ..., not both",
+            )
+            .to_compile_error()
+            .into();
+        }
+        if let Err(error) = check_system_line(common, &function) {
+            return error.to_compile_error().into();
+        }
+        let site = match (&args.item, &args.article) {
+            (Some(item), None) => {
+                quote!(::clone_engine_api::v2::Site::ItemCommonSlot(&#item, (#common) as u32))
+            }
+            (None, Some(article)) => quote!(::clone_engine_api::v2::Site::WeaponCommonSlot(
+                #fighter_of,
+                #article,
+                (#common) as u32
+            )),
+            (None, None) => quote!(::clone_engine_api::v2::Site::FighterCommonSlot(
+                #fighter_of,
+                (#common) as u32
+            )),
+            (Some(item), Some(_)) => {
+                return syn::Error::new_spanned(item, "item and article are exclusive")
+                    .to_compile_error()
+                    .into()
+            }
+        };
+        return slot_override(&args, &function, site);
+    }
     if let Some(item) = &args.item {
         if args.article.is_some() || args.offset.is_some() {
             return syn::Error::new_spanned(

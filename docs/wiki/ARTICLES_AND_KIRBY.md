@@ -46,6 +46,10 @@ fighter/<your fighter>/model/<your article>/c00/<base article name>.lvd
 
 Renamed, it loads with no collision.
 
+A costume folder without its own `.lvd` uses the one from the nearest costume
+that has one. Several articles made from the same base article each use their
+own file.
+
 ## Kirby copies
 
 Reserve the status numbers the copied move needs:
@@ -71,6 +75,24 @@ MY_FIGHTER.arm_kirby();                                         // after the sta
 ```
 
 `arm_kirby` must come after the statuses are installed.
+
+### Hooks that run on Kirby
+
+Your fighter's `slot` and `common_slot` hooks never run for the copy: the
+object playing it is Kirby's, a vanilla kind. `copy_slot` registers the entry
+Kirby runs while he holds your ability.
+
+```rust
+#[hook(copy_slot = slot::common::SYS_LINE_STATUS_END_CONTROL)]
+unsafe fn kirby_status_end(agent: u64) -> L2CValue {  // agent is KIRBY's agent, not yours
+    call_original!(agent)                             // Kirby's own entry, also when no copy is held
+}
+```
+
+Slots 10 to 14 only; 10 and 12 return an `L2CValue`, 11, 13 and 14 a `u64`.
+Two Kirbys holding two different copies each get their own. Slot 10 runs once as Kirby's agent starts,
+before he holds any copy, so a copy hook there never fires; slot 12 runs at the
+end of every status. See [Common vtables](../API.md#common-vtables).
 
 The copy model, hat or full body, goes in
 `fighter/kirby/model/copy_<your name>_fitkirby/cNN/`, and the pack's

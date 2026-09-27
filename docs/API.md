@@ -73,7 +73,7 @@ pub fn main() {
 // slot: which vtable entry. class: the class object the game passes first;
 // object: the fighter; event: the entry's own argument.
 #[hook(slot = slot::fighter::ON_LINK_EVENT)]
-unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event: u64) {
+unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event: u64) -> u64 {
     call_original!(class, object, event) // the base's entry
 }
 ```
@@ -216,11 +216,12 @@ Several fighters in one file: `[[fighter]]` blocks, with `[[fighter.article]]`,
 | `is(x)` | `x` is this fighter. `x`: `&L2CFighterCommon`, `&L2CAgentBase`, `&L2CWeaponCommon`, `*mut BattleObject`, `*mut Fighter`, `*mut Weapon`, `*mut BattleObjectModuleAccessor`, `u64`. |
 | `owns(x)` | `x` is this fighter or one of its weapons or articles. |
 | `entries()`, `in_match()` | Match slots it occupies. |
-| `article("name")` | `.status(line, status, f)`, `.install()`, `.weapon_kind()`, `.index()`, `.spawn(boma)`, `.set_vtable_entry(n, f)`. Read `index()` right before use; never fall back to 0. |
+| `article("name")` | `.status(line, status, f)`, `.install()`, `.weapon_kind()`, `.index()`, `.spawn(boma)`, `.set_vtable_entry(n, f)`, `.set_common_vtable_entry(n, f)`. Read `index()` right before use; never fall back to 0. |
 | `copy_article("name")` | Same, for a `kirby_article`. |
 | `param("name")` | `.sub("field")`, `.slot(n)`, then `.set(v)`, `.mul(v)` or `.int(v)`. |
 | `kirby_family()`, `kirby_status(n)`, `arm_kirby()` | The reserved statuses. Arm after the `Agent::new("kirby")` statuses are installed. |
 | `set_vtable_entry(n, f)` | Write one vtable entry; returns the previous. |
+| `set_common_vtable_entry(n, f)`, `set_copy_common_vtable_entry(n, f, &ORIGINAL)` | [Common vtables](#common-vtables). |
 | `register(manifest)` | Above. |
 
 Compare fighters with `is` and `owns`; `utility::get_kind` answers the base.
@@ -253,7 +254,7 @@ unsafe fn on_search(class: u64, fighter: *mut smash::app::Fighter, log: u64) -> 
 
 // article: which of the fighter's articles; slot: a weapon vtable entry.
 #[hook(slot = slot::weapon::ON_ATTACK, article = "fireball")]
-unsafe fn fireball_hit(class: u64, weapon: *mut smash::app::Weapon, log: u32) {
+unsafe fn fireball_hit(class: u64, weapon: *mut smash::app::Weapon, log: u32) -> u32 {
     call_original!(class, weapon, log)
 }
 
@@ -267,16 +268,21 @@ unsafe fn block_update(item: *mut smash::app::BattleObject) {
 // offset: address of a game function in main; me: the parameter that must be this fighter's,
 // otherwise the call goes straight to the original.
 #[hook(offset = 0x33bd9c0, me = weapon)]
-unsafe fn weapon_hit(vtable: u64, weapon: *mut smash::app::Weapon, log: u32) {
+unsafe fn weapon_hit(vtable: u64, weapon: *mut smash::app::Weapon, log: u32) -> u32 {
     call_original!(vtable, weapon, log)
 }
 ```
+
+Declare the entry's real return type: the game reads it, and a hook declared
+with none hands back whatever the register holds.
 
 | Attribute | Meaning |
 |---|---|
 | `slot = slot::fighter::NAME` | Replace that entry in the fighter's own vtable copy. Runs for this fighter only. First parameter is the class object, the fighter second. Names: `slot::fighter::*` (146), `slot::weapon::*` (104). |
 | `slot = slot::weapon::NAME, article = "name"` | Same, in the article's own copy. |
 | `slot = slot::item::NAME, item = ITEM` | Same, in the item's own copy (181 entries). First parameter is the item object. `INITIALIZE(item, id, kind, flag, record)` at every spawn, `kind` is the base's; `START(item)` after it; `UPDATE_1..UPDATE_9(item)` each frame in order, statuses run inside them. Unnamed entries are `UNKn`. |
+| `common_slot = slot::common::NAME` | Replace that entry in the agent's own copy of the shared `L2CFighterCommon` vtable. First parameter is the agent. Slots 10 and 12 return `L2CValue`. Add `article = "name"` for `L2CWeaponCommon`, `item = ITEM` for an item agent (slots 0 to 9). |
+| `copy_slot = slot::common::NAME` | Replace that entry on Kirby, while he holds this fighter's copy ability. Slots 10 to 14 only, and it stands alone. |
 | `offset = 0x...` | Hook game code that is not a vtable entry, shared with other packs. Up to six integer or pointer parameters, integer, pointer or no return. |
 | `me = <parameter>` | Offset form only: skip the call unless that parameter is this fighter's. `of = OTHER` names another fighter. |
 | `expect = [w0, w1, w2, w3]` | Offset form: the words expected at the address. Without it the address must be an untouched function start. |
@@ -288,6 +294,130 @@ base's function through plain `#[skyline::hook]` also runs for the clone;
 `v2::get_agent_virtual_function(kind, index, is_weapon, get_ptr)`: the
 tutorials' signature, returns 0 instead of aborting; `get_ptr = true` on a
 clone kind is 0.
+
+## Common vtables
+
+Every fighter shares one `L2CFighterCommon` vtable, every weapon one
+`L2CWeaponCommon`, every item one `L2CAgentGeneratedBase`. An entry written
+there is written for the whole roster, so two packs writing the same entry
+overwrite each other. `common_slot` writes it in a copy private to this
+clone's agent, and it runs for this clone only.
+
+```rust
+use smash::lib::L2CValue;
+
+// common_slot: the shared agent entry to replace, by name.
+// The agent object itself is the first parameter, not a separate class object.
+#[hook(common_slot = slot::common::SYS_LINE_SYSTEM_INIT)]
+unsafe fn system_init(agent: u64) -> L2CValue {
+    call_original!(agent) // the entry this replaced, vanilla or another pack's
+}
+
+// article: the entry goes in that article's L2CWeaponCommon copy instead.
+#[hook(common_slot = slot::common::SUB_BEGIN_ADDED_LINES, article = "fireball")]
+unsafe fn fireball_lines(agent: u64, lines: L2CValue) -> u64 {
+    call_original!(agent, lines)
+}
+
+// item: the entry goes in that item's own agent vtable copy, slots 0 to 9.
+// The parameters after the agent are the entry's own; match the real signature.
+#[hook(common_slot = slot::common::START_COROUTINE, item = BLOCK)]
+unsafe fn block_start(agent: u64, index: i32, name: u64, state: *mut i32) -> u32 {
+    call_original!(agent, index, name, state)
+}
+```
+
+`SYS_LINE_SYSTEM_INIT` (10) and `SYS_LINE_STATUS_END_CONTROL` (12) return an
+`L2CValue` through x8: declare `-> L2CValue` with skyline-smash's type and
+return what `call_original!` gives back. 10 runs once, as the agent starts; 12
+at the end of every status. `SUB_BEGIN_ADDED_LINES` (11), `SUB_END_ADDED_LINES`
+(13) and `RESET` (14) return no struct: declare `-> u64`. 11 also takes an
+`L2CValue`. The macro checks both: a missing `L2CValue` on 10 or 12 lets the
+original write to wherever x8 last pointed, and one on 11, 13 or 14 makes the
+hook write through an x8 the game never set.
+
+`slot::common::*`, `COUNT` entries:
+
+| Slot | Name | Present on |
+|---|---|---|
+| 0 | `DESTRUCTOR` | all three |
+| 1 | `DELETER` | all three |
+| 2 | `COROUTINE_YIELD` | all three |
+| 3 | `START_COROUTINE` | all three |
+| 4 | `RESUME_COROUTINE` | all three |
+| 5 | `GET_UNUSED_COROUTINE_INDEX` | all three |
+| 6 | `CLEAN_COROUTINE` | all three |
+| 7 | `SET_COROUTINE_RELEASE_CONTROL` | all three |
+| 8 | `IS_COROUTINE_RELEASE_CONTROL` | all three |
+| 9 | `SET_STATUS_SCRIPTS` | all three |
+| 10 | `SYS_LINE_SYSTEM_INIT` | fighter, weapon |
+| 11 | `SUB_BEGIN_ADDED_LINES` | fighter, weapon |
+| 12 | `SYS_LINE_STATUS_END_CONTROL` | fighter, weapon |
+| 13 | `SUB_END_ADDED_LINES` | fighter, weapon |
+| 14 | `RESET` | fighter, weapon |
+
+An item agent shares the first **ten** of those slots, `SET_STATUS_SCRIPTS`
+included. Slots 10 to 14 are refused for an item: those indices exist, but on
+an item they are the item class's own generated virtuals, not the system lines
+the names describe.
+
+Item agent vtables are per item class and run from 10 to 118 slots, so the
+engine sizes the private copy from the class's real count rather than from the
+shared prefix. An agent whose count it cannot establish is refused and logged,
+because repointing to a short table would leave every slot above the copy
+reading past its end.
+
+Smashline gives each fighter and weapon object its own copy of the same
+vtable, and the engine writes into that copy rather than replacing it, so a
+`common_slot` hook and a Smashline common hook compose. If the agent still
+wears the shared vtable when the engine first looks, it waits and writes once
+Smashline has made the copy; an agent that never gets one is refused and
+logged.
+
+Item agents get the engine's own copy. Smashline inspects every agent, items
+included, so the engine keeps its copies inside its own module, where
+Smashline treats them as vanilla vtables. The log states where the copies live
+and whether Smashline will accept them.
+
+### Kirby copy abilities
+
+A fighter's `common_slot` hooks never reach Kirby: the object running the
+copied ability is Kirby's, a vanilla kind. `copy_slot` registers the entry
+Kirby runs while he holds this fighter's ability, and it is deliberately
+separate, because the status lines run on every Kirby status and silent
+inheritance would run a clone's code through all of Kirby's ordinary
+behaviour.
+
+```rust
+// copy_slot: the entry Kirby runs while he holds this fighter's copy ability.
+// Slots 10 to 14 only. No slot, common_slot or offset alongside it.
+#[hook(copy_slot = slot::common::SYS_LINE_STATUS_END_CONTROL)]
+unsafe fn kirby_status_end(agent: u64) -> L2CValue {
+    call_original!(agent) // Kirby's own entry, also when no copy is held
+}
+```
+
+A `copy_slot` hook on `SYS_LINE_SYSTEM_INIT` does not fire for a copy: Kirby's
+runs when his agent starts, before he can hold one.
+
+`agent` is Kirby's agent, so read Kirby's modules from it, not this fighter's.
+The routing is decided per call and per object, so two Kirbys holding two
+different clones' abilities each get their own.
+
+### By code
+
+| Function | Meaning |
+|---|---|
+| `Fighter::set_common_vtable_entry(n, f)` | One common entry for this fighter. |
+| `Fighter::set_copy_common_vtable_entry(n, f, &ORIGINAL)` | The Kirby copy entry. `ORIGINAL` is a `static AtomicUsize` the engine fills with the entry replaced; returns whether it was taken. |
+| `Article::set_common_vtable_entry(n, f)` | In that article's `L2CWeaponCommon` copy. |
+| `Item::set_common_vtable_entry(n, f)` | In that item's copy, slots 0 to 9. |
+| `v2::set_common_vtable_entry(kind, n, f)` | By kind, fighter space. |
+| `v2::set_common_vtable_entry_in(kind, n, space, f)` | `v2::SPACE_FIGHTER`, `v2::SPACE_WEAPON`, `v2::SPACE_ITEM`. |
+
+These return the entry previously registered for that slot, or `None` if it
+was free. That is a registration, not the vanilla function: use the `#[hook]`
+form when you want `call_original!`.
 
 ## Parameters
 
@@ -481,6 +611,7 @@ an integer. Several items: `[[item]]` blocks (engines after `0.2.1-beta.1`).
 | `status(line, "NAME", f)` | Status callback by name, registered at startup. Lines: `Setting`, `JointSrt`, `Init`, `Update`, `Coroutine`, `Exit`. Statuses are the base item's; an unknown name is refused. |
 | `owner_param("fighter", "field").set(v)` | As the manifest method. |
 | `vtable_entry(n)`, `set_vtable_entry(n, f)` | The item's own vtable copy. |
+| `set_common_vtable_entry(n, f)` | Its own agent vtable copy, slots 0 to 9. See [Common vtables](#common-vtables). |
 | `register(manifest)` | Above. |
 
 Spawning from code:
