@@ -20,6 +20,9 @@ fn resolve_relative_path(search_path: u32, relative: *const u8) -> u32;
 #[skyline::from_offset(0x3540450)]
 fn add_to_res_service(service: usize, file_path: u32);
 
+#[skyline::from_offset(0x353e4e0)]
+fn file_path_of_search_path(search_path: u32) -> u32;
+
 struct Residency {
     file_path: u32,
     service: usize,
@@ -123,6 +126,27 @@ unsafe fn inspect(search_path: u32) -> Residency {
 pub(crate) unsafe fn model_residency(search_path: u32) -> (&'static str, u32) {
     let state = inspect(search_path);
     (state.stop, state.file_path)
+}
+
+pub(crate) unsafe fn search_path_loaded(search_path: u32) -> bool {
+    if search_path == NOT_FOUND {
+        return false;
+    }
+    let service = core::ptr::read_volatile((crate::text_base() + FILESYSTEM) as *const usize);
+    if service < LOWEST_PLAUSIBLE_POINTER
+        || core::ptr::read_volatile((service + 0x78) as *const usize) < LOWEST_PLAUSIBLE_POINTER
+    {
+        return false;
+    }
+    let file_path = file_path_of_search_path(search_path);
+    if file_path == NOT_FOUND || file_path >= core::ptr::read_volatile((service + 0x18) as *const u32) {
+        return false;
+    }
+    let table_a = core::ptr::read_volatile((service + 0x08) as *const usize);
+    if table_a < LOWEST_PLAUSIBLE_POINTER {
+        return false;
+    }
+    core::ptr::read_volatile((table_a + file_path as usize * 8 + 4) as *const u8) != 0
 }
 
 fn ticket(counter: &AtomicU32, cap: u32) -> Option<u32> {

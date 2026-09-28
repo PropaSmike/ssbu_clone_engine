@@ -4171,6 +4171,10 @@ pub(crate) static ARTICLE_OWNER_OVERRIDE: crate::thread_context::ThreadScopedKin
     crate::thread_context::ThreadScopedKind::new("article_owner_override");
 
 #[cfg(feature = "css_slot")]
+pub(crate) static ARTICLE_SETUP_OWNER: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new("article_setup_owner");
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x17e0a4c, inline)]
 unsafe fn custom_article_owner_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
