@@ -870,7 +870,7 @@ pub(crate) static KIRBY_INIT_PROBE_LOG: core::sync::atomic::AtomicU32 =
 const NULL_PAGE: u64 = 0x1000;
 
 #[cfg(feature = "css_slot")]
-const KIRBY_ARTICLE_KIND_TABLE: usize = 0x4fcd098;
+const KIRBY_ARTICLE_KIND_TABLE: usize = 0x4fd6098;
 
 #[cfg(feature = "css_slot")]
 const KIRBY_ARTICLE_KIND_FIELD: u64 = 0x17398;
@@ -1013,7 +1013,7 @@ pub(crate) unsafe fn kirby_article_init_guard(ctx: &mut skyline::hooks::InlineCt
 }
 
 #[cfg(feature = "css_slot")]
-pub(crate) const OFF_OBSERVER_PURGE_REFCOUNT: usize = 0x37ae244;
+pub(crate) const OFF_OBSERVER_PURGE_REFCOUNT: usize = 0x37b1574;
 
 #[cfg(feature = "css_slot")]
 static OBSERVER_PURGE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);

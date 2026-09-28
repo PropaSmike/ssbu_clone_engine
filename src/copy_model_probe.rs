@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-const MODEL_BUILD: usize = 0x35c22e0;
-const FILESYSTEM: usize = 0x5331f20;
+const MODEL_BUILD: usize = 0x35c5610;
+const FILESYSTEM: usize = 0x533af20;
 const NOT_FOUND: u32 = 0xffffff;
 const LOWEST_PLAUSIBLE_POINTER: usize = 0x1_0000;
 const RECORD_STRIDE: usize = 0x18;
@@ -14,10 +14,10 @@ static CONTEXT_LOG: AtomicU32 = AtomicU32::new(0);
 static FATAL_LOG: AtomicU32 = AtomicU32::new(0);
 static GUARDED: AtomicU32 = AtomicU32::new(0);
 
-#[skyline::from_offset(0x35c2040)]
+#[skyline::from_offset(0x35c5370)]
 fn resolve_relative_path(search_path: u32, relative: *const u8) -> u32;
 
-#[skyline::from_offset(0x3540450)]
+#[skyline::from_offset(0x3543780)]
 fn add_to_res_service(service: usize, file_path: u32);
 
 struct Residency {
@@ -196,12 +196,12 @@ pub(crate) fn guarded() -> u32 {
 pub(crate) fn install() {
     skyline::install_hooks!(model_build_probe);
     crate::dbg_log_public(
-        "[copymodel] armed at 0x35c22e0. Its not-found path at 0x35c23a4 sets x8 to zero and the \
+        "[copymodel] armed at 0x35c5610. Its not-found path at 0x35c56d4 sets x8 to zero and the \
          very next instruction loads from x8+0x20, so a model.numdlb that resolves to a file path \
          whose resource record is not resident is an unconditional null dereference with no \
-         recovery. add_to_res_service at 0x3540450 only queues an async load and never populates \
+         recovery. add_to_res_service at 0x3543780 only queues an async load and never populates \
          the record, so the residency verdict taken here is the one the game itself reaches. A \
          resolved but non resident build is guarded: the load is queued, the out struct is zeroed \
-         exactly as 0x35c232c does for an unresolved path, and stop= names the check that failed.",
+         exactly as 0x35c565c does for an unresolved path, and stop= names the check that failed.",
     );
 }

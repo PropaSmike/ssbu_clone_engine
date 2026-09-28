@@ -9,7 +9,7 @@ const SCRIPT_CONTROL_KINDS: usize = 2;
 
 const SCRIPT_FACTORY_VTABLE_SLOT: usize = 0x30;
 
-const ITEM_DESCRIPTOR_TABLE: usize = 0x5070FC8;
+const ITEM_DESCRIPTOR_TABLE: usize = 0x5078fc8;
 const ITEM_DESCRIPTOR_NAME_OFFSET: usize = 0x18;
 const SLOT_INIT_WORD_04: u32 = 0xFFFF_FFFF;
 const SLOT_INIT_WORD_0C: u32 = 0x681;
@@ -307,35 +307,35 @@ const SLOT_SITES: &[SlotSite] = &[
         base_register: 24,
     },
     SlotSite {
-        offset: 0x24CF66C,
+        offset: 0x24d18ec,
         expected: 0x9B092148,
         expected_window: [0x9B092148, 0xF9401D00, 0xB4001860, 0xF9400008, 0xF9401908],
         kind_register: 10,
         base_register: 8,
     },
     SlotSite {
-        offset: 0x24CF6C0,
+        offset: 0x24d1940,
         expected: 0x9B092148,
         expected_window: [0x9B092148, 0xF9401D00, 0xB40015C0, 0xF9400008, 0xF9401908],
         kind_register: 10,
         base_register: 8,
     },
     SlotSite {
-        offset: 0x24CF714,
+        offset: 0x24d1994,
         expected: 0x9B092148,
         expected_window: [0x9B092148, 0xF9401D00, 0xB4001320, 0xF9400008, 0xF9401908],
         kind_register: 10,
         base_register: 8,
     },
     SlotSite {
-        offset: 0x24CF768,
+        offset: 0x24d19e8,
         expected: 0x9B092148,
         expected_window: [0x9B092148, 0xF9401D00, 0xB4001080, 0xF9400008, 0xF9401908],
         kind_register: 10,
         base_register: 8,
     },
     SlotSite {
-        offset: 0x24CF7BC,
+        offset: 0x24d1a3c,
         expected: 0x9B0A2508,
         expected_window: [0x9B0A2508, 0xF9401D00, 0xB4000DE0, 0xF9400008, 0xF9401908],
         kind_register: 8,
@@ -344,23 +344,23 @@ const SLOT_SITES: &[SlotSite] = &[
 ];
 
 const ROW_SITE: SlotSite = SlotSite {
-    offset: 0x17E1270,
+    offset: 0x17e1070,
     expected: 0x8B091549,
     expected_window: [0x8B091549, 0xF9400D24, 0xF0016889, 0x91229129, 0xB8A87928],
     kind_register: 9,
     base_register: 10,
 };
 
-const PATH_CATEGORY_SITE: usize = 0x17E1258;
+const PATH_CATEGORY_SITE: usize = 0x17e1058;
 const PATH_CATEGORY_EXPECTED: u32 = 0x7100245F;
 
 const OFF_ITEM_POPULATE: usize = 0x160AC80;
-const ITEM_KIND_CONFIG_TABLE: usize = 0x5070FD0;
+const ITEM_KIND_CONFIG_TABLE: usize = 0x5078fd0;
 const ITEM_KIND_CONFIG_STRIDE: usize = 0x20;
 const ITEM_KIND_CONFIG_ON_DEMAND: u8 = 2;
 const OFF_ITEM_ACQUIRE: usize = 0x1607FC0;
-const ITEM_MANAGER_GLOBAL: usize = 0x52C3498;
-const ITEM_RESOURCE_MANAGER_GLOBAL: usize = 0x5323680;
+const ITEM_MANAGER_GLOBAL: usize = 0x52cb498;
+const ITEM_RESOURCE_MANAGER_GLOBAL: usize = 0x532b680;
 const ITEM_RESOURCE_CONTAINER_OFFSET: usize = 0x78;
 const MATCH_LOAD_TAIL: usize = 0x15D5604;
 const MATCH_LOAD_TAIL_EXPECTED: u32 = 0xF106C27F;
@@ -373,7 +373,7 @@ const ITEM_PATH_NAMESPACE_REGISTER: usize = 3;
 const ITEM_PATH_BASENAME_REGISTER: usize = 4;
 const PATH_PROBE_LIMIT: usize = 240;
 
-const CONTAINER_INSERT: usize = 0x17E2E68;
+const CONTAINER_INSERT: usize = 0x17e2c68;
 const CONTAINER_INSERT_EXPECTED: u32 = 0x32005FE8;
 const CONTAINER_INSERT_KEY_REGISTER: usize = 21;
 const CONTAINER_INSERT_INDEX_REGISTER: usize = 23;
@@ -709,8 +709,8 @@ mod slot_gate_tests {
 
     #[test]
     fn the_clones_own_key_is_not_base_keyed() {
-        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36A0000));
-        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36A0008));
+        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36a2d80));
+        assert!(!key_is_base_keyed(0x36A, 0x45, 0x36a2d88));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
-const EFFECT_BANK_LOAD: usize = 0x355f8f0;
+const EFFECT_BANK_LOAD: usize = 0x3560a00;
 const FIGHTER_EFFECT_HANDLE_BASE: u32 = 0x300;
 const FIGHTER_EFFECT_HANDLE_END: u32 = 0x400;
 const EFFECT_DIRECTORY_PATH_TYPE: i32 = 20;

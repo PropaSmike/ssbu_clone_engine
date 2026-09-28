@@ -12,13 +12,13 @@ pub const FIRST_CUSTOM_WEAPON_KIND: i32 = 0x267;
 
 pub(crate) const MAX_CUSTOM_ARTICLES: usize = 256;
 
-const LOWERCASE_FIGHTER_NAMES: usize = 0x4f80e20;
+const LOWERCASE_FIGHTER_NAMES: usize = 0x4f88e20;
 const FIGHTER_NAME_COUNT: usize = 118;
 
-const LOWERCASE_WEAPON_NAMES: usize = 0x5185bd0;
-const WEAPON_OWNER_CATEGORIES: usize = 0x5186f08;
-const WEAPON_OWNER_NAMES: usize = 0x5188240;
-const WEAPON_OWNER_KINDS: usize = 0x455d7e4;
+const LOWERCASE_WEAPON_NAMES: usize = 0x518dbd0;
+const WEAPON_OWNER_CATEGORIES: usize = 0x518ef08;
+const WEAPON_OWNER_NAMES: usize = 0x5190240;
+const WEAPON_OWNER_KINDS: usize = 0x45657e4;
 const WEAPON_NAME_COUNT: usize = 0x267;
 
 #[repr(C)]
@@ -861,7 +861,7 @@ unsafe fn register_inner(
             && article.name == name.to_bytes_with_nul()
     }) {
         skyline::println!(
-            "[article] DECLINED '{}': weapon kind {} already owns 'fighter/{}/…/{}/', and two \
+            "[article] DECLINED '{}': weapon kind {} already owns 'fighter/{}/.../{}/', and two \
              weapon kinds cannot share one article directory. Give this one its own name.",
             name.to_string_lossy(),
             existing.weapon_kind,

@@ -1,9 +1,9 @@
 use crate::current_thread_key;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-const FIGHTER_NAME_TABLE: usize = 0x4f80e20;
-const WEAPON_NAME_TABLE: usize = 0x5185bd0;
-const WEAPON_OWNER_NAME_TABLE: usize = 0x5188240;
+const FIGHTER_NAME_TABLE: usize = 0x4f83e20;
+const WEAPON_NAME_TABLE: usize = 0x5188bd0;
+const WEAPON_OWNER_NAME_TABLE: usize = 0x518b240;
 
 const FIGHTER_NAME_COUNT: i32 = 118;
 const WEAPON_NAME_COUNT: i32 = 0x267;

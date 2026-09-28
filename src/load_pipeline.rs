@@ -5,7 +5,7 @@ pub(crate) unsafe fn entry_kind_array(entry_id: i32) -> (u32, i32, i32, i32) {
     if entry_id < 0 {
         return (0xffff_fffc, -9, -9, -9);
     }
-    let t1 = *((text_base() + 0x52b84f8) as *const usize);
+    let t1 = *((text_base() + 0x52bb4f8) as *const usize);
     if t1 == 0 {
         return (0xffff_ffff, -9, -9, -9);
     }
@@ -89,7 +89,7 @@ fn init_bridge_release(entry_id: i32, owned: Option<bool>) {
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 pub(crate) unsafe fn resource_record_for_entry(entry_id: i32) -> Option<usize> {
     let entry = usize::try_from(entry_id).ok().filter(|entry| *entry < 8)?;
-    let root = *((text_base() + 0x5323680) as *const usize);
+    let root = *((text_base() + 0x5326680) as *const usize);
     if root == 0 {
         return None;
     }
@@ -120,7 +120,7 @@ pub(crate) unsafe fn entry_for_resource_record(record: usize) -> Option<usize> {
     if record == 0 {
         return None;
     }
-    let root = *((text_base() + 0x5323680) as *const usize);
+    let root = *((text_base() + 0x5326680) as *const usize);
     if root == 0 {
         return None;
     }
@@ -236,7 +236,7 @@ pub(crate) unsafe fn directory_search_index_is_backed(index: i32) -> bool {
     if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
         return false;
     }
-    let service = *((text_base() + 0x5331f20) as *const usize);
+    let service = *((text_base() + 0x5334f20) as *const usize);
     if service == 0 {
         return false;
     }
@@ -268,7 +268,7 @@ pub(crate) static CAMERA_FALLBACK_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::from_offset(0x17dd7b0)]
+#[skyline::from_offset(0x17dd6f0)]
 fn resolve_child_in_directory(out: *mut u32, directory: u32, name: u64);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
@@ -920,8 +920,8 @@ macro_rules! setup_trace_probe {
     };
 }
 
-setup_trace_probe!(setup_trace_1, 1, 0x14e_5a40, "0x1754d80");
-setup_trace_probe!(setup_trace_2, 2, 0x14e_642c, "0x353d480");
+setup_trace_probe!(setup_trace_1, 1, 0x14e_5a40, "0x17548a0");
+setup_trace_probe!(setup_trace_2, 2, 0x14e_642c, "0x353e590");
 setup_trace_probe!(setup_trace_3, 3, 0x14e_7434, "0x510ff0");
 setup_trace_probe!(setup_trace_4, 4, 0x14e_84bc, "0x66ee40");
 setup_trace_probe!(
@@ -934,7 +934,7 @@ setup_trace_probe!(
     setup_trace_6,
     6,
     0x14e_93e0,
-    "0x3255580 (last before 0x14e94d4)"
+    "0x3256690 (last before 0x14e94d4)"
 );
 
 #[cfg(feature = "diag_load_barrier")]
@@ -1076,7 +1076,7 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
 #[cfg(all(feature = "diag_article_initspoof", feature = "true_kind"))]
 pub(crate) unsafe fn log_entry_installer_vt(n: u32, entry_id: i32) {
     let tb = text_base();
-    let t1 = *((tb + 0x52b84f8) as *const usize);
+    let t1 = *((tb + 0x52bb4f8) as *const usize);
     if t1 == 0 {
         return;
     }
@@ -1156,7 +1156,7 @@ pub(crate) unsafe extern "C" fn kind_validity_gate_hook(
 }
 
 #[cfg(any(feature = "diag_pathtrace", feature = "clone_runtime"))]
-pub(crate) const OFF_PATH_BUILDER: usize = 0x17df460;
+pub(crate) const OFF_PATH_BUILDER: usize = 0x17df3a0;
 
 #[cfg(feature = "diag_pathtrace")]
 pub(crate) static PATHB_COUNT: core::sync::atomic::AtomicU32 =
@@ -1258,7 +1258,7 @@ pub(crate) unsafe extern "C" fn path_builder_remap_hook(
 }
 
 #[cfg(feature = "true_kind")]
-pub(crate) const OFF_RESMGR_INSERT: usize = 0x17d1d70;
+pub(crate) const OFF_RESMGR_INSERT: usize = 0x17d1cb0;
 
 #[cfg(feature = "true_kind")]
 pub(crate) static RESMGR_INS_HI_COUNT: core::sync::atomic::AtomicU32 =
@@ -1358,7 +1358,7 @@ pub(crate) const OFF_RESMGR_ACTIVATE_BATCH_CALL: usize = 0x184a360;
 pub(crate) const OFF_RESMGR_ACTIVATE_DYNAMIC_CALL: usize = 0x197489c;
 
 #[cfg(feature = "true_kind")]
-#[skyline::from_offset(0x17d1f40)]
+#[skyline::from_offset(0x17d1e80)]
 pub(crate) unsafe fn resmgr_activate_native(this: u64, kind: u32, source_tree: u64);
 
 #[cfg(feature = "true_kind")]
@@ -1410,10 +1410,10 @@ pub(crate) unsafe fn resmgr_activate_dynamic_call_hook(ctx: &skyline::hooks::Inl
     resmgr_activate_and_mirror(ctx, "dynamic@197489c", &RESMGR_MIRROR_DYNAMIC_COUNT);
 }
 
-pub(crate) const OFF_LOAD_DISPATCH: usize = 0x17e5c00;
+pub(crate) const OFF_LOAD_DISPATCH: usize = 0x17e5b40;
 
 #[cfg(feature = "clone_runtime")]
-pub(crate) const OFF_LOAD_FINAL_REGISTER_CALL: usize = 0x17e7480;
+pub(crate) const OFF_LOAD_FINAL_REGISTER_CALL: usize = 0x17e73c0;
 
 #[cfg(feature = "clone_runtime")]
 pub(crate) static LOAD_FINAL_COUNT: core::sync::atomic::AtomicU32 =
@@ -1456,11 +1456,11 @@ pub(crate) unsafe fn load_final_register_call_hook(ctx: &mut skyline::hooks::Inl
 }
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-pub(crate) const OFF_GROUP_READY: usize = 0x17eb180;
+pub(crate) const OFF_GROUP_READY: usize = 0x17eb0c0;
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-pub(crate) const OFF_ENTRY_READY: usize = 0x17e4790;
+pub(crate) const OFF_ENTRY_READY: usize = 0x17e46d0;
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-pub(crate) const OFF_BASE_READY: usize = 0x17e28c0;
+pub(crate) const OFF_BASE_READY: usize = 0x17e2800;
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
 pub(crate) static GROUP_READY_118_COUNT: core::sync::atomic::AtomicU32 =
@@ -1473,7 +1473,7 @@ pub(crate) static BASE_READY_118_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-pub(crate) const OFF_NATIVE_KIND_REGISTER: usize = 0x17e4940;
+pub(crate) const OFF_NATIVE_KIND_REGISTER: usize = 0x17e4880;
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
 pub(crate) static NATIVE_REGISTER_118_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
@@ -1568,7 +1568,7 @@ pub(crate) unsafe fn custom_base_ready_probe(
     };
 
     let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as u64;
-    let fs = *((text + 0x5331f20) as *const u64);
+    let fs = *((text + 0x5334f20) as *const u64);
     let mut fs_count = 0u32;
     let mut fs_valid = 0u8;
     let mut fs_state = 0xffu8;
@@ -1764,7 +1764,7 @@ pub(crate) static CAMERA_ROUTE_DISABLED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x36de390)]
+#[skyline::hook(offset = 0x36df4a0)]
 pub(crate) unsafe fn camera_record_value_guard(object: *mut u8) -> f32 {
     if !object.is_null() {
         let record = core::ptr::read_volatile(object.add(0x38) as *const u64);
@@ -1882,7 +1882,7 @@ pub(crate) unsafe fn victory_camera_name_hook_b(ctx: &mut skyline::hooks::Inline
 pub(crate) static TRAIL_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x356092c, inline)]
+#[skyline::hook(offset = 0x3561a3c, inline)]
 pub(crate) unsafe fn trail_nutexb_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let data = ctx.registers[26].x() as *const u8;
     let size = ctx.registers[2].x() as usize;
@@ -1912,7 +1912,7 @@ pub(crate) static TRAIL_DIR_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x355fc30, inline)]
+#[skyline::hook(offset = 0x3560d40, inline)]
 pub(crate) unsafe fn trail_directory_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let built = ctx.registers[8].x();
     let base = ctx.registers[19].x();
@@ -1971,7 +1971,7 @@ pub(crate) static TRAIL_REQUEST_SEEN: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x355b308, inline)]
+#[skyline::hook(offset = 0x355c418, inline)]
 pub(crate) unsafe fn trail_request_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let hash = ctx.registers[1].x();
     let seen = TRAIL_REQUEST_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed);

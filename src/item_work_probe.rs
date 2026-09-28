@@ -170,7 +170,7 @@ unsafe fn request_placed_status(boma: usize) -> Option<i32> {
     Some(status)
 }
 
-const GRID_SINGLETON: usize = 0x532E490;
+const GRID_SINGLETON: usize = 0x5331490;
 
 unsafe fn report_grid_state(when: &str) {
     let slot = crate::text_base_public() + GRID_SINGLETON;

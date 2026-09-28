@@ -678,7 +678,7 @@ pub(crate) fn base_name_hash(base: i32) -> Option<u64> {
 
 #[cfg(feature = "diag_article_initspoof")]
 pub(crate) unsafe fn manager_chain() -> (usize, usize, u64) {
-    let mgr = *((text_base() + 0x5323680) as *const usize);
+    let mgr = *((text_base() + 0x532c680) as *const usize);
     if mgr == 0 {
         return (0, 0, 0);
     }
@@ -691,7 +691,7 @@ pub(crate) unsafe fn manager_chain() -> (usize, usize, u64) {
 
 #[cfg(any(feature = "diag_article_initspoof", feature = "clone_runtime"))]
 pub(crate) unsafe fn entry_kind_slot(entry_id: i32, kind: i32) -> Option<(*mut i32, usize, u32)> {
-    let t1 = *((text_base() + 0x52b84f8) as *const usize);
+    let t1 = *((text_base() + 0x52c14f8) as *const usize);
     if t1 == 0 {
         return None;
     }

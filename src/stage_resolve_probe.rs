@@ -1,10 +1,10 @@
-pub const OFF_PLACE_HASH_RESOLVER: usize = 0x32b3860;
+pub const OFF_PLACE_HASH_RESOLVER: usize = 0x32b4970;
 
 pub const OFF_STAGE_NAME_RESOLVER: usize = 0x13fa740;
 
-pub const OFF_PLACE_FORM_SCAN: usize = 0x1739df0;
+pub const OFF_PLACE_FORM_SCAN: usize = 0x1739910;
 
-pub const OFF_STAGE_SELECT_TO_ID: usize = 0x33117b0;
+pub const OFF_STAGE_SELECT_TO_ID: usize = 0x33128c0;
 
 pub const OFF_PANEL_LIST_COUNT: usize = 0x1B30FB0;
 pub const PANEL_LIST_COUNT_OPCODE: u32 = 0x1B097D03;

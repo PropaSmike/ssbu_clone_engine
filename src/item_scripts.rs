@@ -2,22 +2,22 @@ use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsiz
 
 use crate::item_slots::{text_word, InlineHook};
 
-const AGENT_MANAGER_GLOBAL: usize = 0x593A340;
+const AGENT_MANAGER_GLOBAL: usize = 0x5942340;
 
-const OFF_AGENT_GET_OR_CREATE: usize = 0x372BA50;
+const OFF_AGENT_GET_OR_CREATE: usize = 0x372e7d0;
 const AGENT_GET_OR_CREATE_EXPECTED: u32 = 0xD10143FF;
 
-const OFF_AGENT_RELEASE: usize = 0x372BCB0;
+const OFF_AGENT_RELEASE: usize = 0x372ea30;
 const AGENT_RELEASE_EXPECTED: u32 = 0xD10203FF;
 
-const OFF_AGENT_LOAD_CHUNK: usize = 0x372C470;
+const OFF_AGENT_LOAD_CHUNK: usize = 0x372f1f0;
 const AGENT_LOAD_CHUNK_EXPECTED: u32 = 0xA9BB67FA;
 
-const OFF_LUA_LOAD_CHUNK: usize = 0x372D180;
+const OFF_LUA_LOAD_CHUNK: usize = 0x372ff00;
 
-const OFF_AGENT_LOCK: usize = 0x39C1490;
+const OFF_AGENT_LOCK: usize = 0x39c4210;
 const AGENT_LOCK_EXPECTED: u32 = 0xB000C6F0;
-const OFF_AGENT_UNLOCK: usize = 0x39C14A0;
+const OFF_AGENT_UNLOCK: usize = 0x39c4220;
 const AGENT_UNLOCK_EXPECTED: u32 = 0xB000C6F0;
 const AGENT_MANAGER_LOCK_FIELD: usize = 0x70;
 const LUA_LOAD_CHUNK_EXPECTED: u32 = 0xA9BD57FC;
@@ -30,7 +30,7 @@ const LUA_TVALUE_TAG: usize = 8;
 
 const ITEM_PARENT_AGENT: u64 = 0x9_846E_2F98;
 
-const KIND_AGENT_TABLE: usize = 0x453E7B8;
+const KIND_AGENT_TABLE: usize = 0x45467b8;
 const KIND_AGENT_ROWS: usize = 0x1B0;
 const KIND_AGENT_STRIDE: usize = 0x10;
 
@@ -270,7 +270,7 @@ unsafe fn compile_own_chunk(state: usize, hash: u64) -> Result<usize, String> {
     if result != 0 {
         reset_lua_stack(state);
         return Err(format!(
-            "0x372D180 returned {result:#x} for {} bytes",
+            "0x372ff00 returned {result:#x} for {} bytes",
             bytes.len()
         ));
     }
@@ -468,7 +468,7 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
         let (_, [_, agent]) = survey_agents(manager, [ITEM_PARENT_AGENT, hash]);
         if result != 0 || agent == 0 {
             report(format!(
-                "0x372BA50 returned {result:#x} and left agent={agent:#x}: \
+                "0x372e7d0 returned {result:#x} and left agent={agent:#x}: \
                  manager={manager:#x} agents={agents} parent present={:#x}",
                 parent_live
             ));

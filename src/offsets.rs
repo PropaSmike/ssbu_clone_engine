@@ -36,32 +36,32 @@ pub(crate) const OFF_KIRBY_COPY_ROW_SEARCH: usize = 0xba51d4;
 pub(crate) const OFF_KIRBY_COPY_HAT_RECORD_REGION: usize = 0xba53d0;
 pub(crate) const OFF_KIRBY_COPY_REMOVAL_HASHLIST_A: usize = 0xba492c;
 pub(crate) const OFF_KIRBY_COPY_REMOVAL_HASHLIST_B: usize = 0xba4e20;
-pub(crate) const KIRBY_COPY_KIND_HASHLIST_TABLE: usize = 0x4fcd388;
+pub(crate) const KIRBY_COPY_KIND_HASHLIST_TABLE: usize = 0x50d5388;
 pub(crate) const OFF_KIRBY_COPY_CALLBACK_KIND_4: usize = 0xba5430;
-pub(crate) const OFF_KIRBY_COPY_RECORD_CREATOR: usize = 0x17f0bd0;
-pub(crate) const OFF_KIRBY_COPY_RECORD_NAME: usize = 0x17f0d30;
-pub(crate) const OFF_KIRBY_COPY_RECORD_BODY_NAME: usize = 0x17f0f54;
-pub(crate) const OFF_KIRBY_COPY_RECORD_SOUND_NAME: usize = 0x17f1158;
-pub(crate) const OFF_KIRBY_COPY_DIR_REGISTRAR: usize = 0x17effe0;
-pub(crate) const OFF_KIRBY_COPY_DIR_REGISTRAR_PARENT: usize = 0x17efb80;
-pub(crate) const OFF_KIRBY_COPY_DIR_NAME_MERGE: usize = 0x17f0058;
+pub(crate) const OFF_KIRBY_COPY_RECORD_CREATOR: usize = 0x17ec9d0;
+pub(crate) const OFF_KIRBY_COPY_RECORD_NAME: usize = 0x17ecb30;
+pub(crate) const OFF_KIRBY_COPY_RECORD_BODY_NAME: usize = 0x17ecd54;
+pub(crate) const OFF_KIRBY_COPY_RECORD_SOUND_NAME: usize = 0x17ecf58;
+pub(crate) const OFF_KIRBY_COPY_DIR_REGISTRAR: usize = 0x17ebde0;
+pub(crate) const OFF_KIRBY_COPY_DIR_REGISTRAR_PARENT: usize = 0x17eb980;
+pub(crate) const OFF_KIRBY_COPY_DIR_NAME_MERGE: usize = 0x17ebe58;
 
-pub(crate) const KIRBY_COPY_NAME_TABLE: usize = 0x509ece0;
+pub(crate) const KIRBY_COPY_NAME_TABLE: usize = 0x51a6ce0;
 pub(crate) const KIRBY_COPY_NAME_COUNT: i32 = 94;
-pub(crate) const OFF_KIRBY_COPY_RECORD_LOOKUP_KIND: usize = 0x341b164;
-pub(crate) const OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY: usize = 0x17f0a10;
+pub(crate) const OFF_KIRBY_COPY_RECORD_LOOKUP_KIND: usize = 0x3478ee4;
+pub(crate) const OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY: usize = 0x17ec810;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_0: usize = 0xba1884;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_1: usize = 0xba18c8;
 pub(crate) const OFF_KIRBY_COPY_RESOURCE_SLOT_2: usize = 0xba1908;
 
-pub(crate) const OFF_KIRBY_COPY_MEMBER_BUILDER: usize = 0x17f06e0;
-pub(crate) const OFF_KIRBY_COPY_MEMBER_BUILDER_2: usize = 0x17f0890;
+pub(crate) const OFF_KIRBY_COPY_MEMBER_BUILDER: usize = 0x17ec4e0;
+pub(crate) const OFF_KIRBY_COPY_MEMBER_BUILDER_2: usize = 0x17ec690;
 pub(crate) const OFF_KIRBY_COPY_TRANSFER_LOOKUP: usize = 0x6de954;
-pub(crate) const OFF_RESOURCE_MANAGER_GLOBAL: usize = 0x5323680;
-pub(crate) const OFF_STD_MUTEX_LOCK: usize = 0x39c1410;
-pub(crate) const OFF_STD_MUTEX_UNLOCK: usize = 0x39c1420;
-pub(crate) const OFF_STD_RECURSIVE_MUTEX_LOCK: usize = 0x39c1490;
-pub(crate) const OFF_STD_RECURSIVE_MUTEX_UNLOCK: usize = 0x39c14a0;
+pub(crate) const OFF_RESOURCE_MANAGER_GLOBAL: usize = 0x542b680;
+pub(crate) const OFF_STD_MUTEX_LOCK: usize = 0x3abd020;
+pub(crate) const OFF_STD_MUTEX_UNLOCK: usize = 0x3abd030;
+pub(crate) const OFF_STD_RECURSIVE_MUTEX_LOCK: usize = 0x3abd0a0;
+pub(crate) const OFF_STD_RECURSIVE_MUTEX_UNLOCK: usize = 0x3abd0b0;
 pub(crate) const KIRBY_RECORD_SLOT_COUNT: usize = 20;
 pub(crate) const KIRBY_RECORD_TABLE_OFFSET: usize = 0x98;
 pub(crate) const KIRBY_RECORD_SLOT_STRIDE: usize = 0x1748;
@@ -98,27 +98,27 @@ pub(crate) const OFF_COPY_CHARA_THUNK_5: usize = 0x20aaedc;
 pub(crate) const OFF_COPY_CHARA_THUNK_6: usize = 0x20ac26c;
 pub(crate) const OFF_COPY_CHARA_THUNK_7: usize = 0x20ac700;
 pub(crate) const OFF_COPY_CHARA_THUNK_8: usize = 0x20acbe0;
-pub(crate) const OFF_WEAPON_PRELOAD: usize = 0x17eeae0;
+pub(crate) const OFF_WEAPON_PRELOAD: usize = 0x17ea8e0;
 pub(crate) const OFF_WEAPON_LOOP_CONT_A: usize = 0x607e44;
 pub(crate) const OFF_WEAPON_LOOP_CONT_B: usize = 0x607e74;
 pub(crate) const OFF_WEAPON_LOOP_SLOT_ARGS: usize = 0x607f28;
 pub(crate) const OFF_WEAPON_LOOP_RESOLVED: usize = 0x607f98;
-pub(crate) const OFF_RESOURCE_SLOT: usize = 0x17f1aa0;
+pub(crate) const OFF_RESOURCE_SLOT: usize = 0x17ed8a0;
 
 pub(crate) const OFF_FIGHTER_CLASS_RESOLVER: usize = 0x68d530;
 
-pub(crate) const FIGHTER_CLASS_TABLE: usize = 0x529bfd0;
-pub(crate) const OFF_WEAPON_CLASS_RESOLVER: usize = 0x33be790;
-pub(crate) const OFF_WEAPON_CLASS_RECACHE: usize = 0x339fd60;
+pub(crate) const FIGHTER_CLASS_TABLE: usize = 0x52a8fd0;
+pub(crate) const OFF_WEAPON_CLASS_RESOLVER: usize = 0x341c510;
+pub(crate) const OFF_WEAPON_CLASS_RECACHE: usize = 0x33fdae0;
 
 pub(crate) const OFF_STATIC_FIGHTER_DATA: usize = 0x64b730;
 
 pub(crate) const OFF_FIGHTER_AUX_DATA_INIT: usize = 0x34af10;
 
 #[cfg(feature = "clone_runtime")]
-pub(crate) const OFF_MODEL_PATH_RESOLVE: usize = 0x17e9a00;
+pub(crate) const OFF_MODEL_PATH_RESOLVE: usize = 0x17e5800;
 #[cfg(feature = "clone_runtime")]
-pub(crate) const OFF_FIGHTER_RESOURCE_PATH_RESOLVE: usize = 0x17e88d0;
+pub(crate) const OFF_FIGHTER_RESOURCE_PATH_RESOLVE: usize = 0x17e46d0;
 
 pub(crate) const RESOURCE_INDEX_NOT_FOUND: i32 = 0xff_ffff;
 pub(crate) const OFF_FIGHTER_BOUNDARY_PARAMS: usize = 0x6797b0;

@@ -39,11 +39,11 @@ mod tests {
 
     #[test]
     fn a_mid_page_pair_is_one_untouched_chunk() {
-        let chunks = plan_chunks(0x25f7064, 8);
+        let chunks = plan_chunks(0x25f9734, 8);
         assert_eq!(
             chunks,
             vec![Chunk {
-                start: 0x25f7064,
+                start: 0x25f9734,
                 lead: 0,
                 len: 8
             }]
@@ -61,17 +61,17 @@ mod tests {
 
     #[test]
     fn a_pair_that_straddles_a_page_splits_and_shifts_down() {
-        let chunks = plan_chunks(0x25f7ffc, 8);
+        let chunks = plan_chunks(0x25fa6cc, 8);
         assert_eq!(
             chunks,
             vec![
                 Chunk {
-                    start: 0x25f7ff8,
+                    start: 0x25fa6c8,
                     lead: 4,
                     len: 4
                 },
                 Chunk {
-                    start: 0x25f8000,
+                    start: 0x25fa6d0,
                     lead: 0,
                     len: 4
                 }

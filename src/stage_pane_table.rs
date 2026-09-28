@@ -26,7 +26,7 @@ pub(crate) mod live {
     use super::*;
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    const OFF_PANE_CONSUMER: usize = 0x3777D50;
+    const OFF_PANE_CONSUMER: usize = 0x3778e60;
 
     static CAPTURING: AtomicBool = AtomicBool::new(false);
     static COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -136,7 +136,7 @@ pub(crate) mod live {
         DRAWN.store(drawn, Ordering::Release);
     }
 
-    const OFF_FIND_BY_DISP_ORDER: usize = 0x32B2500;
+    const OFF_FIND_BY_DISP_ORDER: usize = 0x32b3610;
 
     #[skyline::hook(offset = OFF_FIND_BY_DISP_ORDER)]
     unsafe fn find_by_disp_order_hook(db: u64, disp_order: u32) -> u64 {
@@ -154,7 +154,7 @@ pub(crate) mod live {
         found
     }
 
-    const OFF_CURSOR_UPDATE: usize = 0x17935A0;
+    const OFF_CURSOR_UPDATE: usize = 0x1793300;
 
     static TRIGGER_WAS_DOWN: core::sync::atomic::AtomicBool =
         core::sync::atomic::AtomicBool::new(false);

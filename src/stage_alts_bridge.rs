@@ -2,8 +2,8 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
-const INIT_LOADED_DIR: usize = 0x3540860;
-const STAGE_ID_GLOBAL: usize = 0x52c45d0;
+const INIT_LOADED_DIR: usize = 0x3541970;
+const STAGE_ID_GLOBAL: usize = 0x52c75d0;
 const STAGE_ID_NONE: u32 = 0xffff_ffff;
 
 const MUTEX_DATA_OFFSET: usize = 32;
