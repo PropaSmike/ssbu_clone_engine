@@ -1,3 +1,4 @@
+pub mod article_literals;
 pub mod article_lvd;
 pub mod common_vtable;
 pub mod fighter_common_copies;

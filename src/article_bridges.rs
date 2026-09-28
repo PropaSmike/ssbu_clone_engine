@@ -1295,8 +1295,36 @@ pub(crate) fn install_article_motion_diagnostics() {
 pub(crate) fn install_article_motion_diagnostics() {}
 
 #[cfg(feature = "css_slot")]
+const ARTICLE_MODULE_OWNER: usize = 0x8;
+
+#[cfg(feature = "css_slot")]
+static ARTICLE_SETUP_SCOPE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = 0x3d3f30)]
+pub(crate) unsafe fn article_module_setup_scope(module: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let owner_kind = if module == 0
+        || crate::active_construction_kind_public().is_some()
+        || crate::kirby_copy::active_kirby_copy_kind().is_some()
+    {
+        None
+    } else {
+        let owner = core::ptr::read_volatile((module as usize + ARTICLE_MODULE_OWNER) as *const u64);
+        crate::article_owner_kind_by_entry(owner)
+    };
+    let Some(kind) = owner_kind else {
+        return call_original!(module, a1, a2, a3);
+    };
+    let n = ARTICLE_SETUP_SCOPE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 16 {
+        dbg_log!("[articlesetup] #{n} ArticleModule setup outside construction (module={module:#x}) names clone {kind} as the owner for hard-coded article paths");
+    }
+    crate::ARTICLE_SETUP_OWNER.scope(current_thread_key(), kind, || call_original!(module, a1, a2, a3))
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) fn install_article_motion_scope_bridge() {
-    skyline::install_hook!(weapon_motion_setup_probe);
+    skyline::install_hooks!(weapon_motion_setup_probe, article_module_setup_scope);
 }
 
 #[cfg(feature = "css_slot")]
@@ -1456,6 +1484,67 @@ unsafe fn shared_article_not_loaded(
 }
 
 #[cfg(feature = "css_slot")]
+static LITERAL_ARTICLE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const LITERAL_ARTICLE_REPORTS: u32 = 32;
+
+#[cfg(feature = "css_slot")]
+const LITERAL_NOT_FOUND: u32 = 0xffffff;
+
+#[cfg(feature = "css_slot")]
+unsafe fn literal_resident(path: &str, resource_type: i32) -> bool {
+    use clone_engine_core::article_literals::{residency_probe, MODEL};
+    let index = fighter_modules::search_path_index(&residency_probe(path, resource_type));
+    if resource_type == MODEL {
+        crate::copy_model_probe::model_residency(index).0 == "resident"
+    } else {
+        crate::copy_model_probe::search_path_loaded(index)
+    }
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn literal_article_path(
+    out: *mut u32,
+    construction_kind: Option<i32>,
+    weapon_kind: i32,
+    resource_type: i32,
+    color: i32,
+) -> Option<(&'static CloneDefinition, u32, u32, String, &'static str)> {
+    use clone_engine_core::article_literals::{base_path, clone_path};
+    if out.is_null() || crate::kirby_copy::active_kirby_copy_kind().is_some() {
+        return None;
+    }
+    let definition = construction_kind.and_then(clone_definition)?;
+    let path = clone_path(
+        weapon_kind,
+        resource_type,
+        color,
+        definition.base_resource_name,
+        definition.resource_name,
+    )?;
+    let index = fighter_modules::search_path_index(&path);
+    if index == LITERAL_NOT_FOUND {
+        return None;
+    }
+    let base = base_path(weapon_kind, resource_type, color)?;
+    let base_ready = literal_resident(&base, resource_type);
+    let owned = definition
+        .articles
+        .iter()
+        .any(|article| article.base_weapon_kind == weapon_kind);
+    let reason = match (owned, base_ready, literal_resident(&path, resource_type)) {
+        (true, _, true) => "the clone owns this article",
+        (true, false, false) => "the clone owns this article; neither path is loaded yet",
+        (false, false, _) => "the base's file is not loaded",
+        _ => return None,
+    };
+    let previous = core::ptr::read_volatile(out);
+    core::ptr::write_volatile(out, index);
+    Some((definition, previous, index, path, reason))
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = 0x17e0840)]
 pub(crate) unsafe fn custom_article_path_probe(
     out: *mut u32,
@@ -1477,7 +1566,20 @@ pub(crate) unsafe fn custom_article_path_probe(
     call_original!(out, weapon_kind, resource_type, variant, color, flags);
 
     let construction_kind = active_construction_kind();
-    if let Some((definition, index, stop, file_path)) =
+    let literal_owner =
+        construction_kind.or_else(|| crate::ARTICLE_SETUP_OWNER.active(current_thread_key()));
+    if let Some((definition, previous, index, path, reason)) =
+        literal_article_path(out, literal_owner, weapon_kind, resource_type, color)
+    {
+        let n = LITERAL_ARTICLE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < LITERAL_ARTICLE_REPORTS {
+            dbg_log!(
+                "[articleliteral] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: the game's hard-coded {} path {previous:#x} became {path} {index:#x} ({reason})",
+                definition.kind,
+                definition.base_resource_name
+            );
+        }
+    } else if let Some((definition, index, stop, file_path)) =
         shared_article_not_loaded(out, construction_kind, weapon_kind)
     {
         let mut retry: u32 = u32::MAX;
