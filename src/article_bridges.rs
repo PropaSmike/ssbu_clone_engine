@@ -1479,8 +1479,8 @@ unsafe fn shared_article_not_loaded(
     if index == u32::MAX {
         return None;
     }
-    let (stop, file_path) = crate::copy_model_probe::model_residency(index);
-    (stop != "resident").then_some((definition, index, stop, file_path))
+    let (loads, stop, file_path) = crate::copy_model_probe::model_residency(index);
+    (!loads).then_some((definition, index, stop, file_path))
 }
 
 #[cfg(feature = "css_slot")]
@@ -1497,7 +1497,7 @@ unsafe fn literal_resident(path: &str, resource_type: i32) -> bool {
     use clone_engine_core::article_literals::{residency_probe, MODEL};
     let index = fighter_modules::search_path_index(&residency_probe(path, resource_type));
     if resource_type == MODEL {
-        crate::copy_model_probe::model_residency(index).0 == "resident"
+        crate::copy_model_probe::model_residency(index).0
     } else {
         crate::copy_model_probe::search_path_loaded(index)
     }
@@ -1746,8 +1746,8 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
         && crate::custom_articles::custom_weapon_name(key as i32).is_some();
     let guarded = minted || (key < BARE_WEAPON_KIND_CEILING && definition.is_some());
     if guarded && index != u32::MAX {
-        let (stop, file_path) = crate::copy_model_probe::model_residency(index);
-        if stop != "resident" {
+        let (loads, stop, file_path) = crate::copy_model_probe::model_residency(index);
+        if !loads {
             let n = ARTICLE_DATA_EMPTY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             if n < ARTICLE_DATA_COPY_REPORTS {
                 dbg_log!(
