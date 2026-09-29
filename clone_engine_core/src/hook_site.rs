@@ -130,9 +130,20 @@ pub fn windows_overlap(first: usize, second: usize) -> bool {
     first < second + span && second < first + span
 }
 
+pub fn branch(site: usize, target: usize) -> u32 {
+    B_OPCODE | ((((target as i64 - site as i64) >> 2) as u32) & 0x03ff_ffff)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_matches_the_games_own_encoding() {
+        assert_eq!(branch(0x35c_2468, 0x35c_2684), 0x1400_0087);
+        assert_eq!(branch(0x35c_23a4, 0x35c_2464), 0x1400_0030);
+        assert_eq!(branch(0x35c_23a4, 0x35c_232c), 0x17ff_ffe2);
+    }
 
     const GANONDORF_ON_LINK_EVENT: [u32; 4] = [0xd101_83ff, 0xa903_57f6, 0xa904_4ff4, 0xa905_7bfd];
 
