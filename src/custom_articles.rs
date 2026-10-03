@@ -425,14 +425,16 @@ pub fn inherited_child_owner(weapon_kind: i32) -> Option<(i32, i32)> {
         return None;
     }
     let owner = vanilla_weapon_owner_kind(weapon_kind)?;
-    registry()
-        .read()
-        .ok()?
-        .iter()
-        .find(|article| {
-            article.source_owner_kind == owner && article.source_weapon_kind != weapon_kind
-        })
-        .map(|article| (owner, article.destination_kind))
+    let registry = registry().read().ok()?;
+    let mut candidates = registry.iter().filter(|article| {
+        article.source_owner_kind == owner && article.source_weapon_kind != weapon_kind
+    });
+    let first = candidates.clone().next()?;
+    let live = candidates.find(|article| {
+        crate::fighter_params::kind_params_present(article.destination_kind)
+            && !crate::fighter_params::kind_params_are_foreign(article.destination_kind)
+    });
+    Some((owner, live.unwrap_or(first).destination_kind))
 }
 
 pub fn custom_weapon_owner_kind(weapon_kind: i32) -> Option<i32> {
