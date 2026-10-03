@@ -18,6 +18,7 @@ const PARAM_MUTEX_LOCK: usize = 0x39c1490;
 const PARAM_MUTEX_UNLOCK: usize = 0x39c14a0;
 const PARAM_FILE_LOADER: usize = 0x5331f20;
 const PARAM_FILE_REQUEST: usize = 0x3540450;
+const PARAM_FILE_RELEASE: usize = 0x3540560;
 const PARAM_PATH_TYPE_A: i32 = 12;
 const PARAM_PATH_TYPE_B: i32 = 13;
 
@@ -209,6 +210,19 @@ pub(crate) unsafe fn request_resource_file(index: i32) {
     type Request = unsafe extern "C" fn(usize, i32);
     let request: Request = core::mem::transmute(text_base() + PARAM_FILE_REQUEST);
     request(loader, index);
+}
+
+pub(crate) unsafe fn release_resource_file(index: i32) {
+    if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
+        return;
+    }
+    let loader = core::ptr::read_volatile((text_base() + PARAM_FILE_LOADER) as *const usize);
+    if loader == 0 {
+        return;
+    }
+    type Release = unsafe extern "C" fn(usize, i32);
+    let release: Release = core::mem::transmute(text_base() + PARAM_FILE_RELEASE);
+    release(loader, index);
 }
 
 const SEARCH_PATH_TO_FILE_PATH: usize = 0x353e4e0;

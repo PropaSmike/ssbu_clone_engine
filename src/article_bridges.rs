@@ -444,6 +444,8 @@ pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
                 "[articlelvd] weapon {kind:?}: the setup resolved the source file {index:#x}; parsing the clone's own {ours:#x} instead"
             );
         }
+        crate::fighter_params::request_resource_file(ours as i32);
+        crate::fighter_params::release_resource_file(index as i32);
         core::ptr::write_volatile((article + ARTICLE_LVD_FILE_INDEX) as *mut u32, ours);
         index = ours;
     }
