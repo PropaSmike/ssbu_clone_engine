@@ -867,10 +867,10 @@ unsafe fn item_manager() -> usize {
     core::ptr::read_volatile(holder as *const usize)
 }
 
-#[skyline::from_offset(OFF_ITEM_POPULATE)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_POPULATE))]
 fn item_populate(manager: usize, kind: i32, flag: u32);
 
-#[skyline::from_offset(OFF_ITEM_ACQUIRE)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_ACQUIRE))]
 fn item_acquire(slot: usize, flag: u32);
 
 unsafe fn base_kind_is_on_demand(base_kind: i32) -> bool {

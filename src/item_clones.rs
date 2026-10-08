@@ -1239,10 +1239,10 @@ unsafe fn item_attach_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
 
-#[skyline::from_offset(OFF_ITEM_GET_HAVE_ITEM_ID)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_GET_HAVE_ITEM_ID))]
 fn native_get_have_item_id(boma: *mut u8, index: i32) -> u32;
 
-#[skyline::from_offset(OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_GET_PICKABLE_ITEM_OBJECT_ID))]
 fn native_get_pickable_item_object_id(boma: *mut u8) -> u32;
 
 unsafe fn publish_kind(reported: i32, object_id: u32) -> i32 {
@@ -1252,10 +1252,10 @@ unsafe fn publish_kind(reported: i32, object_id: u32) -> i32 {
     }
 }
 
-#[skyline::from_offset(OFF_ITEM_GET_HAVE_ITEM_KIND)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_GET_HAVE_ITEM_KIND))]
 fn native_get_have_item_kind(boma: *mut u8, index: i32) -> i32;
 
-#[skyline::from_offset(OFF_ITEM_GET_PICKABLE_ITEM_KIND)]
+#[skyline::from_offset(crate::game::rel(OFF_ITEM_GET_PICKABLE_ITEM_KIND))]
 fn native_get_pickable_item_kind(boma: *mut u8) -> i32;
 
 #[no_mangle]

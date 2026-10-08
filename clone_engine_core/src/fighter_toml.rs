@@ -48,6 +48,7 @@ pub struct MotionDeclaration {
     pub no_stop_intp: Option<bool>,
     pub animation_unk: Option<u8>,
     pub no_extra: bool,
+    pub victim: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -84,6 +85,7 @@ pub struct FighterDeclaration {
     pub article_namespace: u32,
     pub articles: Vec<ArticleDeclaration>,
     pub kirby: Option<KirbyDeclaration>,
+    pub global_motions: Vec<MotionDeclaration>,
     pub params: Vec<ParamDeclaration>,
 }
 
@@ -146,6 +148,7 @@ enum Section {
     Article,
     Kirby,
     Motion,
+    GlobalMotion,
     Mesh,
     Params { slot: Option<i32>, op: ParamOp },
 }
@@ -242,6 +245,7 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
         ("kirby", false) => Ok(Section::Kirby),
         ("kirby.motion", true) => Ok(Section::Motion),
         ("kirby.mesh", true) => Ok(Section::Mesh),
+        ("global_motion", true) => Ok(Section::GlobalMotion),
         ("params", false) => Ok(Section::Params {
             slot: None,
             op: ParamOp::Set,
@@ -291,6 +295,9 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     .kirby
                     .get_or_insert_with(KirbyDeclaration::default)
                     .motions
+                    .push(MotionDeclaration::default()),
+                Section::GlobalMotion => declaration
+                    .global_motions
                     .push(MotionDeclaration::default()),
                 Section::Mesh => declaration
                     .kirby
@@ -380,54 +387,14 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     .as_mut()
                     .and_then(|kirby| kirby.motions.last_mut())
                     .expect("pushed at header");
-                match key {
-                    "name" => motion.name = unquote(value, line_number)?,
-                    "animation" => motion.animation = unquote(value, line_number)?,
-                    "template" => motion.template = Some(unquote(value, line_number)?),
-                    "scripts" => {
-                        let stem = unquote(value, line_number)?;
-                        motion.game.get_or_insert_with(|| format!("game_{stem}"));
-                        motion.sound.get_or_insert_with(|| format!("sound_{stem}"));
-                        motion.effect.get_or_insert_with(|| format!("effect_{stem}"));
-                        motion
-                            .expression
-                            .get_or_insert_with(|| format!("expression_{stem}"));
-                    }
-                    "game" => motion.game = Some(unquote(value, line_number)?),
-                    "sound" => motion.sound = Some(unquote(value, line_number)?),
-                    "effect" => motion.effect = Some(unquote(value, line_number)?),
-                    "expression" => motion.expression = Some(unquote(value, line_number)?),
-                    "flags" => motion.flags = parse_list(value, line_number, key)?,
-                    "loop" => {
-                        if parse_bool(value, line_number, key)? {
-                            motion.flags.push("loop".to_string());
-                        }
-                    }
-                    "blend_frames" => {
-                        motion.blend_frames = Some(parse_int(value, line_number, key)?)
-                    }
-                    "cancel_frame" => {
-                        motion.cancel_frame = Some(parse_int(value, line_number, key)?)
-                    }
-                    "xlu" => {
-                        let pair = parse_list(value, line_number, key)?;
-                        if pair.len() != 2 {
-                            return Err(error(line_number, "xlu must be [start, end]"));
-                        }
-                        motion.xlu = Some((
-                            parse_int(&pair[0], line_number, key)?,
-                            parse_int(&pair[1], line_number, key)?,
-                        ));
-                    }
-                    "no_stop_intp" => {
-                        motion.no_stop_intp = Some(parse_bool(value, line_number, key)?)
-                    }
-                    "animation_unk" => {
-                        motion.animation_unk = Some(parse_int(value, line_number, key)?)
-                    }
-                    "no_extra" => motion.no_extra = parse_bool(value, line_number, key)?,
-                    _ => return Err(error(line_number, format!("unknown motion key {key}"))),
-                }
+                motion_key(motion, key, value, line_number)?;
+            }
+            Section::GlobalMotion => {
+                let motion = declaration
+                    .global_motions
+                    .last_mut()
+                    .expect("pushed at header");
+                motion_key(motion, key, value, line_number)?;
             }
             Section::Mesh => {
                 let mesh = declaration
@@ -508,6 +475,9 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
             if motion.name.is_empty() || motion.animation.is_empty() {
                 return Err(error(0, "a kirby motion needs name and animation"));
             }
+            if motion.victim {
+                return Err(error(0, format!("kirby motion {}: victim is for global motions", motion.name)));
+            }
         }
         for (mesh, _) in &kirby.meshes {
             if mesh.is_empty() {
@@ -515,7 +485,71 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
             }
         }
     }
+    for motion in &declaration.global_motions {
+        if motion.name.is_empty() {
+            return Err(error(0, "a global motion needs a name"));
+        }
+        if motion.animation.is_empty() && motion.template.is_none() && !motion.victim {
+            return Err(error(
+                0,
+                format!(
+                    "global motion {} needs a template, an animation or victim = true",
+                    motion.name
+                ),
+            ));
+        }
+    }
     Ok(declaration)
+}
+
+fn motion_key(
+    motion: &mut MotionDeclaration,
+    key: &str,
+    value: &str,
+    line_number: usize,
+) -> Result<(), ParseError> {
+    match key {
+        "name" => motion.name = unquote(value, line_number)?,
+        "animation" => motion.animation = unquote(value, line_number)?,
+        "template" => motion.template = Some(unquote(value, line_number)?),
+        "scripts" => {
+            let stem = unquote(value, line_number)?;
+            motion.game.get_or_insert_with(|| format!("game_{stem}"));
+            motion.sound.get_or_insert_with(|| format!("sound_{stem}"));
+            motion.effect.get_or_insert_with(|| format!("effect_{stem}"));
+            motion
+                .expression
+                .get_or_insert_with(|| format!("expression_{stem}"));
+        }
+        "game" => motion.game = Some(unquote(value, line_number)?),
+        "sound" => motion.sound = Some(unquote(value, line_number)?),
+        "effect" => motion.effect = Some(unquote(value, line_number)?),
+        "expression" => motion.expression = Some(unquote(value, line_number)?),
+        "flags" => motion.flags = parse_list(value, line_number, key)?,
+        "loop" => {
+            if parse_bool(value, line_number, key)? {
+                motion.flags.push("loop".to_string());
+            }
+        }
+        "blend_frames" => motion.blend_frames = Some(parse_int(value, line_number, key)?),
+        "cancel_frame" => motion.cancel_frame = Some(parse_int(value, line_number, key)?),
+        "xlu" => {
+            let pair = parse_list(value, line_number, key)?;
+            if pair.len() != 2 {
+                return Err(error(line_number, "xlu must be [start, end]"));
+            }
+            motion.xlu = Some((
+                parse_int(&pair[0], line_number, key)?,
+                parse_int(&pair[1], line_number, key)?,
+            ));
+        }
+        "no_stop_intp" => motion.no_stop_intp = Some(parse_bool(value, line_number, key)?),
+        "animation_unk" => motion.animation_unk = Some(parse_int(value, line_number, key)?),
+        "no_extra" => motion.no_extra = parse_bool(value, line_number, key)?,
+        "victim" => motion.victim = parse_bool(value, line_number, key)?,
+        _ => return Err(error(line_number, format!("unknown motion key {key}"))),
+    }
+    Ok(())
 }
 
 pub fn valid_name(name: &str) -> bool {
@@ -673,6 +707,58 @@ scale = 0.95
         assert!(parse(both).unwrap_err().message.contains("both"));
         let bad_from = "name = \"wawa\"\nbase = \"samus\"\n[[article]]\nname = \"x\"\nfrom = \"fireball\"\n";
         assert_eq!(parse(bad_from).unwrap_err().line, 5);
+    }
+
+    #[test]
+    fn a_global_motion_takes_the_kirby_motion_keys_and_needs_a_template_or_an_animation() {
+        let fighter = parse(
+            "name = \"bluster\"\nbase = \"donkey\"\n\
+             [[global_motion]]\nname = \"catched_bluster\"\ntemplate = \"catched_ganon\"\n\
+             [[global_motion]]\nname = \"bluster_victim\"\nanimation = \"d05blustervictim.nuanmb\"\nscripts = \"blustervictim\"\nloop = true\n",
+        )
+        .unwrap();
+        assert!(fighter.kirby.is_none());
+        assert_eq!(fighter.global_motions.len(), 2);
+        assert_eq!(fighter.global_motions[0].template.as_deref(), Some("catched_ganon"));
+        assert!(fighter.global_motions[0].animation.is_empty());
+        assert_eq!(
+            fighter.global_motions[1].script("sound", None).as_deref(),
+            Some("sound_blustervictim")
+        );
+        assert_eq!(fighter.global_motions[1].flags, vec!["loop".to_string()]);
+
+        let neither = parse("name = \"a\"\nbase = \"b\"\n[[global_motion]]\nname = \"x\"\n").unwrap_err();
+        assert!(neither.message.contains("needs a template, an animation or victim = true"));
+        let bad_key = parse("name = \"a\"\nbase = \"b\"\n[[global_motion]]\nname = \"x\"\nframes = 3\n").unwrap_err();
+        assert_eq!((bad_key.line, bad_key.message.as_str()), (5, "unknown motion key frames"));
+    }
+
+    #[test]
+    fn a_victim_global_motion_needs_nothing_else_and_is_refused_on_kirby() {
+        let fighter = parse(
+            "name = \"bluster\"\nbase = \"donkey\"\n[[global_motion]]\nname = \"thrown_bluster_f\"\nvictim = true\n",
+        )
+        .unwrap();
+        assert!(fighter.global_motions[0].victim);
+        assert!(fighter.global_motions[0].animation.is_empty());
+        assert!(fighter.global_motions[0].template.is_none());
+
+        let kirby = parse(
+            "name = \"a\"\nbase = \"b\"\n[kirby]\nstatuses = 1\n[[kirby.motion]]\nname = \"x\"\nanimation = \"x.nuanmb\"\nvictim = true\n",
+        )
+        .unwrap_err();
+        assert!(kirby.message.contains("victim is for global motions"));
+    }
+
+    #[test]
+    fn a_fighter_block_takes_its_own_global_motions() {
+        let fighters = parse_all(
+            "[[fighter]]\nname = \"a\"\nbase = \"mario\"\n[[fighter.global_motion]]\nname = \"catched_a\"\ntemplate = \"catched_ganon\"\n\
+             [[fighter]]\nname = \"b\"\nbase = \"luigi\"\n",
+        )
+        .unwrap();
+        assert_eq!(fighters[0].global_motions.len(), 1);
+        assert!(fighters[1].global_motions.is_empty());
     }
 
     #[test]

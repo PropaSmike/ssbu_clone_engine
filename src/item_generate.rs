@@ -26,10 +26,10 @@ static LOTTED: AtomicU32 = AtomicU32::new(0);
 static DRAWS: AtomicU32 = AtomicU32::new(0);
 static REBUILDS: AtomicU32 = AtomicU32::new(0);
 
-#[skyline::from_offset(OFF_GAME_ALLOCATE)]
+#[skyline::from_offset(crate::game::rel(OFF_GAME_ALLOCATE))]
 fn game_allocate(align: u32, size: usize) -> *mut u8;
 
-#[skyline::from_offset(OFF_GAME_FREE)]
+#[skyline::from_offset(crate::game::rel(OFF_GAME_FREE))]
 fn game_free(block: *mut u8);
 
 fn log(message: &str) {

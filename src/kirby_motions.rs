@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::motion_list::{hash40, parse, serialize, Animation, Motion, MotionList};
+pub(crate) use clone_engine_core::motion_append::MotionRecord as CopyMotionRecord;
+use clone_engine_core::motion_append::{apply_copy, Rejected, BYTES_PER_MOTION};
+use clone_engine_core::motion_list::{hash40, parse, serialize};
 use std::collections::HashSet;
 use std::sync::{OnceLock, RwLock};
 
@@ -16,128 +18,15 @@ pub(crate) const KIRBY_MOTION_LIST_PATHS: [&str; 8] = [
 ];
 
 pub(crate) const VANILLA_LIST_BYTES: usize = 99_580;
-pub(crate) const BYTES_PER_MOTION: usize = 128;
 pub(crate) const MAX_MOTIONS: usize = 1024;
 
 pub(crate) const fn callback_capacity() -> usize {
     VANILLA_LIST_BYTES + BYTES_PER_MOTION * MAX_MOTIONS
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CopyMotionRecord {
-    pub fighter_kind: i32,
-    pub name: String,
-    pub animation: String,
-    pub template: Option<String>,
-    pub game_script: Option<String>,
-    pub scripts: Option<[String; 3]>,
-    pub flags: Option<u16>,
-    pub blend_frames: Option<u8>,
-    pub xlu: Option<(u8, u8)>,
-    pub cancel_frame: Option<u8>,
-    pub no_stop_intp: Option<bool>,
-    pub animation_unk: Option<u8>,
-    pub no_extra: bool,
-}
-
-impl CopyMotionRecord {
-    pub(crate) fn new(fighter_kind: i32, name: &str, animation: &str) -> Self {
-        Self {
-            fighter_kind,
-            name: name.to_string(),
-            animation: animation.to_string(),
-            template: None,
-            game_script: None,
-            scripts: None,
-            flags: None,
-            blend_frames: None,
-            xlu: None,
-            cancel_frame: None,
-            no_stop_intp: None,
-            animation_unk: None,
-            no_extra: false,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Rejected {
-    NameTooLong,
-    AnimationTooLong,
-    TemplateMissing,
-    ScriptNameTooLong,
-}
-
-pub(crate) fn apply(
-    list: &mut MotionList,
-    records: &[CopyMotionRecord],
-) -> Vec<(String, Result<(), Rejected>)> {
-    records
-        .iter()
-        .map(|record| (record.name.clone(), apply_one(list, record)))
-        .collect()
-}
-
-fn apply_one(list: &mut MotionList, record: &CopyMotionRecord) -> Result<(), Rejected> {
-    let name = hash40(&record.name).ok_or(Rejected::NameTooLong)?;
-    let animation = hash40(&record.animation).ok_or(Rejected::AnimationTooLong)?;
-
-    let mut motion = match record.template.as_deref() {
-        Some(template) => {
-            let key = hash40(template).ok_or(Rejected::TemplateMissing)?;
-            list.get(key).cloned().ok_or(Rejected::TemplateMissing)?
-        }
-        None => Motion::default(),
-    };
-
-    let inherited_unk = motion.animations.first().map_or(0, |existing| existing.unk);
-    motion.animations = vec![Animation {
-        name: animation,
-        unk: record.animation_unk.unwrap_or(inherited_unk),
-    }];
-
-    if let Some(script) = record.game_script.as_deref() {
-        motion.game_script = hash40(script).ok_or(Rejected::ScriptNameTooLong)?;
-    }
-    if let Some(scripts) = record.scripts.as_ref() {
-        let mut resolved = Vec::with_capacity(scripts.len());
-        for script in scripts {
-            resolved.push(hash40(script).ok_or(Rejected::ScriptNameTooLong)?);
-        }
-        motion.scripts = resolved;
-    }
-    if let Some(flags) = record.flags {
-        motion.flags = flags;
-    }
-    if let Some(frames) = record.blend_frames {
-        motion.blend_frames = frames;
-    }
-
-    if record.no_extra {
-        motion.extra = None;
-    } else if record.xlu.is_some() || record.cancel_frame.is_some() || record.no_stop_intp.is_some()
-    {
-        let mut extra = motion.extra.unwrap_or_default();
-        if let Some((start, end)) = record.xlu {
-            extra.xlu_start = start;
-            extra.xlu_end = end;
-        }
-        if let Some(frame) = record.cancel_frame {
-            extra.cancel_frame = frame;
-        }
-        if let Some(value) = record.no_stop_intp {
-            extra.no_stop_intp = value;
-        }
-        motion.extra = Some(extra);
-    }
-
-    list.insert(name, motion);
-    Ok(())
-}
-
 pub(crate) fn rebuild(original: &[u8], records: &[CopyMotionRecord]) -> Option<Vec<u8>> {
     let mut list = parse(original).ok()?;
-    let outcome = apply(&mut list, records);
+    let outcome = apply_copy(&mut list, records);
     let bytes = serialize(&list).ok()?;
     note_outcome(&outcome);
     log_outcome(&outcome, list.entries.len());
@@ -227,7 +116,7 @@ fn log_outcome(outcome: &[(String, Result<(), Rejected>)], total: usize) {
 }
 
 #[cfg(not(test))]
-pub(crate) use live::clone_engine_clone_copy_motion_v1;
+pub(crate) use live::{clone_engine_clone_copy_motion_v1, motion_record};
 
 #[cfg(not(test))]
 mod live {
@@ -236,8 +125,8 @@ mod live {
         CloneCopyMotionV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA, COPY_MOTION_SET_ANIMATION_UNK,
         COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME, COPY_MOTION_SET_FLAGS,
         COPY_MOTION_SET_GAME_SCRIPT, COPY_MOTION_SET_NO_STOP_INTP, COPY_MOTION_SET_SCRIPTS,
-        COPY_MOTION_SET_XLU, ERROR_NAME, ERROR_NULL, ERROR_STRUCT_SIZE, ERROR_UNSUPPORTED,
-        ERROR_VERSION,
+        COPY_MOTION_SET_XLU, COPY_MOTION_VICTIM, ERROR_NAME, ERROR_NULL, ERROR_STRUCT_SIZE,
+        ERROR_UNSUPPORTED, ERROR_VERSION,
     };
     use std::ffi::CStr;
     use std::os::raw::c_char;
@@ -252,24 +141,27 @@ mod live {
         CStr::from_ptr(pointer).to_str().ok().map(str::to_string)
     }
 
-    #[no_mangle]
-    pub unsafe extern "C" fn clone_engine_clone_copy_motion_v1(
+    pub(crate) unsafe fn motion_record(
         registration: *const CloneCopyMotionV1,
-    ) -> i32 {
+        animation_required: bool,
+    ) -> Result<CopyMotionRecord, i32> {
         if registration.is_null() {
-            return ERROR_NULL;
+            return Err(ERROR_NULL);
         }
         let registration = &*registration;
         if registration.api_version != API_VERSION_V1 {
-            return ERROR_VERSION;
+            return Err(ERROR_VERSION);
         }
         if registration.struct_size < core::mem::size_of::<CloneCopyMotionV1>() as u32 {
-            return ERROR_STRUCT_SIZE;
+            return Err(ERROR_STRUCT_SIZE);
         }
-        let (Some(name), Some(animation)) = (text(registration.name), text(registration.animation))
-        else {
-            return ERROR_NAME;
+        let Some(name) = text(registration.name).filter(|name| !name.is_empty()) else {
+            return Err(ERROR_NAME);
         };
+        let animation = text(registration.animation).unwrap_or_default();
+        if animation_required && animation.is_empty() {
+            return Err(ERROR_NAME);
+        }
 
         let present = registration.present;
         let mut entry = CopyMotionRecord::new(registration.fighter_kind, &name, &animation);
@@ -283,7 +175,7 @@ mod live {
                 text(registration.script_sound),
                 text(registration.script_effect),
             ) else {
-                return ERROR_NAME;
+                return Err(ERROR_NAME);
             };
             entry.scripts = Some([a, b, c]);
         }
@@ -306,13 +198,26 @@ mod live {
             entry.animation_unk = Some(registration.animation_unk);
         }
         entry.no_extra = present & COPY_MOTION_NO_EXTRA != 0;
+        entry.victim = present & COPY_MOTION_VICTIM != 0;
+        Ok(entry)
+    }
 
+    #[no_mangle]
+    pub unsafe extern "C" fn clone_engine_clone_copy_motion_v1(
+        registration: *const CloneCopyMotionV1,
+    ) -> i32 {
+        let entry = match motion_record(registration, true) {
+            Ok(entry) => entry,
+            Err(code) => return code,
+        };
+        if entry.victim {
+            skyline::println!("[kirbymotion] REFUSED '{}': victim motions are global motions", entry.name);
+            return ERROR_UNSUPPORTED;
+        }
+        let (kind, name, animation) = (entry.fighter_kind, entry.name.clone(), entry.animation.clone());
         match record(entry) {
             Ok(()) => {
-                skyline::println!(
-                    "[kirbymotion] kind {} registered '{name}' -> {animation}",
-                    registration.fighter_kind
-                );
+                skyline::println!("[kirbymotion] kind {kind} registered '{name}' -> {animation}");
                 0
             }
             Err(reason) => {
@@ -379,7 +284,7 @@ pub(crate) fn install() {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::motion_list::Extra;
+    use clone_engine_core::motion_list::{Animation, Extra, Motion, MotionList};
 
     fn empty_list() -> MotionList {
         MotionList {
@@ -417,105 +322,6 @@ mod tests {
     }
 
     #[test]
-    fn a_template_supplies_everything_the_pack_did_not_override() {
-        let mut list = list_with_template();
-        let mut entry =
-            CopyMotionRecord::new(121, "bluster_special_n", "blusterd00specialn.nuanmb");
-        entry.template = Some("donkey_special_n".to_string());
-
-        assert_eq!(apply_one(&mut list, &entry), Ok(()));
-
-        let added = list.get(hash40("bluster_special_n").unwrap()).unwrap();
-        assert_eq!(
-            added.animations,
-            vec![Animation {
-                name: hash40("blusterd00specialn.nuanmb").unwrap(),
-                unk: 1,
-            }]
-        );
-        assert_eq!(added.blend_frames, 3);
-        assert_eq!(added.scripts.len(), 3);
-        assert_eq!(added.extra.as_ref().unwrap().cancel_frame, 63);
-    }
-
-    #[test]
-    fn every_field_can_be_overridden_on_top_of_a_template() {
-        let mut list = list_with_template();
-        let mut entry = CopyMotionRecord::new(121, "mecha_special_n", "mechad00specialn.nuanmb");
-        entry.template = Some("donkey_special_n".to_string());
-        entry.game_script = Some("game_mechaspecialn".to_string());
-        entry.scripts = Some([
-            "expression_mechaspecialn".to_string(),
-            "sound_mechaspecialn".to_string(),
-            "effect_mechaspecialn".to_string(),
-        ]);
-        entry.flags = Some(clone_engine_api::MotionFlags::LOOP);
-        entry.blend_frames = Some(7);
-        entry.xlu = Some((2, 9));
-        entry.cancel_frame = Some(11);
-        entry.no_stop_intp = Some(true);
-        entry.animation_unk = Some(4);
-
-        assert_eq!(apply_one(&mut list, &entry), Ok(()));
-
-        let added = list.get(hash40("mecha_special_n").unwrap()).unwrap();
-        assert_eq!(added.game_script, hash40("game_mechaspecialn").unwrap());
-        assert_eq!(
-            added.scripts,
-            vec![
-                hash40("expression_mechaspecialn").unwrap(),
-                hash40("sound_mechaspecialn").unwrap(),
-                hash40("effect_mechaspecialn").unwrap(),
-            ]
-        );
-        assert_eq!(added.blend_frames, 7);
-        assert_eq!(added.animations[0].unk, 4);
-        assert_eq!(added.flags & clone_engine_api::MotionFlags::LOOP,
-            clone_engine_api::MotionFlags::LOOP);
-        let extra = added.extra.as_ref().unwrap();
-        assert_eq!((extra.xlu_start, extra.xlu_end), (2, 9));
-        assert_eq!(extra.cancel_frame, 11);
-        assert!(extra.no_stop_intp);
-    }
-
-    #[test]
-    fn a_missing_template_is_refused_rather_than_silently_defaulted() {
-        let mut list = list_with_template();
-        let mut entry = CopyMotionRecord::new(121, "ghost_special_n", "ghostd00specialn.nuanmb");
-        entry.template = Some("nobody_special_n".to_string());
-
-        assert_eq!(apply_one(&mut list, &entry), Err(Rejected::TemplateMissing));
-        assert!(list.get(hash40("ghost_special_n").unwrap()).is_none());
-    }
-
-    #[test]
-    fn a_pack_can_build_an_entry_with_no_template_at_all() {
-        let mut list = empty_list();
-        let mut entry = CopyMotionRecord::new(121, "solo_special_n", "solod00specialn.nuanmb");
-        entry.blend_frames = Some(2);
-        entry.no_extra = true;
-
-        assert_eq!(apply_one(&mut list, &entry), Ok(()));
-        let added = list.get(hash40("solo_special_n").unwrap()).unwrap();
-        assert_eq!(added.blend_frames, 2);
-        assert!(added.extra.is_none());
-    }
-
-    #[test]
-    fn existing_entries_are_left_exactly_as_they_were() {
-        let mut list = list_with_template();
-        let key = hash40("donkey_special_n").unwrap();
-        let before = list.get(key).unwrap().clone();
-        let mut entry =
-            CopyMotionRecord::new(121, "bluster_special_n", "blusterd00specialn.nuanmb");
-        entry.template = Some("donkey_special_n".to_string());
-
-        assert_eq!(apply_one(&mut list, &entry), Ok(()));
-
-        assert_eq!(&before, list.get(key).unwrap());
-    }
-
-    #[test]
     fn rebuild_grows_the_file_and_keeps_it_parseable() {
         let list = list_with_template();
         let original = serialize(&list).unwrap();
@@ -536,38 +342,6 @@ mod tests {
     fn rebuild_refuses_a_file_it_cannot_parse() {
         let entry = CopyMotionRecord::new(121, "any_special_n", "anyd00specialn.nuanmb");
         assert!(rebuild(&[0u8; 64], std::slice::from_ref(&entry)).is_none());
-    }
-
-    #[test]
-    fn the_worst_case_entry_fits_the_per_motion_allowance() {
-        let mut list = empty_list();
-        list.insert(
-            hash40("worst_case").unwrap(),
-            Motion {
-                game_script: hash40("game_worstcase").unwrap(),
-                flags: 0,
-                blend_frames: 0,
-                animations: (0..crate::motion_list::MAX_ANIMATIONS)
-                    .map(|index| Animation {
-                        name: hash40(&format!("worstcased0{index}.nuanmb")).unwrap(),
-                        unk: 0,
-                    })
-                    .collect(),
-                scripts: vec![
-                    hash40("expression_worstcase").unwrap(),
-                    hash40("sound_worstcase").unwrap(),
-                    hash40("effect_worstcase").unwrap(),
-                ],
-                extra: Some(Extra {
-                    xlu_start: 0,
-                    xlu_end: 0,
-                    cancel_frame: 0,
-                    no_stop_intp: false,
-                }),
-            },
-        );
-        let bytes = serialize(&list).unwrap();
-        assert!(bytes.len() - crate::motion_list::HEADER_BYTES <= BYTES_PER_MOTION);
     }
 
     #[test]

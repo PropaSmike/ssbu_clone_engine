@@ -13,6 +13,8 @@ pub mod item_common_row_table;
 pub mod item_generate;
 pub mod manifest;
 pub mod manifest_builder;
+pub mod motion_append;
+pub mod motion_list;
 pub mod owner_param_words;
 pub mod param_swap;
 pub mod slots;

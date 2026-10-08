@@ -14,6 +14,7 @@ mod hooks;
 mod kirby;
 mod params;
 mod status;
+mod throws;
 
 // TEMPLATE: the handle the rest of the crate uses.
 // "template_fighter": the identity, the same string as Manifest::new's name.
@@ -71,6 +72,19 @@ pub fn main() {
             .template("mario_special_air_n")
             .scripts("templatefighterspecialairn"),
     );
+
+    // A throw with its own opponent pose: every fighter, clones included, gets
+    // THROWN with no animation, and the opponent plays this fighter's file
+    // (throws.rs starts it). An engine without global motions would refuse the
+    // whole manifest, so the motion is only declared when it is supported.
+    let manifest = if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_GLOBAL_MOTIONS != 0 {
+        manifest.global_motion(
+            Motion::victim(throws::THROWN)       // the opponent's motion name, the same on every fighter
+                .animation(throws::THROWN_FILE), // this fighter's own file; fighters that do not ship it get none
+        )
+    } else {
+        manifest
+    };
     let kind = match TEMPLATE.register(manifest) {
         Ok(kind) => kind,
         Err(error) => {

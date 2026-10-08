@@ -268,7 +268,7 @@ pub(crate) static CAMERA_FALLBACK_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::from_offset(0x17dd7b0)]
+#[skyline::from_offset(crate::game::rel(0x17dd7b0))]
 fn resolve_child_in_directory(out: *mut u32, directory: u32, name: u64);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
@@ -1357,7 +1357,7 @@ pub(crate) const OFF_RESMGR_ACTIVATE_BATCH_CALL: usize = 0x184a360;
 pub(crate) const OFF_RESMGR_ACTIVATE_DYNAMIC_CALL: usize = 0x197489c;
 
 #[cfg(feature = "true_kind")]
-#[skyline::from_offset(0x17d1f40)]
+#[skyline::from_offset(crate::game::rel(0x17d1f40))]
 pub(crate) unsafe fn resmgr_activate_native(this: u64, kind: u32, source_tree: u64);
 
 #[cfg(feature = "true_kind")]

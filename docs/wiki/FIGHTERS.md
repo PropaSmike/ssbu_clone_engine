@@ -70,6 +70,44 @@ smashline::Agent::new("my_fighter")
 `MY_FIGHTER.is(x)` and `MY_FIGHTER.owns(x)` are the checks for a plain
 `#[skyline::hook]`; Smashline scripts under `"my_fighter"` need none.
 
+## Motions on every fighter
+
+A grab or a throw plays a motion on the opponent, so every fighter needs it. A
+global motion adds one to every fighter's motion list, clones and every costume
+included:
+
+```rust
+use clone_engine_api::v2::Motion;
+
+Manifest::new("my_fighter", "mario")
+    .global_motion(Motion::from_template("catched_my_fighter", "catched_ganon"))
+    .global_motion(Motion::victim("thrown_my_fighter_f").animation("e01thrownmyfighterf.nuanmb"))
+```
+
+```toml
+[[global_motion]]
+name = "catched_my_fighter"
+template = "catched_ganon"
+
+[[global_motion]]
+name = "thrown_my_fighter_f"
+victim = true
+animation = "e01thrownmyfighterf.nuanmb"
+```
+
+- `template` copies a motion each fighter already has. A fighter without it is
+  skipped; one that already has the name keeps its own.
+- `animation` replaces it for fighters that ship that file in their motion
+  folders (for vanilla, all of c00 to c07).
+- `victim = true` is the opponent's half of a throw: no animation, so the
+  opponent plays the grabber's file. Ship it for your fighter only.
+
+Play it with `MotionModule::change_motion` on an opponent your grab is holding;
+a grabbed pose on a fighter nobody holds crashes.
+`custom_fighters/template_v2/src/throws.rs` does this for a forward throw. A
+plugin with no fighter calls `clone_engine_api::global_motion` or
+`global_victim_motion`. Every key is in the [API reference](../API.md#fighters).
+
 ## Packs written before `fighter.toml`
 
 They register with `CloneRegistration` and `allocate`, and check `is_kind`

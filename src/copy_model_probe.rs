@@ -16,10 +16,10 @@ const EMPTY_REPORTS: u32 = 24;
 static CONTEXT_LOG: AtomicU32 = AtomicU32::new(0);
 static EMPTY_LOG: AtomicU32 = AtomicU32::new(0);
 
-#[skyline::from_offset(0x35c2040)]
+#[skyline::from_offset(crate::game::rel(0x35c2040))]
 fn resolve_relative_path(search_path: u32, relative: *const u8) -> u32;
 
-#[skyline::from_offset(0x353e4e0)]
+#[skyline::from_offset(crate::game::rel(0x353e4e0))]
 fn file_path_of_search_path(search_path: u32) -> u32;
 
 struct Residency {
@@ -99,6 +99,18 @@ unsafe fn linked_index(service: usize, file_path: u32) -> Option<u32> {
         return None;
     }
     Some((core::ptr::read_volatile((paths + file_path as usize * 0x20) as *const u64) >> 40) as u32)
+}
+
+pub(crate) unsafe fn data_index(search_path: u32) -> Option<u32> {
+    if search_path == NOT_FOUND {
+        return None;
+    }
+    let service = service().ok()?;
+    let file_path = file_path_of_search_path(search_path);
+    if file_path == NOT_FOUND {
+        return None;
+    }
+    linked_index(service, file_path).filter(|index| *index != NOT_FOUND)
 }
 
 unsafe fn file_residency(service: usize, out: &mut Residency) {

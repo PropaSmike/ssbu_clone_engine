@@ -98,6 +98,7 @@ or `Error::Engine(ERROR_MANIFEST)`; the log names the fault.
 | `kirby(statuses)`, `kirby_first(n)` | Reserve that many copy status numbers; `kirby_first` pins the first. |
 | `kirby_full_model()`, `kirby_model(dir)`, `kirby_mesh(name, visible)` | Full-body copy; one extra model folder under `fighter/kirby/model/`; a mesh's starting visibility (up to 16). |
 | `kirby_motion(Motion)` | A copy animation: `Motion::new(name, "file.nuanmb")` with `.template(motion)`, `.scripts(stem)` or `.game/.sound/.effect/.expression(script)`, `.flags(&[..])`, `.blend_frames(n)`, `.cancel_frame(n)`, `.xlu(start, end)`, `.no_stop_intp(b)`, `.animation_unk(n)`, `.no_extra()`. File: `fighter/kirby/motion/<name>body/c00/`, listed under `fighter/<name>/kirbycopy/cNN/bodymotion`. Name must start with `<name>`. |
+| `global_motion(Motion)` | Add a motion to every fighter, clones and every costume included. `Motion::from_template(name, template)` copies an existing motion from each fighter's own list; `.animation(file)` plays your file instead, for fighters that ship it; the `kirby_motion` options override the rest. `Motion::victim(name)` is the opponent's half of a throw: no animation, so the grabber's plays. A fighter that already has the name keeps its own. See [Motions on every fighter](wiki/FIGHTERS.md#motions-on-every-fighter). |
 | `param(name, v)`, `param_int(name, v)`, `param_mul(name, v)` | One stat. `"a.b"` reaches a sub value. |
 | `params(&[..])`, `params_int(&[..])`, `params_mul(&[..])` | Several at once. |
 | `param_at(costume, name, v)`, `param_int_at`, `param_mul_at` | One costume only. |
@@ -202,6 +203,7 @@ With no plugin, drop `css = false` and add `series`, `disp_order`,
 | `[[article]]` with `name`, `from` or `base_article`, `kirby = true` | `article`, `base_article`, `kirby_article`. |
 | `[kirby]` with `statuses`, `first`, `full_model`, `model`; `[[kirby.mesh]]` with `name`, `visible` | `kirby`, `kirby_first`, `kirby_full_model`, `kirby_model`, `kirby_mesh`. |
 | `[[kirby.motion]]` with `name`, `animation`, `template`, `scripts` or `game`/`sound`/`effect`/`expression`, `flags` or `loop`, `blend_frames`, `cancel_frame`, `xlu`, `no_stop_intp`, `animation_unk`, `no_extra` | `kirby_motion`. |
+| `[[global_motion]]` with `name`, then `template`, `animation`, `victim = true` or a mix, plus any `[[kirby.motion]]` key | `global_motion`. |
 | `[params]`, `[params.mul]`, `[params.cNN]`, `[params.cNN.mul]` | `param*`. A decimal is a float, a whole number an integer. |
 
 Several fighters in one file: `[[fighter]]` blocks, with `[[fighter.article]]`,

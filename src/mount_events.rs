@@ -37,6 +37,8 @@ extern "C" fn on_mod_filesystem_mounted(_event: u32) {
     for address in pending {
         run(address);
     }
+    #[cfg(feature = "css_slot")]
+    crate::global_motions::install();
 }
 
 pub(crate) fn subscribe() {

@@ -1,7 +1,5 @@
-#![allow(dead_code)]
-
-pub(crate) const MAX_ANIMATIONS: usize = 3;
-pub(crate) const HEADER_BYTES: usize = 24;
+pub const MAX_ANIMATIONS: usize = 3;
+pub const HEADER_BYTES: usize = 24;
 
 const fn crc_table() -> [u32; 256] {
     let mut table = [0u32; 256];
@@ -25,7 +23,7 @@ const fn crc_table() -> [u32; 256] {
 
 static CRC_TABLE: [u32; 256] = crc_table();
 
-pub(crate) fn hash40(text: &str) -> Option<u64> {
+pub fn hash40(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
     if bytes.len() > u8::MAX as usize {
         return None;
@@ -38,16 +36,16 @@ pub(crate) fn hash40(text: &str) -> Option<u64> {
     Some(!hash as u64 | (bytes.len() as u64) << 32)
 }
 
-pub(crate) const MAGIC: u64 = 0x0006_f5fe_a1e8;
+pub const MAGIC: u64 = 0x0006_f5fe_a1e8;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Animation {
+pub struct Animation {
     pub name: u64,
     pub unk: u8,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Extra {
+pub struct Extra {
     pub xlu_start: u8,
     pub xlu_end: u8,
     pub cancel_frame: u8,
@@ -55,7 +53,7 @@ pub(crate) struct Extra {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Motion {
+pub struct Motion {
     pub game_script: u64,
     pub flags: u16,
     pub blend_frames: u8,
@@ -65,20 +63,20 @@ pub(crate) struct Motion {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct MotionList {
+pub struct MotionList {
     pub motion_path: u64,
     pub entries: Vec<(u64, Motion)>,
 }
 
 impl MotionList {
-    pub(crate) fn get(&self, kind: u64) -> Option<&Motion> {
+    pub fn get(&self, kind: u64) -> Option<&Motion> {
         self.entries
             .iter()
             .find(|(known, _)| *known == kind)
             .map(|(_, motion)| motion)
     }
 
-    pub(crate) fn insert(&mut self, kind: u64, motion: Motion) {
+    pub fn insert(&mut self, kind: u64, motion: Motion) {
         match self.entries.iter_mut().find(|(known, _)| *known == kind) {
             Some(slot) => slot.1 = motion,
             None => self.entries.push((kind, motion)),
@@ -87,7 +85,7 @@ impl MotionList {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     TooShort,
     BadMagic,
     CountOverflow,
@@ -138,7 +136,7 @@ impl<'a> Reader<'a> {
     }
 }
 
-pub(crate) fn parse(bytes: &[u8]) -> Result<MotionList, ParseError> {
+pub fn parse(bytes: &[u8]) -> Result<MotionList, ParseError> {
     if bytes.len() < HEADER_BYTES {
         return Err(ParseError::TooShort);
     }
@@ -213,11 +211,11 @@ fn read_motion(reader: &mut Reader<'_>) -> Result<Motion, ParseError> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum WriteError {
+pub enum WriteError {
     AnimationCount,
 }
 
-pub(crate) fn serialize(list: &MotionList) -> Result<Vec<u8>, WriteError> {
+pub fn serialize(list: &MotionList) -> Result<Vec<u8>, WriteError> {
     let mut out = Vec::with_capacity(HEADER_BYTES + list.entries.len() * 64);
     out.extend_from_slice(&MAGIC.to_le_bytes());
     out.extend_from_slice(&list.motion_path.to_le_bytes());

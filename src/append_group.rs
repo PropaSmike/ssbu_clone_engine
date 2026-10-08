@@ -14,10 +14,10 @@ const LOG_BUDGET: u32 = 8;
 
 static LOG: AtomicU32 = AtomicU32::new(0);
 
-#[skyline::from_offset(OFF_LOAD_DIRECTORY)]
+#[skyline::from_offset(crate::game::rel(OFF_LOAD_DIRECTORY))]
 unsafe fn load_directory(service: u64, directory: u32) -> usize;
 
-#[skyline::from_offset(OFF_LOAD_CONTEXT_REGISTER)]
+#[skyline::from_offset(crate::game::rel(OFF_LOAD_CONTEXT_REGISTER))]
 unsafe fn register_directory(context: u64, key: u64, directory: *const u32);
 
 unsafe fn directory_at(service: usize, path: &str) -> Option<(u32, u64)> {

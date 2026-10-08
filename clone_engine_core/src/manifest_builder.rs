@@ -25,9 +25,28 @@ impl Motion {
         }
     }
 
+    pub fn from_template(name: &str, template: &str) -> Self {
+        Self {
+            lines: vec![
+                format!("name = {}", quoted(name)),
+                format!("template = {}", quoted(template)),
+            ],
+        }
+    }
+
+    pub fn victim(name: &str) -> Self {
+        Self {
+            lines: vec![format!("name = {}", quoted(name)), "victim = true".to_string()],
+        }
+    }
+
     fn text(mut self, key: &str, value: &str) -> Self {
         self.lines.push(format!("{key} = {}", quoted(value)));
         self
+    }
+
+    pub fn animation(self, animation: &str) -> Self {
+        self.text("animation", animation)
     }
 
     fn number(mut self, key: &str, value: impl core::fmt::Display) -> Self {
@@ -98,6 +117,7 @@ pub struct Manifest {
     kirby: Vec<String>,
     motions: Vec<Motion>,
     meshes: Vec<(String, bool)>,
+    global_motions: Vec<Motion>,
     params: Vec<(Option<u32>, bool, String, String)>,
     raw: Vec<String>,
 }
@@ -114,6 +134,7 @@ impl Manifest {
             kirby: Vec::new(),
             motions: Vec::new(),
             meshes: Vec::new(),
+            global_motions: Vec::new(),
             params: Vec::new(),
             raw: Vec::new(),
         }
@@ -260,6 +281,11 @@ impl Manifest {
         self
     }
 
+    pub fn global_motion(mut self, motion: Motion) -> Self {
+        self.global_motions.push(motion);
+        self
+    }
+
     fn push_param(mut self, costume: Option<u32>, mul: bool, name: &str, value: String) -> Self {
         self.params.push((costume, mul, name.to_string(), value));
         self
@@ -343,6 +369,13 @@ impl Manifest {
             }
             for (name, visible) in &self.meshes {
                 out.push_str(&format!("\n[[kirby.mesh]]\nname = {}\nvisible = {visible}\n", quoted(name)));
+            }
+        }
+        for motion in &self.global_motions {
+            out.push_str("\n[[global_motion]]\n");
+            for line in &motion.lines {
+                out.push_str(line);
+                out.push('\n');
             }
         }
         let mut tables: Vec<(Option<u32>, bool)> = Vec::new();
@@ -555,6 +588,46 @@ mod tests {
         assert_eq!(fighter.params[2].name, "jump_squat_frame");
         assert!(matches!(fighter.params[2].value, crate::fighter_toml::ParamValue::Int(3)));
         assert!(matches!(fighter.params[3].op, crate::fighter_toml::ParamOp::Mul));
+    }
+
+    #[test]
+    fn global_motions_render_after_kirby_and_parse_back() {
+        let text = Manifest::new("bluster", "donkey")
+            .kirby_motion(Motion::new("bluster_special_n", "blusterd00specialn.nuanmb"))
+            .global_motion(Motion::from_template("catched_bluster", "catched_ganon"))
+            .global_motion(
+                Motion::from_template("thrown_bluster", "thrown_f")
+                    .animation("d05thrownbluster.nuanmb")
+                    .scripts("thrownbluster"),
+            )
+            .param("dash_speed", 2.0)
+            .to_toml();
+        assert!(text.contains(
+            "\n[[global_motion]]\nname = \"catched_bluster\"\ntemplate = \"catched_ganon\"\n"
+        ));
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.kirby.as_ref().unwrap().motions.len(), 1);
+        assert_eq!(fighter.global_motions.len(), 2);
+        assert_eq!(fighter.global_motions[1].animation, "d05thrownbluster.nuanmb");
+        assert_eq!(
+            fighter.global_motions[1].script("effect", None).as_deref(),
+            Some("effect_thrownbluster")
+        );
+        assert_eq!(fighter.params.len(), 1);
+    }
+
+    #[test]
+    fn a_victim_global_motion_renders_and_parses_back() {
+        let text = Manifest::new("bluster", "donkey")
+            .global_motion(Motion::victim("thrown_bluster_f").animation("e01thrownblusterf.nuanmb"))
+            .global_motion(Motion::victim("thrown_bluster_f_dx").scripts("thrownblusterf"))
+            .to_toml();
+        assert!(text.contains("\n[[global_motion]]\nname = \"thrown_bluster_f\"\nvictim = true\n"));
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.global_motions.len(), 2);
+        assert!(fighter.global_motions.iter().all(|motion| motion.victim));
+        assert_eq!(fighter.global_motions[0].animation, "e01thrownblusterf.nuanmb");
+        assert!(fighter.global_motions[1].animation.is_empty());
     }
 
     #[test]

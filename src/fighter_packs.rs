@@ -51,9 +51,12 @@ mod live {
         CloneRegistrationV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA, COPY_MOTION_SET_ANIMATION_UNK,
         COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME, COPY_MOTION_SET_FLAGS,
         COPY_MOTION_SET_GAME_SCRIPT, COPY_MOTION_SET_NO_STOP_INTP, COPY_MOTION_SET_SCRIPTS,
-        COPY_MOTION_SET_XLU, FLAG_KIRBY_COPY_FULL_MODEL, FLAG_OWNS_PARAM_RESOURCES, KIND_AUTO,
+        COPY_MOTION_SET_XLU, COPY_MOTION_VICTIM, FLAG_KIRBY_COPY_FULL_MODEL,
+        FLAG_OWNS_PARAM_RESOURCES, KIND_AUTO,
     };
-    use clone_engine_core::fighter_toml::{parse_all, ArticleDeclaration, KirbyDeclaration};
+    use clone_engine_core::fighter_toml::{
+        parse_all, ArticleDeclaration, KirbyDeclaration, MotionDeclaration,
+    };
     use std::ffi::CString;
 
     fn leak(text: &str) -> &'static str {
@@ -286,6 +289,7 @@ mod live {
         if let Some(kirby) = &kirby {
             register_kirby(directory, kind, kirby);
         }
+        register_global_motions(directory, kind, &declaration.global_motions);
         if declaration.jingle.is_some() {
             skyline::println!(
                 "[fighterpack] {directory}: jingle is accepted but not served by this engine yet"
@@ -405,92 +409,128 @@ mod live {
             skyline::println!("[fighterpack] {directory}: kirby mesh {mesh} result={result}");
         }
         for motion in &kirby.motions {
-            let owned = |value: &str| cstring(directory, "kirby motion", value);
-            let (Some(name), Some(animation)) = (owned(&motion.name), owned(&motion.animation)) else {
-                continue;
-            };
-            let template = motion.template.as_deref().and_then(owned);
-            let game = motion.script("game", None).as_deref().and_then(owned);
-            let sound = motion.script("sound", None).as_deref().and_then(owned);
-            let effect = motion.script("effect", None).as_deref().and_then(owned);
-            let expression = motion.script("expression", None).as_deref().and_then(owned);
-            let mut present = 0u32;
-            let mut motion_flags = 0u16;
-            if game.is_some() {
-                present |= COPY_MOTION_SET_GAME_SCRIPT;
+            if let Some(result) = submit_motion(
+                directory,
+                kind,
+                "kirby motion",
+                motion,
+                crate::kirby_motions::clone_engine_clone_copy_motion_v1,
+            ) {
+                skyline::println!(
+                    "[fighterpack] {directory}: kirby motion {} result={result}",
+                    motion.name
+                );
             }
-            if sound.is_some() && effect.is_some() && expression.is_some() {
-                present |= COPY_MOTION_SET_SCRIPTS;
-            }
-            if !motion.flags.is_empty() {
-                present |= COPY_MOTION_SET_FLAGS;
-                for flag in &motion.flags {
-                    motion_flags |= match flag.as_str() {
-                        "turn" => 1 << 0,
-                        "loop" => 1 << 1,
-                        "move" => 1 << 2,
-                        "fix_trans" => 1 << 3,
-                        "fix_rot" => 1 << 4,
-                        "fix_scale" => 1 << 5,
-                        other => {
-                            skyline::println!(
-                                "[fighterpack] {directory}: kirby motion {} has unknown flag {other:?}",
-                                motion.name
-                            );
-                            0
-                        }
-                    };
-                }
-            }
-            if motion.blend_frames.is_some() {
-                present |= COPY_MOTION_SET_BLEND_FRAMES;
-            }
-            if motion.xlu.is_some() {
-                present |= COPY_MOTION_SET_XLU;
-            }
-            if motion.cancel_frame.is_some() {
-                present |= COPY_MOTION_SET_CANCEL_FRAME;
-            }
-            if motion.no_stop_intp.is_some() {
-                present |= COPY_MOTION_SET_NO_STOP_INTP;
-            }
-            if motion.animation_unk.is_some() {
-                present |= COPY_MOTION_SET_ANIMATION_UNK;
-            }
-            if motion.no_extra {
-                present |= COPY_MOTION_NO_EXTRA;
-            }
-            let null = core::ptr::null();
-            let pointer = |value: &Option<CString>| value.as_ref().map_or(null, |value| value.as_ptr());
-            let (xlu_start, xlu_end) = motion.xlu.unwrap_or((0, 0));
-            let registration = CloneCopyMotionV1 {
-                api_version: API_VERSION_V1,
-                struct_size: core::mem::size_of::<CloneCopyMotionV1>() as u32,
-                fighter_kind: kind,
-                present,
-                name: name.as_ptr(),
-                template: pointer(&template),
-                animation: animation.as_ptr(),
-                game_script: pointer(&game),
-                script_expression: pointer(&expression),
-                script_sound: pointer(&sound),
-                script_effect: pointer(&effect),
-                motion_flags,
-                blend_frames: motion.blend_frames.unwrap_or(0),
-                xlu_start,
-                xlu_end,
-                cancel_frame: motion.cancel_frame.unwrap_or(0),
-                no_stop_intp: u8::from(motion.no_stop_intp.unwrap_or(false)),
-                animation_unk: motion.animation_unk.unwrap_or(0),
-                reserved: [0; 4],
-            };
-            let result =
-                unsafe { crate::kirby_motions::clone_engine_clone_copy_motion_v1(&registration) };
-            skyline::println!(
-                "[fighterpack] {directory}: kirby motion {} result={result}",
-                motion.name
-            );
         }
+    }
+
+    fn register_global_motions(directory: &str, kind: i32, motions: &[MotionDeclaration]) {
+        for motion in motions {
+            if let Some(result) = submit_motion(
+                directory,
+                kind,
+                "global motion",
+                motion,
+                crate::global_motions::clone_engine_global_motion_v1,
+            ) {
+                skyline::println!(
+                    "[fighterpack] {directory}: global motion {} result={result}",
+                    motion.name
+                );
+            }
+        }
+    }
+
+    fn submit_motion(
+        directory: &str,
+        kind: i32,
+        what: &str,
+        motion: &MotionDeclaration,
+        submit: unsafe extern "C" fn(*const CloneCopyMotionV1) -> i32,
+    ) -> Option<i32> {
+        let owned = |value: &str| cstring(directory, what, value);
+        let (Some(name), Some(animation)) = (owned(&motion.name), owned(&motion.animation)) else {
+            return None;
+        };
+        let template = motion.template.as_deref().and_then(owned);
+        let game = motion.script("game", None).as_deref().and_then(owned);
+        let sound = motion.script("sound", None).as_deref().and_then(owned);
+        let effect = motion.script("effect", None).as_deref().and_then(owned);
+        let expression = motion.script("expression", None).as_deref().and_then(owned);
+        let mut present = 0u32;
+        let mut motion_flags = 0u16;
+        if game.is_some() {
+            present |= COPY_MOTION_SET_GAME_SCRIPT;
+        }
+        if sound.is_some() && effect.is_some() && expression.is_some() {
+            present |= COPY_MOTION_SET_SCRIPTS;
+        }
+        if !motion.flags.is_empty() {
+            present |= COPY_MOTION_SET_FLAGS;
+            for flag in &motion.flags {
+                motion_flags |= match flag.as_str() {
+                    "turn" => 1 << 0,
+                    "loop" => 1 << 1,
+                    "move" => 1 << 2,
+                    "fix_trans" => 1 << 3,
+                    "fix_rot" => 1 << 4,
+                    "fix_scale" => 1 << 5,
+                    other => {
+                        skyline::println!(
+                            "[fighterpack] {directory}: {what} {} has unknown flag {other:?}",
+                            motion.name
+                        );
+                        0
+                    }
+                };
+            }
+        }
+        if motion.blend_frames.is_some() {
+            present |= COPY_MOTION_SET_BLEND_FRAMES;
+        }
+        if motion.xlu.is_some() {
+            present |= COPY_MOTION_SET_XLU;
+        }
+        if motion.cancel_frame.is_some() {
+            present |= COPY_MOTION_SET_CANCEL_FRAME;
+        }
+        if motion.no_stop_intp.is_some() {
+            present |= COPY_MOTION_SET_NO_STOP_INTP;
+        }
+        if motion.animation_unk.is_some() {
+            present |= COPY_MOTION_SET_ANIMATION_UNK;
+        }
+        if motion.no_extra {
+            present |= COPY_MOTION_NO_EXTRA;
+        }
+        if motion.victim {
+            present |= COPY_MOTION_VICTIM;
+        }
+        let null = core::ptr::null();
+        let pointer = |value: &Option<CString>| value.as_ref().map_or(null, |value| value.as_ptr());
+        let (xlu_start, xlu_end) = motion.xlu.unwrap_or((0, 0));
+        let registration = CloneCopyMotionV1 {
+            api_version: API_VERSION_V1,
+            struct_size: core::mem::size_of::<CloneCopyMotionV1>() as u32,
+            fighter_kind: kind,
+            present,
+            name: name.as_ptr(),
+            template: pointer(&template),
+            animation: animation.as_ptr(),
+            game_script: pointer(&game),
+            script_expression: pointer(&expression),
+            script_sound: pointer(&sound),
+            script_effect: pointer(&effect),
+            motion_flags,
+            blend_frames: motion.blend_frames.unwrap_or(0),
+            xlu_start,
+            xlu_end,
+            cancel_frame: motion.cancel_frame.unwrap_or(0),
+            no_stop_intp: u8::from(motion.no_stop_intp.unwrap_or(false)),
+            animation_unk: motion.animation_unk.unwrap_or(0),
+            reserved: [0; 4],
+        };
+        Some(unsafe { submit(&registration) })
     }
 
     pub fn apply_params() {

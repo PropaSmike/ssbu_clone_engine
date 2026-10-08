@@ -438,6 +438,10 @@ fn compiled_capabilities() -> u64 {
     {
         capabilities |= clone_engine_api::CAP_STAGE_CSK;
     }
+    #[cfg(feature = "css_slot")]
+    {
+        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS;
+    }
     #[cfg(feature = "research_item_families")]
     {
         capabilities |= clone_engine_api::CAP_RESEARCH_ITEM_FAMILIES;
@@ -1517,7 +1521,7 @@ pub extern "C" fn clone_engine_log_v1(text: *const u8, len: usize) {
 
 #[no_mangle]
 pub unsafe extern "C" fn clone_engine_article_index_v1(fighter_kind: i32, weapon_kind: i32) -> i32 {
-    #[skyline::from_offset(OFF_STATIC_FIGHTER_DATA)]
+    #[skyline::from_offset(crate::game::rel(OFF_STATIC_FIGHTER_DATA))]
     fn static_fighter_data(kind: i32) -> *const StaticFighterData;
 
     let blob = static_fighter_data(clone_base(fighter_kind).unwrap_or(fighter_kind));
@@ -4318,8 +4322,8 @@ use kirby_copy::*;
 
 #[cfg(feature = "kirby_copy_motions")]
 mod kirby_motions;
-#[cfg(feature = "kirby_copy_motions")]
-mod motion_list;
+#[cfg(feature = "css_slot")]
+mod global_motions;
 
 #[cfg(feature = "css_slot")]
 mod css_registration;

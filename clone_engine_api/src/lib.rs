@@ -101,6 +101,7 @@ pub const CAP_STAGE_MINT: u64 = 1 << 12;
 pub const CAP_STAGE_CONFIG: u64 = 1 << 13;
 pub const CAP_STAGE_SELECT_EXTENDED: u64 = 1 << 14;
 pub const CAP_STAGE_CSK: u64 = 1 << 15;
+pub const CAP_GLOBAL_MOTIONS: u64 = 1 << 16;
 pub const CAP_RESEARCH_ITEM_FAMILIES: u64 = 1 << 32;
 pub const CAP_RESEARCH_ITEM_MULTIBASE_STATUS_RESERVED: u64 = 1 << 33;
 
@@ -557,6 +558,7 @@ static ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_ARTICLE_FN: AtomicUsize = AtomicUsize::new(0);
 static COPY_ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
+static GLOBAL_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MODEL_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MESH_FN: AtomicUsize = AtomicUsize::new(0);
 static LOG_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1646,6 +1648,7 @@ pub const COPY_MOTION_SET_CANCEL_FRAME: u32 = 1 << 5;
 pub const COPY_MOTION_SET_NO_STOP_INTP: u32 = 1 << 6;
 pub const COPY_MOTION_SET_ANIMATION_UNK: u32 = 1 << 7;
 pub const COPY_MOTION_NO_EXTRA: u32 = 1 << 8;
+pub const COPY_MOTION_VICTIM: u32 = 1 << 9;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -1725,6 +1728,10 @@ impl<'a> CopyMotion<'a> {
         }
     }
 
+    pub const fn from_template(name: &'a str, template: &'a str) -> Self {
+        Self::new(name, "").template(template)
+    }
+
     pub const fn template(mut self, template: &'a str) -> Self {
         self.template = Some(template);
         self
@@ -1777,11 +1784,37 @@ impl<'a> CopyMotion<'a> {
 }
 
 pub fn clone_copy_motion(fighter_kind: i32, motion: &CopyMotion<'_>) -> Result<(), Error> {
-    let address = resolve(
+    submit_motion(
         &CLONE_COPY_MOTION_FN,
         b"clone_engine_clone_copy_motion_v1\0",
+        fighter_kind,
+        motion,
+        0,
     )
-    .ok_or(Error::EngineUnavailable)?;
+}
+
+pub fn global_motion(motion: &CopyMotion<'_>) -> Result<(), Error> {
+    submit_motion(&GLOBAL_MOTION_FN, b"clone_engine_global_motion_v1\0", -1, motion, 0)
+}
+
+pub fn global_victim_motion(motion: &CopyMotion<'_>) -> Result<(), Error> {
+    submit_motion(
+        &GLOBAL_MOTION_FN,
+        b"clone_engine_global_motion_v1\0",
+        -1,
+        motion,
+        COPY_MOTION_VICTIM,
+    )
+}
+
+fn submit_motion(
+    slot: &AtomicUsize,
+    symbol: &'static [u8],
+    fighter_kind: i32,
+    motion: &CopyMotion<'_>,
+    mode: u32,
+) -> Result<(), Error> {
+    let address = resolve(slot, symbol).ok_or(Error::EngineUnavailable)?;
 
     let owned = |value: &str| CString::new(value).map_err(|_| Error::InvalidName);
     let name = owned(motion.name)?;
@@ -1795,7 +1828,7 @@ pub fn clone_copy_motion(fighter_kind: i32, motion: &CopyMotion<'_>) -> Result<(
         })
         .transpose()?;
 
-    let mut present = 0u32;
+    let mut present = mode;
     if game_script.is_some() {
         present |= COPY_MOTION_SET_GAME_SCRIPT;
     }
