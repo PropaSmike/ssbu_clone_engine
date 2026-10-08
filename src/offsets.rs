@@ -143,6 +143,12 @@ pub(crate) const OFF_ARTICLE_CREATOR_DISPATCH: usize = 0x3d40c0;
 pub(crate) const OFF_ARTICLE_CUSTOM_CREATOR: usize = 0x3a5d80;
 #[cfg(feature = "css_slot")]
 pub(crate) const OFF_ARTICLE_BASE_CREATOR: usize = 0x3a6ce0;
+#[cfg(feature = "css_slot")]
+pub(crate) const OFF_ARTICLE_CONTAINER_ASSIGN_COUNT: usize = 0x3a6298;
+#[cfg(feature = "css_slot")]
+pub(crate) const OFF_ARTICLE_IS_GENERATABLE: usize = 0x3d6560;
+#[cfg(feature = "css_slot")]
+pub(crate) const OFF_ARTICLE_GET_ACTIVE_NUM: usize = 0x3d6730;
 
 #[cfg(feature = "css_slot")]
 pub(crate) const OFF_SV_BATTLE_OBJECT_MODULE_ACCESSOR: usize = 0x2283700;

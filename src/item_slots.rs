@@ -444,7 +444,7 @@ enum PreflightError {
 }
 
 pub(crate) unsafe fn text_word(offset: usize) -> u32 {
-    core::ptr::read_volatile((crate::text_base() + offset) as *const u32)
+    crate::game::text_word(offset)
 }
 
 unsafe fn expect_word(offset: usize, expected: u32) -> Result<(), PreflightError> {
@@ -642,8 +642,7 @@ pub(crate) fn register_family(entries: &[CloneResourceRegistration]) -> bool {
         let slot = CloneSlot::boxed();
         let mut row = Box::new(CloneRow([0u8; ROW_STRIDE]));
         unsafe {
-            let source = (crate::text_base()
-                + ITEM_DESCRIPTOR_TABLE
+            let source = (crate::game::addr(ITEM_DESCRIPTOR_TABLE)
                 + entry.base_kind as usize * ROW_STRIDE) as *const u8;
             core::ptr::copy_nonoverlapping(source, row.0.as_mut_ptr(), ROW_STRIDE);
             (row.0.as_mut_ptr().add(ITEM_DESCRIPTOR_NAME_OFFSET) as *mut *const core::ffi::c_char)
@@ -861,7 +860,7 @@ static VANILLA_SCRIPT_ITEM: AtomicUsize = AtomicUsize::new(0);
 
 unsafe fn item_manager() -> usize {
     let holder =
-        core::ptr::read_volatile((crate::text_base() + ITEM_MANAGER_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ITEM_MANAGER_GLOBAL)) as *const usize);
     if holder == 0 {
         return 0;
     }
@@ -878,7 +877,7 @@ unsafe fn base_kind_is_on_demand(base_kind: i32) -> bool {
     if !(0..NATIVE_ITEM_KIND_COUNT as i32).contains(&base_kind) {
         return false;
     }
-    let entry = crate::text_base() + ITEM_KIND_CONFIG_TABLE + base_kind as usize * ITEM_KIND_CONFIG_STRIDE;
+    let entry = crate::game::addr(ITEM_KIND_CONFIG_TABLE) + base_kind as usize * ITEM_KIND_CONFIG_STRIDE;
     core::ptr::read_volatile(entry as *const u8) & ITEM_KIND_CONFIG_ON_DEMAND != 0
 }
 
@@ -1088,11 +1087,11 @@ unsafe extern "C" fn path_category(ctx: &mut skyline::hooks::InlineCtx) {
         return;
     }
     let root = crate::item_params::item_content_category(public_kind).main_root_offset();
-    ctx.registers[ITEM_PATH_NAMESPACE_REGISTER].set_x((crate::text_base() + root) as u64);
+    ctx.registers[ITEM_PATH_NAMESPACE_REGISTER].set_x(crate::game::addr(root) as u64);
 }
 
 unsafe fn kind_of_descriptor_row(row: usize) -> Option<i32> {
-    let table = crate::text_base() + ITEM_DESCRIPTOR_TABLE;
+    let table = crate::game::addr(ITEM_DESCRIPTOR_TABLE);
     let offset = row.checked_sub(table)?;
     if offset % ROW_STRIDE != 0 {
         return None;
@@ -1588,8 +1587,6 @@ pub(crate) fn install() {
     match unsafe { preflight() } {
         Ok(()) => unsafe {
             PREFLIGHT_OK.store(true, Ordering::Release);
-            let text = crate::text_base();
-
             let mut installed = 0usize;
             let mut attempted = 0usize;
             let mut failed: Vec<usize> = Vec::new();
@@ -1597,7 +1594,7 @@ pub(crate) fn install() {
             let mut arm = |offset: usize, original: u32, hook: InlineHook| {
                 attempted += 1;
                 skyline::hooks::A64InlineHook(
-                    (text + offset) as *const libc::c_void,
+                    crate::game::addr(offset) as *const libc::c_void,
                     hook as *const () as *const libc::c_void,
                 );
                 if text_word(offset) != original {

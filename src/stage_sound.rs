@@ -39,7 +39,7 @@ pub fn disarmed(flags: u32) -> Option<u32> {
 
 unsafe fn loaded_arc() -> Option<usize> {
     let service =
-        core::ptr::read_volatile((crate::text_base_public() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return None;
     }

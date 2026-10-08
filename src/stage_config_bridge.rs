@@ -92,7 +92,7 @@ mod live {
 
     static LAST_REPORTED: AtomicU32 = AtomicU32::new(u32::MAX);
 
-    #[skyline::hook(offset = OPEN_SITE, inline)]
+    #[skyline::hook(offset = crate::game::rel(OPEN_SITE), inline)]
     unsafe fn open_hook(ctx: &mut skyline::hooks::InlineCtx) {
         let stage = ctx.registers[OPEN_STAGE_REG].x();
         if stage == 0 {
@@ -124,7 +124,7 @@ mod live {
 
     macro_rules! close_site {
         ($name:ident, $site:expr, $reg:expr) => {
-            #[skyline::hook(offset = $site, inline)]
+            #[skyline::hook(offset = crate::game::rel($site), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let stage = ctx.registers[$reg].x();
                 if stage == 0 {
@@ -143,7 +143,6 @@ mod live {
 
     pub fn install() {
         unsafe {
-            let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as *const u8;
             let sites = [
                 (
                     OFF_STAGE_BASE_PRE_SETUP,
@@ -156,7 +155,7 @@ mod live {
                 (CLOSE_SITES[2].0, CLOSE_SITES[2].1, "close"),
             ];
             for (site, expected, label) in sites {
-                let observed = core::ptr::read_volatile(text.add(site) as *const u32);
+                let observed = crate::game::text_word(site);
                 if observed != expected {
                     skyline::println!(
                         "[stagecfg] REFUSED {label} site {site:#x}: expected \

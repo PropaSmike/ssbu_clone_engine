@@ -457,7 +457,7 @@ unsafe extern "C" fn category_root(ctx: &mut skyline::hooks::InlineCtx) {
     }
     let category = item_content_category(public_kind as i32);
     ctx.registers[CATEGORY_ROOT_REGISTER]
-        .set_x((crate::text_base() + category.main_root_offset()) as u64);
+        .set_x(crate::game::addr(category.main_root_offset()) as u64);
 }
 
 unsafe extern "C" fn hash_probe(ctx: &mut skyline::hooks::InlineCtx) {
@@ -508,7 +508,7 @@ const VANILLA_FILE_COUNT: usize = 590_711;
 
 unsafe fn loaded_arc() -> Option<usize> {
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return None;
     }
@@ -586,7 +586,7 @@ unsafe fn readiness(index: u32) -> String {
         return "no resource index".into();
     }
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return "resource service is null".into();
     }
@@ -619,7 +619,7 @@ unsafe fn resource_data(index: u32) -> Option<usize> {
         return None;
     }
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 || core::ptr::read_volatile((service + 0x18) as *const u32) <= index {
         return None;
     }
@@ -664,7 +664,7 @@ unsafe fn request_resource(index: usize, word: u32) {
         return;
     }
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return;
     }
@@ -680,7 +680,7 @@ unsafe fn request_resource(index: usize, word: u32) {
         return;
     }
     let request: unsafe extern "C" fn(usize, u32) =
-        core::mem::transmute(crate::text_base() + OFF_RESOURCE_REQUEST);
+        core::mem::transmute(crate::game::addr(OFF_RESOURCE_REQUEST));
     request(service, word);
     crate::dbg_log_public(&format!(
         "[itemparam] requested FilePath {word:#x} through the game's own loader"
@@ -692,7 +692,7 @@ pub(crate) unsafe fn request_file_path(word: u32) {
         return;
     }
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return;
     }
@@ -700,7 +700,7 @@ pub(crate) unsafe fn request_file_path(word: u32) {
         return;
     }
     let request: unsafe extern "C" fn(usize, u32) =
-        core::mem::transmute(crate::text_base() + OFF_RESOURCE_REQUEST);
+        core::mem::transmute(crate::game::addr(OFF_RESOURCE_REQUEST));
     request(service, word);
 }
 
@@ -1286,7 +1286,7 @@ pub(crate) unsafe fn common_cell(kind: i32, table: CommonTable) -> Option<*mut u
         return None;
     }
     let handle = core::ptr::read_volatile(
-        (crate::text_base() + crate::item_common_tables::COMMON_HANDLE_GLOBAL) as *const usize,
+        (crate::game::addr(crate::item_common_tables::COMMON_HANDLE_GLOBAL)) as *const usize,
     );
     if handle < 0x10_0000_0000 {
         return None;
@@ -1497,9 +1497,9 @@ fn runtime_clone_for_base(base_kind: i32) -> Option<i32> {
 const CALLER_FRAMES: usize = 12;
 
 fn describe_address(address: usize) -> String {
-    let text = crate::text_base();
+    let text = crate::game::raw_text_base();
     if address > text && address - text < 0x0800_0000 {
-        return format!("main+{:#x}", address - text);
+        return format!("main+{:#x}", crate::game::offset_of(address));
     }
     let nro = crate::item_clones::item_nro_base();
     if nro != 0 && address > nro && address - nro < 0x0100_0000 {
@@ -1646,12 +1646,11 @@ pub(crate) fn install() {
     match unsafe { preflight() } {
         Ok(()) => unsafe {
             PREFLIGHT_OK.store(true, Ordering::Release);
-            let text = crate::text_base();
             let mut installed = 0usize;
             let mut failed: Vec<usize> = Vec::new();
             let mut arm = |offset: usize, original: u32, hook: InlineHook| {
                 skyline::hooks::A64InlineHook(
-                    (text + offset) as *const libc::c_void,
+                    crate::game::addr(offset) as *const libc::c_void,
                     hook as *const () as *const libc::c_void,
                 );
                 if text_word(offset) != original {
@@ -1724,7 +1723,7 @@ pub(crate) fn report_common_params() {
         return;
     }
     unsafe {
-        let global = crate::text_base() + COMMON_ACCESSOR_GLOBAL;
+        let global = crate::game::addr(COMMON_ACCESSOR_GLOBAL);
         let accessor = core::ptr::read_volatile(global as *const usize);
         let live = LIVE_ACCESSOR.load(Ordering::Acquire);
         crate::dbg_log_public(&format!(
@@ -1770,7 +1769,7 @@ pub(crate) fn report_common_params() {
             n
         };
         let real = core::ptr::read_volatile(accessor as *const usize);
-        let expected_vtable = crate::text_base() + 0x5077D30;
+        let expected_vtable = crate::game::addr(0x5077D30);
         let vtable = if heap(real) {
             core::ptr::read_volatile((real + 0x20) as *const usize)
         } else {

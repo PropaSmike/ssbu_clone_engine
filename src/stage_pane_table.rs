@@ -56,7 +56,7 @@ pub(crate) mod live {
         COUNT.load(Ordering::Acquire)
     }
 
-    #[skyline::hook(offset = OFF_PANE_CONSUMER)]
+    #[skyline::hook(offset = crate::game::rel(OFF_PANE_CONSUMER))]
     unsafe fn pane_consumer_hook(handle: u64, second: u64, third: f64) -> u64 {
         let lr: usize;
         #[cfg(target_arch = "aarch64")]
@@ -76,9 +76,7 @@ pub(crate) mod live {
     }
 
     fn is_the_panel_loop(lr: usize) -> bool {
-        let text =
-            unsafe { skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize };
-        lr.wrapping_sub(text) == PANEL_LOOP_RETURN
+        crate::game::offset_of(lr) == PANEL_LOOP_RETURN
     }
 
     const PANEL_LOOP_RETURN: usize = 0x1B2B6BC;
@@ -138,7 +136,7 @@ pub(crate) mod live {
 
     const OFF_FIND_BY_DISP_ORDER: usize = 0x32B2500;
 
-    #[skyline::hook(offset = OFF_FIND_BY_DISP_ORDER)]
+    #[skyline::hook(offset = crate::game::rel(OFF_FIND_BY_DISP_ORDER))]
     unsafe fn find_by_disp_order_hook(db: u64, disp_order: u32) -> u64 {
         let found = call_original!(db, disp_order);
         let drawn = DRAWN.load(Ordering::Acquire);
@@ -160,7 +158,7 @@ pub(crate) mod live {
         core::sync::atomic::AtomicBool::new(false);
     static PAGE: AtomicUsize = AtomicUsize::new(0);
 
-    #[skyline::hook(offset = OFF_CURSOR_UPDATE)]
+    #[skyline::hook(offset = crate::game::rel(OFF_CURSOR_UPDATE))]
     unsafe fn cursor_update_hook(cursor: u64) -> u64 {
         let drawn = DRAWN.load(Ordering::Acquire);
         let panes = COUNT.load(Ordering::Acquire);

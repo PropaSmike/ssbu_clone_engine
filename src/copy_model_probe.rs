@@ -57,7 +57,7 @@ impl Residency {
 }
 
 unsafe fn service() -> Result<usize, &'static str> {
-    let service = core::ptr::read_volatile((crate::text_base() + FILESYSTEM) as *const usize);
+    let service = core::ptr::read_volatile((crate::game::addr(FILESYSTEM)) as *const usize);
     if service < LOWEST_PLAUSIBLE_POINTER {
         return Err("service");
     }
@@ -176,7 +176,7 @@ fn ticket(counter: &AtomicU32, cap: u32) -> Option<u32> {
     (n < cap).then_some(n)
 }
 
-#[skyline::hook(offset = MODEL_BUILD)]
+#[skyline::hook(offset = crate::game::rel(MODEL_BUILD))]
 pub(crate) unsafe fn model_build_probe(
     out: *mut u64,
     search_path: *const u32,
@@ -226,8 +226,8 @@ pub(crate) unsafe fn model_build_probe(
 
 pub(crate) fn install() {
     skyline::install_hooks!(model_build_probe);
-    let site = crate::text_base() + CHECKS_FAILED;
-    let wanted = clone_engine_core::hook_site::branch(CHECKS_FAILED, EMPTY_AND_RELEASE);
+    let site = crate::game::addr(CHECKS_FAILED);
+    let wanted = clone_engine_core::hook_site::branch(crate::game::rel(CHECKS_FAILED), crate::game::rel(EMPTY_AND_RELEASE));
     let live = unsafe { core::ptr::read_volatile(site as *const u32) };
     let armed = live == wanted
         || (live == CHECKS_FAILED_WORD && unsafe { crate::text_patch::write_word(site, wanted) });

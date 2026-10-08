@@ -5,7 +5,7 @@ pub(crate) unsafe fn entry_kind_array(entry_id: i32) -> (u32, i32, i32, i32) {
     if entry_id < 0 {
         return (0xffff_fffc, -9, -9, -9);
     }
-    let t1 = *((text_base() + 0x52b84f8) as *const usize);
+    let t1 = *((crate::game::addr(0x52b84f8)) as *const usize);
     if t1 == 0 {
         return (0xffff_ffff, -9, -9, -9);
     }
@@ -89,7 +89,7 @@ fn init_bridge_release(entry_id: i32, owned: Option<bool>) {
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 pub(crate) unsafe fn resource_record_for_entry(entry_id: i32) -> Option<usize> {
     let entry = usize::try_from(entry_id).ok().filter(|entry| *entry < 8)?;
-    let root = *((text_base() + 0x5323680) as *const usize);
+    let root = *((crate::game::addr(0x5323680)) as *const usize);
     if root == 0 {
         return None;
     }
@@ -105,7 +105,7 @@ pub(crate) unsafe fn resolve_resource_directory(
 ) -> Option<i32> {
     type Resolve = unsafe extern "C" fn(*mut i32, usize, i32, i32);
     let resolve: Resolve =
-        core::mem::transmute(text_base() + crate::offsets::OFF_FIGHTER_RESOURCE_PATH_RESOLVE);
+        core::mem::transmute(crate::game::addr(crate::offsets::OFF_FIGHTER_RESOURCE_PATH_RESOLVE));
     let mut out: i32 = -1;
     resolve(&mut out as *mut i32, record, base_kind, kind_type);
     (out >= 0 && out != RESOURCE_INDEX_NOT_FOUND).then_some(out)
@@ -120,7 +120,7 @@ pub(crate) unsafe fn entry_for_resource_record(record: usize) -> Option<usize> {
     if record == 0 {
         return None;
     }
-    let root = *((text_base() + 0x5323680) as *const usize);
+    let root = *((crate::game::addr(0x5323680)) as *const usize);
     if root == 0 {
         return None;
     }
@@ -236,7 +236,7 @@ pub(crate) unsafe fn directory_search_index_is_backed(index: i32) -> bool {
     if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
         return false;
     }
-    let service = *((text_base() + 0x5331f20) as *const usize);
+    let service = *((crate::game::addr(0x5331f20)) as *const usize);
     if service == 0 {
         return false;
     }
@@ -498,7 +498,7 @@ unsafe fn camera_animation_resolves(directory: i32, name: u64) -> bool {
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x6955d0)]
+#[skyline::hook(offset = crate::game::rel(0x6955d0))]
 pub(crate) unsafe fn fighter_camera_set_hook(object: *mut u8, name: u64, holder: *mut u8) -> u64 {
     set_pending_camera_name(name);
     let ret = call_original!(object, name, holder);
@@ -507,7 +507,7 @@ pub(crate) unsafe fn fighter_camera_set_hook(object: *mut u8, name: u64, holder:
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x69566c, inline)]
+#[skyline::hook(offset = crate::game::rel(0x69566c), inline)]
 pub(crate) unsafe fn camera_animation_base_fallback(ctx: &mut skyline::hooks::InlineCtx) {
     if ctx.registers[20].x() as u32 != RESOURCE_INDEX_NOT_FOUND as u32 {
         return;
@@ -531,7 +531,7 @@ pub(crate) unsafe fn camera_animation_base_fallback(ctx: &mut skyline::hooks::In
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_FIGHTER_RESOURCE_PATH_RESOLVE)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_RESOURCE_PATH_RESOLVE))]
 pub(crate) unsafe fn fighter_scoped_resource_path_hook(
     out: *mut i32,
     record: *const u8,
@@ -636,7 +636,7 @@ pub(crate) static MODEL_PATH_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_MODEL_PATH_RESOLVE)]
+#[skyline::hook(offset = crate::game::rel(OFF_MODEL_PATH_RESOLVE))]
 pub(crate) unsafe fn model_path_namespace_hook(
     out: *mut i32,
     record: *const u8,
@@ -683,7 +683,7 @@ pub(crate) unsafe fn model_path_namespace_hook(
 }
 
 #[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
-#[skyline::hook(offset = OFF_FIGHTER_INIT_OBJ)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_OBJ))]
 pub(crate) unsafe fn fighter_init_kind_bridge(
     object: *mut u8,
     id: u32,
@@ -748,7 +748,7 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
 
 pub(crate) const OFF_FIGHTER_POST_INIT_WORK_QUERY: usize = 0xcd98a0;
 
-#[skyline::hook(offset = OFF_FIGHTER_POST_INIT_WORK_QUERY)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_POST_INIT_WORK_QUERY))]
 pub(crate) unsafe fn post_init_work_query_probe(helper: *mut u8, fighter: *mut u8) -> u64 {
     if fighter.is_null() {
         return call_original!(helper, fighter);
@@ -804,7 +804,7 @@ pub(crate) static ENTRY118_LOG_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "true_kind")]
-#[skyline::hook(offset = OFF_ENTRY_BLOCK_INSTALL)]
+#[skyline::hook(offset = crate::game::rel(OFF_ENTRY_BLOCK_INSTALL))]
 pub(crate) unsafe fn entry_block_install_hook(obj: *mut u8, block: *mut u8, aux: *mut u8) -> u64 {
     let count = *((block as usize + 0x14) as *const i32);
     let kinds = (block as usize + 0x18) as *mut i32;
@@ -836,7 +836,7 @@ pub(crate) static ENTRY118_TICK_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "true_kind")]
-#[skyline::hook(offset = OFF_ENTRY_LIFECYCLE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ENTRY_LIFECYCLE))]
 pub(crate) unsafe fn entry_lifecycle_hook(obj: *mut u8) -> u64 {
     let n = ENTRY118_TICK_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 8 {
@@ -903,7 +903,7 @@ pub(crate) const OFF_MATCH_SETUP_ENTRY: usize = 0x14e_58f0;
 macro_rules! setup_trace_probe {
     ($name:ident, $ord:expr, $off:expr, $target:expr) => {
         #[cfg(feature = "diag_load_barrier")]
-        #[skyline::hook(offset = $off, inline)]
+        #[skyline::hook(offset = crate::game::rel($off), inline)]
         pub(crate) unsafe fn $name(_ctx: &mut skyline::hooks::InlineCtx) {
             use core::sync::atomic::{AtomicU32, Ordering};
             static HITS: AtomicU32 = AtomicU32::new(0);
@@ -938,7 +938,7 @@ setup_trace_probe!(
 );
 
 #[cfg(feature = "diag_load_barrier")]
-#[skyline::hook(offset = OFF_MATCH_SETUP_ENTRY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_MATCH_SETUP_ENTRY), inline)]
 pub(crate) unsafe fn match_setup_entry_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::{AtomicU32, Ordering};
     static CALLS: AtomicU32 = AtomicU32::new(0);
@@ -946,7 +946,7 @@ pub(crate) unsafe fn match_setup_entry_probe(ctx: &mut skyline::hooks::InlineCtx
     if n >= 24 {
         return;
     }
-    let caller = (ctx.registers[30].x() as usize).wrapping_sub(text_base());
+    let caller = crate::game::offset_of(ctx.registers[30].x() as usize);
     let mut custom = [-1i32; 8];
     for (entry, out) in custom.iter_mut().enumerate() {
         if let Some(kind) = crate::css_registration::entry_custom_kind(entry as u8) {
@@ -957,7 +957,7 @@ pub(crate) unsafe fn match_setup_entry_probe(ctx: &mut skyline::hooks::InlineCtx
 }
 
 #[cfg(feature = "diag_load_barrier")]
-#[skyline::hook(offset = OFF_LOAD_BARRIER_POLL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_LOAD_BARRIER_POLL), inline)]
 pub(crate) unsafe fn load_barrier_poll_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
     const SLOTS: usize = 8;
@@ -997,7 +997,7 @@ pub(crate) unsafe fn load_barrier_poll_probe(ctx: &mut skyline::hooks::InlineCtx
 }
 
 #[cfg(feature = "true_kind")]
-#[skyline::hook(offset = OFF_KIND_EXPANDER)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIND_EXPANDER))]
 pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
     close_registration("match roster expansion");
     let lr: usize;
@@ -1007,7 +1007,7 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
     {
         lr = 0;
     }
-    let caller_off = lr.wrapping_sub(text_base());
+    let caller_off = crate::game::offset_of(lr);
 
     let n = ENTRY118_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut k = kind;
@@ -1075,8 +1075,7 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
 
 #[cfg(all(feature = "diag_article_initspoof", feature = "true_kind"))]
 pub(crate) unsafe fn log_entry_installer_vt(n: u32, entry_id: i32) {
-    let tb = text_base();
-    let t1 = *((tb + 0x52b84f8) as *const usize);
+    let t1 = *(crate::game::addr(0x52b84f8) as *const usize);
     if t1 == 0 {
         return;
     }
@@ -1103,9 +1102,9 @@ pub(crate) unsafe fn log_entry_installer_vt(n: u32, entry_id: i32) {
     dbg_log!(
         "[entry118] vt #{n} entry={entry_id} sub={sub:#x} vt=text+{:#x} \
          install(vt+0x28)=text+{:#x} post(vt+0x18)=text+{:#x}",
-        vt.wrapping_sub(tb),
-        f28.wrapping_sub(tb),
-        f18.wrapping_sub(tb)
+        crate::game::offset_of(vt),
+        crate::game::offset_of(f28),
+        crate::game::offset_of(f18)
     );
 }
 
@@ -1120,7 +1119,7 @@ pub(crate) static GATE118_OTHER_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "clone_runtime")]
-#[skyline::hook(offset = OFF_KIND_VALIDITY_GATE)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIND_VALIDITY_GATE))]
 pub(crate) unsafe extern "C" fn kind_validity_gate_hook(
     a0: u64,
     a1: u64,
@@ -1182,7 +1181,7 @@ pub(crate) unsafe fn read_cstr_capped(ptr: *const u8, cap: usize) -> String {
 }
 
 #[cfg(all(feature = "diag_pathtrace", not(feature = "true_kind")))]
-#[skyline::hook(offset = OFF_PATH_BUILDER)]
+#[skyline::hook(offset = crate::game::rel(OFF_PATH_BUILDER))]
 pub(crate) unsafe extern "C" fn path_builder_trace_hook(
     a0: u64,
     a1: u64,
@@ -1212,7 +1211,7 @@ pub(crate) unsafe extern "C" fn path_builder_trace_hook(
 pub(crate) static PATHB_HI: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "clone_runtime")]
-#[skyline::hook(offset = OFF_PATH_BUILDER)]
+#[skyline::hook(offset = crate::game::rel(OFF_PATH_BUILDER))]
 pub(crate) unsafe extern "C" fn path_builder_remap_hook(
     a0: u64,
     a1: u64,
@@ -1281,7 +1280,7 @@ pub(crate) unsafe fn resmgr_active_byte(this: u64, kind: u32) -> i32 {
 }
 
 #[cfg(feature = "true_kind")]
-#[skyline::hook(offset = OFF_RESMGR_INSERT)]
+#[skyline::hook(offset = crate::game::rel(OFF_RESMGR_INSERT))]
 pub(crate) unsafe extern "C" fn resmgr_insert_hook(
     a0: u64,
     a1: u64,
@@ -1299,7 +1298,7 @@ pub(crate) unsafe extern "C" fn resmgr_insert_hook(
     {
         lr = 0;
     }
-    let caller_off = lr.wrapping_sub(text_base());
+    let caller_off = crate::game::offset_of(lr);
     let kind = a1 as u32;
     let ret = call_original!(a0, a1, a2, a3, a4, a5, a6, a7);
 
@@ -1398,14 +1397,14 @@ pub(crate) unsafe fn resmgr_activate_and_mirror(
 
 #[cfg(feature = "true_kind")]
 #[allow(dead_code)]
-#[skyline::hook(offset = OFF_RESMGR_ACTIVATE_BATCH_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_RESMGR_ACTIVATE_BATCH_CALL), inline)]
 pub(crate) unsafe fn resmgr_activate_batch_call_hook(ctx: &skyline::hooks::InlineCtx) {
     resmgr_activate_and_mirror(ctx, "batch@184a360", &RESMGR_MIRROR_BATCH_COUNT);
 }
 
 #[cfg(feature = "true_kind")]
 #[allow(dead_code)]
-#[skyline::hook(offset = OFF_RESMGR_ACTIVATE_DYNAMIC_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_RESMGR_ACTIVATE_DYNAMIC_CALL), inline)]
 pub(crate) unsafe fn resmgr_activate_dynamic_call_hook(ctx: &skyline::hooks::InlineCtx) {
     resmgr_activate_and_mirror(ctx, "dynamic@197489c", &RESMGR_MIRROR_DYNAMIC_COUNT);
 }
@@ -1424,7 +1423,7 @@ pub(crate) static CUSTOM_LOAD_OBJECT: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
 
 #[cfg(feature = "clone_runtime")]
-#[skyline::hook(offset = OFF_LOAD_FINAL_REGISTER_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_LOAD_FINAL_REGISTER_CALL), inline)]
 pub(crate) unsafe fn load_final_register_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let load_obj = ctx.registers[0].x();
     let kind = ctx.registers[1].x() as u32;
@@ -1504,7 +1503,7 @@ pub(crate) unsafe fn registered_kind_hash(object: u64, kind: u32) -> u64 {
 }
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_NATIVE_KIND_REGISTER)]
+#[skyline::hook(offset = crate::game::rel(OFF_NATIVE_KIND_REGISTER))]
 pub(crate) unsafe fn custom_native_register_probe(
     x0: u64,
     x1: u64,
@@ -1536,7 +1535,7 @@ pub(crate) unsafe fn custom_native_register_probe(
 }
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_BASE_READY)]
+#[skyline::hook(offset = crate::game::rel(OFF_BASE_READY))]
 pub(crate) unsafe fn custom_base_ready_probe(
     x0: u64,
     x1: u64,
@@ -1567,8 +1566,7 @@ pub(crate) unsafe fn custom_base_ready_probe(
         (0, u32::MAX, u32::MAX)
     };
 
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as u64;
-    let fs = *((text + 0x5331f20) as *const u64);
+    let fs = *(crate::game::addr(0x5331f20) as *const u64);
     let mut fs_count = 0u32;
     let mut fs_valid = 0u8;
     let mut fs_state = 0xffu8;
@@ -1611,7 +1609,7 @@ pub(crate) unsafe fn custom_base_ready_probe(
 }
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_ENTRY_READY)]
+#[skyline::hook(offset = crate::game::rel(OFF_ENTRY_READY))]
 pub(crate) unsafe fn custom_entry_ready_probe(
     x0: u64,
     x1: u64,
@@ -1661,7 +1659,7 @@ pub(crate) unsafe fn custom_entry_ready_probe(
 }
 
 #[cfg(all(feature = "true_kind", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_GROUP_READY)]
+#[skyline::hook(offset = crate::game::rel(OFF_GROUP_READY))]
 pub(crate) unsafe fn custom_group_ready_probe(
     x0: u64,
     x1: u64,
@@ -1702,7 +1700,7 @@ pub(crate) static LOAD_DISP_LO: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "clone_runtime")]
-#[skyline::hook(offset = OFF_LOAD_DISPATCH)]
+#[skyline::hook(offset = crate::game::rel(OFF_LOAD_DISPATCH))]
 pub(crate) unsafe extern "C" fn load_dispatch_kind_hook(
     a0: u64,
     a1: u64,
@@ -1720,7 +1718,7 @@ pub(crate) unsafe extern "C" fn load_dispatch_kind_hook(
     {
         lr = 0;
     }
-    let caller_off = lr.wrapping_sub(text_base());
+    let caller_off = crate::game::offset_of(lr);
 
     let kind = if a0 != 0 {
         *((a0 as usize + 0x58) as *const u32)
@@ -1764,7 +1762,7 @@ pub(crate) static CAMERA_ROUTE_DISABLED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x36de390)]
+#[skyline::hook(offset = crate::game::rel(0x36de390))]
 pub(crate) unsafe fn camera_record_value_guard(object: *mut u8) -> f32 {
     if !object.is_null() {
         let record = core::ptr::read_volatile(object.add(0x38) as *const u64);
@@ -1799,7 +1797,7 @@ static VICTORY_CAMERA_DECLINE_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x60d6ac, inline)]
+#[skyline::hook(offset = crate::game::rel(0x60d6ac), inline)]
 pub(crate) unsafe fn victory_camera_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let record = ctx.registers[20].x() as usize;
     let kind = ctx.registers[1].x() as i32;
@@ -1867,13 +1865,13 @@ unsafe fn victory_camera_name(ctx: &mut skyline::hooks::InlineCtx, site: &str) {
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x1492968, inline)]
+#[skyline::hook(offset = crate::game::rel(0x1492968), inline)]
 pub(crate) unsafe fn victory_camera_name_hook_a(ctx: &mut skyline::hooks::InlineCtx) {
     victory_camera_name(ctx, "0x1492968");
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
-#[skyline::hook(offset = 0x14977ec, inline)]
+#[skyline::hook(offset = crate::game::rel(0x14977ec), inline)]
 pub(crate) unsafe fn victory_camera_name_hook_b(ctx: &mut skyline::hooks::InlineCtx) {
     victory_camera_name(ctx, "0x14977ec");
 }
@@ -1882,7 +1880,7 @@ pub(crate) unsafe fn victory_camera_name_hook_b(ctx: &mut skyline::hooks::Inline
 pub(crate) static TRAIL_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x356092c, inline)]
+#[skyline::hook(offset = crate::game::rel(0x356092c), inline)]
 pub(crate) unsafe fn trail_nutexb_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let data = ctx.registers[26].x() as *const u8;
     let size = ctx.registers[2].x() as usize;
@@ -1912,7 +1910,7 @@ pub(crate) static TRAIL_DIR_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x355fc30, inline)]
+#[skyline::hook(offset = crate::game::rel(0x355fc30), inline)]
 pub(crate) unsafe fn trail_directory_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let built = ctx.registers[8].x();
     let base = ctx.registers[19].x();
@@ -1971,7 +1969,7 @@ pub(crate) static TRAIL_REQUEST_SEEN: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "diag_trail", feature = "css_slot"))]
-#[skyline::hook(offset = 0x355b308, inline)]
+#[skyline::hook(offset = crate::game::rel(0x355b308), inline)]
 pub(crate) unsafe fn trail_request_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let hash = ctx.registers[1].x();
     let seen = TRAIL_REQUEST_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed);

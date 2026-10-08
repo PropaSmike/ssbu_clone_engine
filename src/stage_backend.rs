@@ -165,9 +165,7 @@ static OBSERVED: std::sync::OnceLock<Plan> = std::sync::OnceLock::new();
 #[cfg(not(test))]
 pub fn arm() -> &'static Plan {
     OBSERVED.get_or_init(|| {
-        let text = crate::text_base();
-        let read =
-            move |offset: usize| unsafe { core::ptr::read_volatile((text + offset) as *const u32) };
+        let read = move |offset: usize| unsafe { crate::game::text_word(offset) };
         decide(survey(&read))
     })
 }

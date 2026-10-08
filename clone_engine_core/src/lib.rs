@@ -17,6 +17,7 @@ pub mod param_swap;
 pub mod slots;
 pub mod text_layout;
 pub mod vtable_copy;
+pub mod weapon_record;
 
 pub use hash::hash40;
 pub use slots::{base_row, clone_row, CLONE_SLOTS, FIRST_CUSTOM_KIND, PARAM_NATIVE_KINDS};

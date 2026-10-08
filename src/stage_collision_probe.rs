@@ -81,7 +81,7 @@ unsafe fn follow(base: *const u8, offset: usize) -> Option<*const u8> {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = 0x2cb45b0)]
+#[skyline::hook(offset = crate::game::rel(0x2cb45b0))]
 unsafe fn stage_update_probe(stage: *const u8, delta: f32) -> u64 {
     use core::sync::atomic::Ordering::Relaxed;
     if LAST_STAGE.swap(stage as usize, Relaxed) != stage as usize {
@@ -216,7 +216,7 @@ unsafe fn stdat_category_vector(aggregate: usize) -> (usize, usize, i64) {
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
 unsafe fn stdat_file_path_hash(index: u32) -> Option<u64> {
     let service =
-        core::ptr::read_volatile((crate::text_base() + ARC_SERVICE_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
     if service == 0 {
         return None;
     }
@@ -245,7 +245,7 @@ unsafe fn stdat_file_path_hash(index: u32) -> Option<u64> {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_STDAT_LIST_READY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_STDAT_LIST_READY), inline)]
 unsafe fn stdat_list_ready_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::Acquire;
     if !STDAT_SCAN_ARMED.load(Acquire) {
@@ -268,7 +268,7 @@ unsafe fn stdat_list_ready_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_STDAT_EXTENSION_RESULT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_STDAT_EXTENSION_RESULT), inline)]
 unsafe fn stdat_extension_result_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
     if !STDAT_SCAN_ARMED.load(Acquire) {
@@ -289,7 +289,7 @@ unsafe fn stdat_extension_result_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_STDAT_REGISTER_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_STDAT_REGISTER_CALL), inline)]
 unsafe fn stdat_register_call_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::{AcqRel, Acquire};
     if !STDAT_SCAN_ARMED.load(Acquire) {
@@ -311,7 +311,7 @@ unsafe fn stdat_register_call_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_STDAT_REGISTER_RETURN, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_STDAT_REGISTER_RETURN), inline)]
 unsafe fn stdat_register_return_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::Acquire;
     if !STDAT_SCAN_ARMED.load(Acquire) {
@@ -326,7 +326,7 @@ unsafe fn stdat_register_return_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_STDAT_SCAN_FINISH, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_STDAT_SCAN_FINISH), inline)]
 unsafe fn stdat_scan_finish_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::{AcqRel, Acquire};
     if !STDAT_SCAN_ARMED.swap(false, AcqRel) {
@@ -345,7 +345,7 @@ unsafe fn stdat_scan_finish_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_PICT_SCHEMA_RESOLVER, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PICT_SCHEMA_RESOLVER), inline)]
 unsafe fn pict_schema_resolver_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use core::sync::atomic::Ordering::Relaxed;
 
@@ -371,7 +371,7 @@ unsafe fn pointer_vector(object: *const u8, offset: usize) -> (usize, usize, i64
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_SUBOBJECT_INIT)]
+#[skyline::hook(offset = crate::game::rel(OFF_SUBOBJECT_INIT))]
 unsafe fn subobject_init_probe(
     object: *mut u8,
     descriptor: *const u8,
@@ -404,10 +404,9 @@ unsafe fn subobject_init_probe(
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
 unsafe fn report_init(call: u32, object: *const u8, descriptor: *const u8) {
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
 
     let class = match follow(object, 0) {
-        Some(vtable) => (vtable as usize).wrapping_sub(text),
+        Some(vtable) => crate::game::offset_of(vtable as usize),
         None => 0,
     };
     let key = if object.is_null() {
@@ -416,7 +415,7 @@ unsafe fn report_init(call: u32, object: *const u8, descriptor: *const u8) {
         core::ptr::read_volatile(object.add(SUBOBJECT_KEY) as *const u64)
     };
 
-    let singleton = follow(text as *const u8, SINGLETON_SLOT);
+    let singleton = follow(crate::game::raw_text_base() as *const u8, crate::game::rel(SINGLETON_SLOT));
     let inner = singleton.and_then(|s| follow(s, 0));
     let map = inner.and_then(|i| follow(i, SINGLETON_MAP));
 
@@ -435,7 +434,7 @@ unsafe fn report_init(call: u32, object: *const u8, descriptor: *const u8) {
 }
 
 #[cfg(all(not(test), feature = "stage_collision_probe"))]
-#[skyline::hook(offset = OFF_PICT_NAME_INIT)]
+#[skyline::hook(offset = crate::game::rel(OFF_PICT_NAME_INIT))]
 unsafe fn pict_name_init_probe(
     output: *mut u8,
     stage: *const u8,
@@ -471,8 +470,7 @@ unsafe fn report_pict_name_init(
     scale: f32,
     caller: usize,
 ) {
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as *const u8;
-    let locale = core::ptr::read_volatile(text.add(PICT_LANGUAGE_INDEX) as *const u32);
+    let locale = crate::game::text_word(PICT_LANGUAGE_INDEX);
     let stage_id = if stage.is_null() {
         u32::MAX
     } else {
@@ -532,9 +530,7 @@ pub(crate) fn install() {
         skyline::install_hook!(subobject_init_probe);
     }
 
-    let text =
-        unsafe { skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as *const u8 };
-    let observed = unsafe { core::ptr::read_volatile(text.add(OFF_PICT_NAME_INIT) as *const u32) };
+    let observed = unsafe { crate::game::text_word(OFF_PICT_NAME_INIT) };
     if observed == PICT_NAME_INIT_OPCODE {
         skyline::install_hook!(pict_name_init_probe);
         skyline::println!(
@@ -549,7 +545,7 @@ pub(crate) fn install() {
     }
 
     let schema_observed =
-        unsafe { core::ptr::read_volatile(text.add(OFF_PICT_SCHEMA_RESOLVER) as *const u32) };
+        unsafe { crate::game::text_word(OFF_PICT_SCHEMA_RESOLVER) };
     if schema_observed == PICT_SCHEMA_RESOLVER_OPCODE {
         skyline::install_hook!(pict_schema_resolver_probe);
         skyline::println!(
@@ -588,7 +584,7 @@ pub(crate) fn install() {
             "scan finish",
         ),
     ] {
-        let observed = unsafe { core::ptr::read_volatile(text.add(site) as *const u32) };
+        let observed = unsafe { crate::game::text_word(site) };
         if observed != expected {
             stdat_flow_ok = false;
             skyline::println!(

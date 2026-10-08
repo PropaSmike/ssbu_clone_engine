@@ -3,7 +3,17 @@
 Clone Engine lets a Smash Ultimate mod add a fighter, item or stage of its
 own, built on a vanilla one, instead of replacing a slot.
 
-Game version 13.0.4 only.
+Game version 13.0.4 or 13.0.5. The engine detects the version at boot.
+`sd:/ultimate/clone_engine/config.toml` can name it instead:
+
+```toml
+game_version = "auto"
+```
+
+`auto`, `13.0.4` or `13.0.5`. A wrong value is logged and the detected
+version is used. The other plugins must match the game: ARCropolis 4.0.8
+runs only on 13.0.4, 4.1.x only on 13.0.5, and Smashline needs 1.6.7 or
+newer on 13.0.5.
 
 ## What you need
 

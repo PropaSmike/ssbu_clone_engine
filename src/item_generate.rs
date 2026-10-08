@@ -115,7 +115,7 @@ pub(crate) fn rule_count() -> usize {
 
 unsafe fn accessor() -> Option<usize> {
     let handle = core::ptr::read_volatile(
-        (crate::text_base() + item_common_tables::COMMON_HANDLE_GLOBAL) as *const usize,
+        (crate::game::addr(item_common_tables::COMMON_HANDLE_GLOBAL)) as *const usize,
     );
     if handle < HEAP_FLOOR {
         return None;
@@ -125,7 +125,7 @@ unsafe fn accessor() -> Option<usize> {
 }
 
 unsafe fn kind_mask() -> Option<[u32; generate::KIND_MASK_WORDS]> {
-    let mask = core::ptr::read_volatile((crate::text_base() + KIND_MASK_GLOBAL) as *const usize);
+    let mask = core::ptr::read_volatile((crate::game::addr(KIND_MASK_GLOBAL)) as *const usize);
     if mask < HEAP_FLOOR {
         return None;
     }
@@ -248,13 +248,13 @@ unsafe fn rebuild(why: &str) {
     }
 }
 
-#[skyline::hook(offset = OFF_GENERATOR_SETUP)]
+#[skyline::hook(offset = crate::game::rel(OFF_GENERATOR_SETUP))]
 unsafe fn generator_setup_bridge(manager: u64) -> u64 {
     rebuild("match setup");
     call_original!(manager)
 }
 
-#[skyline::hook(offset = OFF_ITEM_LOT)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_LOT))]
 unsafe fn item_lot_bridge(manager: u64, generator: u32, mask: u64, flag: u32) -> u64 {
     let packed = call_original!(manager, generator, mask, flag);
     let (kind, variation) = generate::unpack_lot(packed);

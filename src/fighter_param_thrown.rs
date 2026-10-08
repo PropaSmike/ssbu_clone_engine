@@ -119,7 +119,7 @@ unsafe fn object_from_id(id: u32) -> Option<usize> {
         return None;
     }
     let lookup: extern "C" fn(u32) -> u64 =
-        core::mem::transmute(text_base() + OFF_BATTLE_OBJECT_FROM_ID);
+        core::mem::transmute(crate::game::addr(OFF_BATTLE_OBJECT_FROM_ID));
     let object = lookup(id) as usize;
     (object != 0).then_some(object)
 }
@@ -227,24 +227,24 @@ unsafe fn adjust(result: float32x4_t, holder_kind: Option<i32>, held_kind: i32, 
 
 unsafe extern "C" fn thrown_offset_handler(this: u64, holder: i32, held: i32, selector: i32) -> float32x4_t {
     let original: extern "C" fn(u64, i32, i32, i32) -> float32x4_t =
-        core::mem::transmute(text_base() + OFF_THROWN_OFFSET);
+        core::mem::transmute(crate::game::addr(OFF_THROWN_OFFSET));
     let result = original(this, holder, held, selector);
     adjust(result, Some(holder), held, Hold::from_selector(selector), "thrown_offset")
 }
 
-#[skyline::hook(offset = OFF_DONKEY_THROWN_OFFSET)]
+#[skyline::hook(offset = crate::game::rel(OFF_DONKEY_THROWN_OFFSET))]
 unsafe fn donkey_thrown_offset_bridge(this: u64, held: i32, selector: i32) -> float32x4_t {
     let result = call_original!(this, held, selector);
     adjust(result, None, held, Hold::from_selector(selector), "donkey_thrown_offset")
 }
 
-#[skyline::hook(offset = OFF_RIDLEY_DRAGGED_OFFSET)]
+#[skyline::hook(offset = crate::game::rel(OFF_RIDLEY_DRAGGED_OFFSET))]
 unsafe fn ridley_dragged_offset_bridge(this: u64, held: i32, selector: i32) -> float32x4_t {
     let result = call_original!(this, held, selector);
     adjust(result, None, held, Hold::Other, "ridley_dragged_offset")
 }
 
-#[skyline::hook(offset = OFF_GAOGAEN_FINAL_OFFSET)]
+#[skyline::hook(offset = crate::game::rel(OFF_GAOGAEN_FINAL_OFFSET))]
 unsafe fn gaogaen_final_offset_bridge(this: u64, held: i32, selector: i32) -> float32x4_t {
     let result = call_original!(this, held, selector);
     adjust(result, None, held, Hold::Other, "gaogaen_final_offset")
@@ -252,7 +252,7 @@ unsafe fn gaogaen_final_offset_bridge(this: u64, held: i32, selector: i32) -> fl
 
 macro_rules! held_only_bridge {
     ($name:ident, $offset:ident, $what:literal) => {
-        #[skyline::hook(offset = $offset)]
+        #[skyline::hook(offset = crate::game::rel($offset))]
         unsafe fn $name(this: u64, held: i32) -> float32x4_t {
             let result = call_original!(this, held);
             adjust(result, None, held, Hold::Other, $what)
@@ -271,8 +271,7 @@ fn branch_link(site: usize, target: usize) -> u32 {
 }
 
 unsafe fn install_thrown_offset_trampoline() {
-    let base = text_base();
-    let thunk = base + OFF_THROWN_OFFSET_THUNK;
+    let thunk = crate::game::addr(OFF_THROWN_OFFSET_THUNK);
     let handler = thrown_offset_handler as *const () as usize as u64;
     let words = [
         LDR_X17_LITERAL_8,
@@ -292,7 +291,7 @@ unsafe fn install_thrown_offset_trampoline() {
         log(&format!("thunk {OFF_THROWN_OFFSET_THUNK:#x} refused the trampoline; thrown_offset is not bridged"));
         return;
     }
-    let call = base + OFF_THROWN_OFFSET_LUA_CALL;
+    let call = crate::game::addr(OFF_THROWN_OFFSET_LUA_CALL);
     let expected_call = branch_link(OFF_THROWN_OFFSET_LUA_CALL, OFF_THROWN_OFFSET);
     let found = core::ptr::read_volatile(call as *const u32);
     if found != expected_call {

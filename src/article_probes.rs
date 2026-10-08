@@ -279,7 +279,7 @@ pub(crate) unsafe fn read_kirby_article_slot_state(
         false
     } else {
         let is_active: extern "C" fn(u32) -> bool =
-            core::mem::transmute(text_base() + OFF_SV_BATTLE_OBJECT_IS_ACTIVE);
+            core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_IS_ACTIVE));
         is_active(weapon_object_id)
     };
 
@@ -318,10 +318,9 @@ pub(crate) unsafe fn poll_kirby_copy_article_state(boma: u64) {
         return;
     };
 
-    let tb = text_base();
-    let status_kind: extern "C" fn(u64) -> i32 = core::mem::transmute(tb + OFF_STATUS_KIND_IMPL);
-    let motion_kind: extern "C" fn(u64) -> u64 = core::mem::transmute(tb + OFF_MOTION_KIND_IMPL);
-    let motion_frame: extern "C" fn(u64) -> f32 = core::mem::transmute(tb + OFF_MOTION_FRAME_IMPL);
+    let status_kind: extern "C" fn(u64) -> i32 = core::mem::transmute(crate::game::addr(OFF_STATUS_KIND_IMPL));
+    let motion_kind: extern "C" fn(u64) -> u64 = core::mem::transmute(crate::game::addr(OFF_MOTION_KIND_IMPL));
+    let motion_frame: extern "C" fn(u64) -> f32 = core::mem::transmute(crate::game::addr(OFF_MOTION_FRAME_IMPL));
     let status = status_kind(boma);
     let motion = motion_kind(boma);
     let frame = motion_frame(boma);
@@ -371,10 +370,9 @@ pub(crate) unsafe fn log_kirby_article_slot_state(phase: &str, boma: *mut u8, id
     if n >= 128 {
         return;
     }
-    let tb = text_base();
-    let status_kind: extern "C" fn(u64) -> i32 = core::mem::transmute(tb + OFF_STATUS_KIND_IMPL);
-    let motion_kind: extern "C" fn(u64) -> u64 = core::mem::transmute(tb + OFF_MOTION_KIND_IMPL);
-    let motion_frame: extern "C" fn(u64) -> f32 = core::mem::transmute(tb + OFF_MOTION_FRAME_IMPL);
+    let status_kind: extern "C" fn(u64) -> i32 = core::mem::transmute(crate::game::addr(OFF_STATUS_KIND_IMPL));
+    let motion_kind: extern "C" fn(u64) -> u64 = core::mem::transmute(crate::game::addr(OFF_MOTION_KIND_IMPL));
+    let motion_frame: extern "C" fn(u64) -> f32 = core::mem::transmute(crate::game::addr(OFF_MOTION_FRAME_IMPL));
     let status = status_kind(boma as u64);
     let motion = motion_kind(boma as u64);
     let frame = motion_frame(boma as u64);
@@ -439,23 +437,22 @@ pub(crate) unsafe fn trace_kirby_copy_article_lifecycle() {
         return;
     }
 
-    let tb = text_base();
     let is_active: extern "C" fn(u32) -> bool =
-        core::mem::transmute(tb + OFF_SV_BATTLE_OBJECT_IS_ACTIVE);
+        core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_IS_ACTIVE));
     let active = is_active(object_id);
     let (boma, category, kind, status, motion) = if active {
         let module_accessor: extern "C" fn(u32) -> u64 =
-            core::mem::transmute(tb + OFF_SV_BATTLE_OBJECT_MODULE_ACCESSOR);
+            core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_MODULE_ACCESSOR));
         let category_fn: extern "C" fn(u32) -> i32 =
-            core::mem::transmute(tb + OFF_SV_BATTLE_OBJECT_CATEGORY);
+            core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_CATEGORY));
         let kind_fn: extern "C" fn(u32) -> i32 =
-            core::mem::transmute(tb + OFF_SV_BATTLE_OBJECT_KIND_FOR_ARTICLE);
+            core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_KIND_FOR_ARTICLE));
         let boma = module_accessor(object_id);
         if boma != 0 {
             let status_kind: extern "C" fn(u64) -> i32 =
-                core::mem::transmute(tb + OFF_STATUS_KIND_IMPL);
+                core::mem::transmute(crate::game::addr(OFF_STATUS_KIND_IMPL));
             let motion_kind: extern "C" fn(u64) -> u64 =
-                core::mem::transmute(tb + OFF_MOTION_KIND_IMPL);
+                core::mem::transmute(crate::game::addr(OFF_MOTION_KIND_IMPL));
             (
                 boma,
                 category_fn(object_id),
@@ -492,7 +489,7 @@ pub(crate) unsafe fn trace_kirby_copy_article_lifecycle() {
 }
 
 #[cfg(any(feature = "diag_article", feature = "css_slot"))]
-#[skyline::hook(offset = OFF_GENERATE_ARTICLE_IMPL)]
+#[skyline::hook(offset = crate::game::rel(OFF_GENERATE_ARTICLE_IMPL))]
 pub(crate) unsafe fn generate_article_probe(boma: *mut u8, id: u32, x2: u64, x3: u64) -> u64 {
     #[cfg(feature = "css_slot")]
     let tracked = !boma.is_null()
@@ -589,7 +586,7 @@ pub(crate) unsafe fn generate_article_probe(boma: *mut u8, id: u32, x2: u64, x3:
                 false
             } else {
                 let is_active: extern "C" fn(u32) -> bool =
-                    core::mem::transmute(text_base() + OFF_SV_BATTLE_OBJECT_IS_ACTIVE);
+                    core::mem::transmute(crate::game::addr(OFF_SV_BATTLE_OBJECT_IS_ACTIVE));
                 is_active(weapon_object_id)
             };
             if weapon_object_id != INVALID_BATTLE_OBJECT_ID {
@@ -625,7 +622,7 @@ pub(crate) unsafe fn generate_article_probe(boma: *mut u8, id: u32, x2: u64, x3:
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_GENERATE_ARTICLE_ENABLE_IMPL)]
+#[skyline::hook(offset = crate::game::rel(OFF_GENERATE_ARTICLE_ENABLE_IMPL))]
 pub(crate) unsafe fn generate_article_enable_probe(
     boma: *mut u8,
     id: u32,
@@ -640,7 +637,7 @@ pub(crate) unsafe fn generate_article_enable_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_ARTICLE_CREATOR_DISPATCH)]
+#[skyline::hook(offset = crate::game::rel(OFF_ARTICLE_CREATOR_DISPATCH))]
 pub(crate) unsafe fn article_creator_dispatch_probe(
     module: u64,
     id: u32,
@@ -709,7 +706,7 @@ pub(crate) unsafe fn article_creator_dispatch_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_ARTICLE_CUSTOM_CREATOR)]
+#[skyline::hook(offset = crate::game::rel(OFF_ARTICLE_CUSTOM_CREATOR))]
 pub(crate) unsafe fn article_custom_creator_probe(
     manager: u64,
     id: u32,
@@ -736,34 +733,40 @@ pub(crate) unsafe fn article_custom_creator_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_ARTICLE_BASE_CREATOR)]
+#[skyline::hook(offset = crate::game::rel(OFF_ARTICLE_BASE_CREATOR))]
 pub(crate) unsafe fn article_base_creator_probe(
     manager: u64,
     id: u32,
     owner: u64,
     argument: u32,
 ) -> u64 {
-    if !tracked_kirby_article_owner(owner) {
-        return call_original!(manager, id, owner, argument);
-    }
-    let n = KIRBY_COPY_ARTICLE_CREATOR_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 64 {
-        dbg_log!(
-            "[kirbycreator] #{n} site=base-pre manager={manager:#x} id={id} owner={owner:#x} argument={argument}"
-        );
-    }
-    let ret = call_original!(manager, id, owner, argument);
-    let n = KIRBY_COPY_ARTICLE_CREATOR_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if n < 64 {
-        dbg_log!(
-            "[kirbycreator] #{n} site=base-post manager={manager:#x} id={id} article={ret:#x}"
-        );
+    let saved = crate::article_item_order::item_view(manager as usize, id as i32);
+    let ret = if !tracked_kirby_article_owner(owner) {
+        call_original!(manager, id, owner, argument)
+    } else {
+        let n = KIRBY_COPY_ARTICLE_CREATOR_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 64 {
+            dbg_log!(
+                "[kirbycreator] #{n} site=base-pre manager={manager:#x} id={id} owner={owner:#x} argument={argument}"
+            );
+        }
+        let ret = call_original!(manager, id, owner, argument);
+        let n = KIRBY_COPY_ARTICLE_CREATOR_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 64 {
+            dbg_log!(
+                "[kirbycreator] #{n} site=base-post manager={manager:#x} id={id} article={ret:#x}"
+            );
+        }
+        ret
+    };
+    if let Some(saved) = saved {
+        crate::article_item_order::restore(saved);
     }
     ret
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_SHOOT_ARTICLE_IMPL)]
+#[skyline::hook(offset = crate::game::rel(OFF_SHOOT_ARTICLE_IMPL))]
 pub(crate) unsafe fn shoot_article_probe(boma: *mut u8, id: u32, target: u64, arg3: u64) -> u64 {
     log_kirby_article_slot_state("pre-shoot", boma, id);
     let ret = call_original!(boma, id, target, arg3);
@@ -773,7 +776,7 @@ pub(crate) unsafe fn shoot_article_probe(boma: *mut u8, id: u32, target: u64, ar
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_SHOOT_EXIST_ARTICLE_IMPL)]
+#[skyline::hook(offset = crate::game::rel(OFF_SHOOT_EXIST_ARTICLE_IMPL))]
 pub(crate) unsafe fn shoot_exist_article_probe(
     boma: *mut u8,
     id: u32,
@@ -824,7 +827,7 @@ unsafe fn install_thunk_stub(offset: usize, handler: usize) -> bool {
     bytes[0..4].copy_from_slice(&0x5800_0051u32.to_le_bytes());
     bytes[4..8].copy_from_slice(&0xD61F_0220u32.to_le_bytes());
     bytes[8..16].copy_from_slice(&(handler as u64).to_le_bytes());
-    crate::text_patch::write_bytes(crate::text_base() + offset, &bytes)
+    crate::text_patch::write_bytes(crate::game::addr(offset), &bytes)
 }
 
 #[cfg(feature = "css_slot")]
@@ -876,7 +879,7 @@ const KIRBY_ARTICLE_KIND_TABLE: usize = 0x4fcd098;
 const KIRBY_ARTICLE_KIND_FIELD: u64 = 0x17398;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0xba3e24, inline)]
+#[skyline::hook(offset = crate::game::rel(0xba3e24), inline)]
 pub(crate) unsafe fn kirby_article_init_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let n = KIRBY_INIT_PROBE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n >= 16 {
@@ -910,7 +913,7 @@ pub(crate) unsafe fn kirby_article_init_probe(ctx: &mut skyline::hooks::InlineCt
         read32(x0 + KIRBY_ARTICLE_KIND_FIELD) as i32
     };
     let slot = if (0..0x100).contains(&kind) {
-        (crate::text_base() + KIRBY_ARTICLE_KIND_TABLE) as u64 + (kind as u64) * 8
+        (crate::game::addr(KIRBY_ARTICLE_KIND_TABLE)) as u64 + (kind as u64) * 8
     } else {
         0
     };
@@ -956,7 +959,7 @@ pub(crate) static KIRBY_INIT_GUARD_LOG: core::sync::atomic::AtomicU32 =
 const KIRBY_ARTICLE_INDEX_FIELD: u64 = 0x10;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0xba3e2c, inline)]
+#[skyline::hook(offset = crate::game::rel(0xba3e2c), inline)]
 pub(crate) unsafe fn kirby_article_init_guard(ctx: &mut skyline::hooks::InlineCtx) {
     if ctx.registers[3].x() != 0 {
         return;
@@ -1002,7 +1005,7 @@ pub(crate) unsafe fn kirby_article_init_guard(ctx: &mut skyline::hooks::InlineCt
         return;
     }
 
-    ctx.registers[3].set_x((crate::text_base() + 0xba3e34) as u64);
+    ctx.registers[3].set_x((crate::game::addr(0xba3e34)) as u64);
     if n < 8 {
         dbg_log!(
             "[kirbyinit] #{n} GUARDED null on_init_callback and the copy header could not \
@@ -1023,7 +1026,7 @@ static OBSERVER_UNDERFLOW_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_OBSERVER_PURGE_REFCOUNT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_OBSERVER_PURGE_REFCOUNT), inline)]
 pub(crate) unsafe fn observer_purge_refcount_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let listener = ctx.registers[8].x();
     if listener < ARTICLE_LOWEST_PLAUSIBLE as u64 {

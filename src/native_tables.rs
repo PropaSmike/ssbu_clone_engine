@@ -1,4 +1,4 @@
-use super::{hash40, text_base, CloneDefinition};
+use super::{hash40, CloneDefinition};
 use clone_engine_api::{
     BACKEND_STATUS_COMPILED, BACKEND_STATUS_HOOKS_INSTALLED, BACKEND_STATUS_READY,
     BACKEND_STATUS_RESOURCE_LAYOUT_PROVEN, BACKEND_STATUS_RESOURCE_LIFECYCLE_PROVEN,
@@ -60,32 +60,31 @@ impl NativeTables {
             compact_next: AtomicUsize::new(COMPACT_NATIVE_LEN),
         };
 
-        let base = text_base();
         for index in 0..NAME_HASH_NATIVE_LEN {
             tables.name_upper.0[index].store(
-                core::ptr::read((base + NAME_UPPER_OFFSET + index * 8) as *const usize),
+                core::ptr::read((crate::game::addr(NAME_UPPER_OFFSET) + index * 8) as *const usize),
                 Ordering::Relaxed,
             );
             tables.name_lower.0[index].store(
-                core::ptr::read((base + NAME_LOWER_OFFSET + index * 8) as *const usize),
+                core::ptr::read((crate::game::addr(NAME_LOWER_OFFSET) + index * 8) as *const usize),
                 Ordering::Relaxed,
             );
             tables.name_title.0[index].store(
-                core::ptr::read((base + NAME_TITLE_OFFSET + index * 8) as *const usize),
+                core::ptr::read((crate::game::addr(NAME_TITLE_OFFSET) + index * 8) as *const usize),
                 Ordering::Relaxed,
             );
             tables.kind_hash.0[index].store(
-                core::ptr::read((base + KIND_HASH_OFFSET + index * 8) as *const u64),
+                core::ptr::read((crate::game::addr(KIND_HASH_OFFSET) + index * 8) as *const u64),
                 Ordering::Relaxed,
             );
         }
         for index in 0..COMPACT_NATIVE_LEN {
             tables.compact_hash.0[index].store(
-                core::ptr::read((base + COMPACT_HASH_OFFSET + index * 8) as *const u64),
+                core::ptr::read((crate::game::addr(COMPACT_HASH_OFFSET) + index * 8) as *const u64),
                 Ordering::Relaxed,
             );
             tables.class_descriptor.0[index].store(
-                core::ptr::read((base + CLASS_DESCRIPTOR_OFFSET + index * 8) as *const usize),
+                core::ptr::read((crate::game::addr(CLASS_DESCRIPTOR_OFFSET) + index * 8) as *const usize),
                 Ordering::Relaxed,
             );
         }
@@ -168,10 +167,9 @@ pub(crate) fn is_foreign_hook(opcode: u32) -> bool {
 }
 
 unsafe fn belongs_to_hook_stub(offset: usize) -> bool {
-    let base = text_base();
     (0..=3).any(|back| {
         offset >= back * 4 && {
-            let word = core::ptr::read_volatile((base + offset - back * 4) as *const u32);
+            let word = core::ptr::read_volatile((crate::game::addr(offset) - back * 4) as *const u32);
             is_hook_instruction(word)
         }
     })
@@ -191,15 +189,15 @@ impl Preflight {
 }
 
 pub(crate) fn preflight_report() -> Preflight {
-    let base = text_base();
     let mut report = Preflight {
         matched: 0,
         foreign: 0,
         unexpected: 0,
     };
     for expected in EXPECTED_OPCODES {
-        let actual = unsafe { core::ptr::read_volatile((base + expected.offset) as *const u32) };
-        if actual == expected.opcode {
+        let actual = unsafe { core::ptr::read_volatile(crate::game::addr(expected.offset) as *const u32) };
+        let wanted = crate::game::opcode(expected.offset, expected.opcode);
+        if actual == wanted {
             report.matched += 1;
         } else if is_foreign_hook(actual) || unsafe { belongs_to_hook_stub(expected.offset) } {
             if report.foreign < 8 {
@@ -208,7 +206,7 @@ pub(crate) fn preflight_report() -> Preflight {
                     expected.offset,
                     expected.label,
                     actual,
-                    expected.opcode
+                    wanted
                 );
             }
             report.foreign += 1;
@@ -217,7 +215,7 @@ pub(crate) fn preflight_report() -> Preflight {
                 "[native_tables] UNEXPECTED opcode at {:#x} ({}): expected {:#010x}, got {:#010x}",
                 expected.offset,
                 expected.label,
-                expected.opcode,
+                wanted,
                 actual
             );
             report.unexpected += 1;
@@ -277,7 +275,7 @@ fn build_static_tables() {
         EXPECTED_OPCODES.len()
     );
     if !validate_runtime_opcodes() {
-        skyline::println!("[native_tables] disabled: exact 13.0.4 opcode preflight failed");
+        skyline::println!("[native_tables] disabled: exact {} opcode preflight failed", crate::game::version().name());
         return;
     }
     STATUS.fetch_or(BACKEND_STATUS_STATIC_PREFLIGHT_OK, Ordering::AcqRel);

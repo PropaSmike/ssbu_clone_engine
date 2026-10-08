@@ -272,6 +272,9 @@ mod live {
                 ""
             }
         );
+        if !declaration.own_css {
+            unsafe { crate::css_registration::publish_late_css_slot(kind) };
+        }
 
         for article in declaration
             .articles

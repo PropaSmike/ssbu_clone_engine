@@ -152,7 +152,7 @@ fn model_probes_for(kind: i32) -> &'static [&'static str] {
 }
 
 pub(crate) unsafe fn resource_service() -> usize {
-    core::ptr::read_volatile((crate::text_base_public() + RESOURCE_SERVICE) as *const usize)
+    core::ptr::read_volatile((crate::game::addr(RESOURCE_SERVICE)) as *const usize)
 }
 
 pub(crate) unsafe fn directory_index_for(service: usize, hash: u64) -> Option<u32> {
@@ -364,7 +364,7 @@ unsafe fn finalsmash_ready() -> Option<u64> {
     Some(first)
 }
 
-#[skyline::hook(offset = OFF_FINALSMASH_LOAD_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_FINALSMASH_LOAD_GATE), inline)]
 unsafe fn finalsmash_load_gate(ctx: &mut skyline::hooks::InlineCtx) {
     let owner = ctx.registers[21].x() as u32 as i32;
     if SUPPRESSED_OWNER.load(Ordering::Relaxed) != owner {
@@ -405,7 +405,7 @@ unsafe fn finalsmash_load_gate(ctx: &mut skyline::hooks::InlineCtx) {
     }
 }
 
-#[skyline::hook(offset = OFF_PRELOAD_FINALSMASH_LOOKUP, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PRELOAD_FINALSMASH_LOOKUP), inline)]
 unsafe fn finalsmash_preload_kind(ctx: &mut skyline::hooks::InlineCtx) {
     PRELOAD_KIND.store(ctx.registers[19].x() as u32 as i32, Ordering::Relaxed);
 }
@@ -459,14 +459,14 @@ unsafe fn substitute_directory_for_preload() -> Option<u32> {
     }
 }
 
-#[skyline::hook(offset = OFF_LOAD_DIRECTORY)]
+#[skyline::hook(offset = crate::game::rel(OFF_LOAD_DIRECTORY))]
 unsafe fn load_directory_hook(service: u64, directory: u32) -> usize {
     let caller: u64;
     core::arch::asm!("mov {}, x30", out(reg) caller, options(nomem, nostack));
 
     let mut directory = directory;
     if directory == DIRECTORY_NOT_FOUND
-        && caller == (crate::text_base_public() + PRELOAD_LOOKUP_RETURN) as u64
+        && caller == (crate::game::addr(PRELOAD_LOOKUP_RETURN)) as u64
     {
         if let Some(substitute) = substitute_directory_for_preload() {
             if SUBSTITUTE_LOG.fetch_add(1, Ordering::Relaxed) < SUBSTITUTE_LOG_BUDGET {

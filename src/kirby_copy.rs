@@ -253,7 +253,7 @@ pub(crate) fn kirby_hat_flow_log_index() -> Option<u32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MODEL_CHANGER_ENTRY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MODEL_CHANGER_ENTRY), inline)]
 pub(crate) unsafe fn kirby_copy_model_changer_entry_probe(ctx: &mut skyline::hooks::InlineCtx) {
     clear_kirby_removal_context();
     let link = ctx.registers[0].x();
@@ -278,7 +278,7 @@ pub(crate) unsafe fn kirby_copy_model_changer_entry_probe(ctx: &mut skyline::hoo
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_VISUAL_KIND_PROMOTE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_VISUAL_KIND_PROMOTE), inline)]
 pub(crate) unsafe fn kirby_copy_visual_kind_promote(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -318,7 +318,7 @@ pub(crate) unsafe fn kirby_copy_visual_kind_promote(ctx: &mut skyline::hooks::In
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_FULL_MODEL_REMOVE_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_FULL_MODEL_REMOVE_GATE), inline)]
 pub(crate) unsafe fn kirby_copy_full_model_remove_gate(ctx: &mut skyline::hooks::InlineCtx) {
     if ctx.registers[20].x() as u32 as i32 != -1 {
         return;
@@ -364,7 +364,7 @@ pub(crate) unsafe fn kirby_copy_full_model_remove_gate(ctx: &mut skyline::hooks:
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_FULL_MODEL_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_FULL_MODEL_GATE), inline)]
 pub(crate) unsafe fn kirby_copy_full_model_gate(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -415,7 +415,7 @@ pub(crate) unsafe fn kirby_copy_full_model_gate(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MODEL_REMOVE_RESULT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MODEL_REMOVE_RESULT), inline)]
 pub(crate) unsafe fn kirby_copy_model_remove_result_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = kirby_hat_flow_log_index() else {
         return;
@@ -429,7 +429,7 @@ pub(crate) unsafe fn kirby_copy_model_remove_result_probe(ctx: &mut skyline::hoo
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_SPECIAL_INSTALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_SPECIAL_INSTALL), inline)]
 pub(crate) unsafe fn kirby_copy_special_install_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let routed = ctx.registers[20].x() as u32 as i32;
     let active = active_kirby_copy_kind();
@@ -469,7 +469,7 @@ pub(crate) unsafe fn kirby_copy_special_install_probe(ctx: &mut skyline::hooks::
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_DIR_NAME_MERGE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_DIR_NAME_MERGE), inline)]
 pub(crate) unsafe fn kirby_copy_dir_name_merge_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as u32 as i32;
     if kind != 3 && kind < FIRST_CUSTOM_KIND {
@@ -494,7 +494,7 @@ pub(crate) unsafe fn kirby_copy_dir_name_merge_probe(ctx: &mut skyline::hooks::I
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_LOOKUP_KIND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_LOOKUP_KIND), inline)]
 pub(crate) unsafe fn kirby_copy_record_lookup_kind(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -514,7 +514,7 @@ pub(crate) unsafe fn kirby_copy_record_lookup_kind(ctx: &mut skyline::hooks::Inl
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_SEARCH_ENTRY), inline)]
 pub(crate) unsafe fn kirby_copy_record_search_kind(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -575,25 +575,25 @@ pub(crate) unsafe fn kirby_copy_resource_slot_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RESOURCE_SLOT_0, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RESOURCE_SLOT_0), inline)]
 pub(crate) unsafe fn kirby_copy_resource_slot_0_probe(ctx: &mut skyline::hooks::InlineCtx) {
     kirby_copy_resource_slot_probe(ctx, 0);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RESOURCE_SLOT_1, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RESOURCE_SLOT_1), inline)]
 pub(crate) unsafe fn kirby_copy_resource_slot_1_probe(ctx: &mut skyline::hooks::InlineCtx) {
     kirby_copy_resource_slot_probe(ctx, 1);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RESOURCE_SLOT_2, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RESOURCE_SLOT_2), inline)]
 pub(crate) unsafe fn kirby_copy_resource_slot_2_probe(ctx: &mut skyline::hooks::InlineCtx) {
     kirby_copy_resource_slot_probe(ctx, 2);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_HAT_SYNC, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_HAT_SYNC), inline)]
 pub(crate) unsafe fn kirby_copy_hat_sync_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let fighter = ctx.registers[1].x();
     let boma = if fighter == 0 {
@@ -633,7 +633,7 @@ pub(crate) fn add_table_bias(address: u64, kind: i32) -> u64 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_STATIC_SETUP_TABLE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_STATIC_SETUP_TABLE), inline)]
 pub(crate) unsafe fn kirby_copy_static_setup_table(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as i32;
     let before = ctx.registers[8].x();
@@ -651,7 +651,7 @@ pub(crate) unsafe fn kirby_copy_static_setup_table(ctx: &mut skyline::hooks::Inl
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_ARTICLE_HEADER_ASSIGN, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_ARTICLE_HEADER_ASSIGN), inline)]
 pub(crate) unsafe fn kirby_copy_article_header_assign(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(target_kind) = active_kirby_copy_kind() else {
         return;
@@ -706,25 +706,25 @@ pub(crate) unsafe fn load_bridged_kirby_callback_kind(ctx: &mut skyline::hooks::
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_CALLBACK_KIND_1, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_1), inline)]
 pub(crate) unsafe fn kirby_copy_callback_kind_1(ctx: &mut skyline::hooks::InlineCtx) {
     load_bridged_kirby_callback_kind(ctx);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_CALLBACK_KIND_2, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_2), inline)]
 pub(crate) unsafe fn kirby_copy_callback_kind_2(ctx: &mut skyline::hooks::InlineCtx) {
     load_bridged_kirby_callback_kind(ctx);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_CALLBACK_KIND_3, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_3), inline)]
 pub(crate) unsafe fn kirby_copy_callback_kind_3(ctx: &mut skyline::hooks::InlineCtx) {
     load_bridged_kirby_callback_kind(ctx);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RESOURCE_KIND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RESOURCE_KIND), inline)]
 pub(crate) unsafe fn kirby_copy_resource_kind(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as i32;
     let active = active_kirby_copy_kind();
@@ -814,7 +814,7 @@ unsafe fn module_vtable_target(module: usize, slot: usize) -> usize {
         return 0;
     }
     let target = core::ptr::read_volatile((vtable + slot) as *const usize);
-    if target < crate::text_base_public() {
+    if target < crate::game::raw_text_base() {
         return 0;
     }
     target
@@ -862,7 +862,7 @@ pub(crate) unsafe fn vanilla_kirby_copy_name(kind: i32) -> Option<&'static [u8]>
     if !(0..KIRBY_COPY_NAME_COUNT).contains(&kind) {
         return None;
     }
-    let entry = (text_base() + KIRBY_COPY_NAME_TABLE) as *const *const u8;
+    let entry = (crate::game::addr(KIRBY_COPY_NAME_TABLE)) as *const *const u8;
     let record = core::ptr::read_volatile(entry.add(kind as usize));
     if record.is_null() {
         return None;
@@ -886,15 +886,14 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
         return (0, 0);
     }
     let color = color as u32;
-    let tb = text_base();
-    let manager = *((tb + OFF_RESOURCE_MANAGER_GLOBAL) as *const u64);
+    let manager = *((crate::game::addr(OFF_RESOURCE_MANAGER_GLOBAL)) as *const u64);
     if manager == 0 {
         return (0, 0);
     }
     let recursive_lock: extern "C" fn(u64) =
-        core::mem::transmute(tb + OFF_STD_RECURSIVE_MUTEX_LOCK);
+        core::mem::transmute(crate::game::addr(OFF_STD_RECURSIVE_MUTEX_LOCK));
     let recursive_unlock: extern "C" fn(u64) =
-        core::mem::transmute(tb + OFF_STD_RECURSIVE_MUTEX_UNLOCK);
+        core::mem::transmute(crate::game::addr(OFF_STD_RECURSIVE_MUTEX_UNLOCK));
     recursive_lock(manager + 0xc8);
     let sub = *((manager as usize + 0x68) as *const u64);
     recursive_unlock(manager + 0xc8);
@@ -945,8 +944,8 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
         core::sync::atomic::Ordering::Release,
     );
 
-    let mutex_lock: extern "C" fn(u64) = core::mem::transmute(tb + OFF_STD_MUTEX_LOCK);
-    let mutex_unlock: extern "C" fn(u64) = core::mem::transmute(tb + OFF_STD_MUTEX_UNLOCK);
+    let mutex_lock: extern "C" fn(u64) = core::mem::transmute(crate::game::addr(OFF_STD_MUTEX_LOCK));
+    let mutex_unlock: extern "C" fn(u64) = core::mem::transmute(crate::game::addr(OFF_STD_MUTEX_UNLOCK));
     let record_mutex_held = record_mutex_held || kirby_record_mutex_held_here();
     if !record_mutex_held {
         mutex_lock(sub + 0x1d238);
@@ -1017,9 +1016,9 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
 
     let colorrec = slot as usize + color as usize * KIRBY_RECORD_COLOR_STRIDE;
     let member_builder: extern "C" fn(u64, u32, u32, i32, u64, *const u8, u32, u32) =
-        core::mem::transmute(tb + OFF_KIRBY_COPY_MEMBER_BUILDER);
+        core::mem::transmute(crate::game::addr(OFF_KIRBY_COPY_MEMBER_BUILDER));
     let member_builder_2: extern "C" fn(u64, u32, u32, u64, *const u8, u32) =
-        core::mem::transmute(tb + OFF_KIRBY_COPY_MEMBER_BUILDER_2);
+        core::mem::transmute(crate::game::addr(OFF_KIRBY_COPY_MEMBER_BUILDER_2));
 
     for index in 0..KIRBY_RECORD_MEMBER_OFFSETS.len() {
         let member = (colorrec + KIRBY_RECORD_MEMBER_OFFSETS[index]) as u64;
@@ -1062,7 +1061,7 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RESOURCE_TRANSFER)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RESOURCE_TRANSFER))]
 pub(crate) unsafe fn kirby_copy_resource_transfer(
     resource: u64,
     kind: i32,
@@ -1095,7 +1094,7 @@ pub(crate) unsafe fn kirby_copy_resource_transfer(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_TRANSFER_LOOKUP, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_TRANSFER_LOOKUP), inline)]
 pub(crate) unsafe fn kirby_copy_transfer_lookup(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -1112,7 +1111,7 @@ pub(crate) unsafe fn kirby_copy_transfer_lookup(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(all(feature = "css_slot", feature = "native_table_backend"))]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MODEL_NAME_TABLE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MODEL_NAME_TABLE), inline)]
 pub(crate) unsafe fn kirby_copy_model_name_table(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as u32 as i32;
     let Some(definition) = clone_definition(kind) else {
@@ -1136,7 +1135,7 @@ pub(crate) unsafe fn kirby_copy_model_name_table(ctx: &mut skyline::hooks::Inlin
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MODEL_NAME, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MODEL_NAME), inline)]
 pub(crate) unsafe fn kirby_copy_model_name(ctx: &mut skyline::hooks::InlineCtx) {
     let raw_kind = ctx.registers[20].x() as i32;
     if let Some(definition) = clone_definition(raw_kind) {
@@ -1190,7 +1189,7 @@ pub(crate) unsafe fn kirby_copy_model_name(ctx: &mut skyline::hooks::InlineCtx) 
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_HANDLE_PROBE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_HANDLE_PROBE), inline)]
 pub(crate) unsafe fn kirby_copy_handle_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_kirby_copy_kind() else {
         return;
@@ -1206,7 +1205,7 @@ pub(crate) unsafe fn kirby_copy_handle_probe(ctx: &mut skyline::hooks::InlineCtx
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MODEL_BASE_KIND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MODEL_BASE_KIND), inline)]
 pub(crate) unsafe fn kirby_copy_model_base_kind(ctx: &mut skyline::hooks::InlineCtx) {
     if let Some(kind) = active_kirby_copy_kind() {
         let definition = clone_definition(kind).unwrap();
@@ -1229,7 +1228,7 @@ pub(crate) unsafe fn kirby_copy_model_base_kind(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_BASE_MODEL_PAIR, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_BASE_MODEL_PAIR), inline)]
 pub(crate) unsafe fn kirby_copy_base_model_pair(ctx: &mut skyline::hooks::InlineCtx) {
     if let Some(kind) = active_kirby_copy_kind() {
         let native_resource = ctx.registers[9].x();
@@ -1244,7 +1243,7 @@ pub(crate) unsafe fn kirby_copy_base_model_pair(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_KIND_LIST_TABLE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_KIND_LIST_TABLE), inline)]
 pub(crate) unsafe fn kirby_copy_kind_list_table(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as i32;
     let base = active_kirby_copy_kind()
@@ -1302,7 +1301,7 @@ unsafe fn register_clone_copy_animations(accessor: usize, kind: i32, resource_na
     }
     let module = core::ptr::read_volatile((accessor + MODULE_ACCESSOR_MOTION_OFFSET) as *const usize);
     let entry = module_vtable_target(module, MOTION_EXTRA_ANIMATION_PATH_SLOT * 8);
-    let (base, end) = (text_base(), text_end());
+    let (base, end) = (crate::game::raw_text_base(), text_end());
     if entry == 0 || base == 0 || end <= base || entry < base || entry >= end {
         dbg_log!(
             "[kirbymotion] kind {kind} skipped: accessor={accessor:#x} module={module:#x} slot={entry:#x} is not inside main"
@@ -1326,7 +1325,7 @@ unsafe fn register_clone_copy_animations(accessor: usize, kind: i32, resource_na
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_SECOND_NAME_MERGE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_SECOND_NAME_MERGE), inline)]
 pub(crate) unsafe fn kirby_copy_second_name_merge(ctx: &mut skyline::hooks::InlineCtx) {
     let raw_kind = ctx.registers[20].x() as i32;
     let site_n = KIRBY_MODEL_SITE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1359,7 +1358,7 @@ pub(crate) unsafe fn kirby_copy_second_name_merge(ctx: &mut skyline::hooks::Inli
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_CALLBACK_KIND_4, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_4), inline)]
 pub(crate) unsafe fn kirby_copy_callback_kind_4(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as i32;
     if let Some(target_kind) = active_kirby_copy_kind() {
@@ -1394,7 +1393,7 @@ pub(crate) unsafe fn kirby_copy_callback_kind_4(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_BODYMOTION_HANDLE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_BODYMOTION_HANDLE), inline)]
 pub(crate) unsafe fn kirby_copy_bodymotion_handle_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = kirby_hat_flow_log_index() else {
         return;
@@ -1408,7 +1407,7 @@ pub(crate) unsafe fn kirby_copy_bodymotion_handle_probe(ctx: &mut skyline::hooks
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_ROW_SEARCH, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_ROW_SEARCH), inline)]
 pub(crate) unsafe fn kirby_copy_row_search_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = kirby_hat_flow_log_index() else {
         return;
@@ -1439,7 +1438,7 @@ pub(crate) unsafe fn kirby_copy_row_search_probe(ctx: &mut skyline::hooks::Inlin
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_HAT_RECORD_REGION, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_HAT_RECORD_REGION), inline)]
 pub(crate) unsafe fn kirby_copy_hat_record_region_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = kirby_hat_flow_log_index() else {
         return;
@@ -1462,7 +1461,7 @@ pub(crate) unsafe fn bridge_removal_hashlist(
     if base == previous || !(0..94).contains(&base) {
         return;
     }
-    let entry = *((text_base() + KIRBY_COPY_KIND_HASHLIST_TABLE + base as usize * 8) as *const u64);
+    let entry = *((crate::game::addr(KIRBY_COPY_KIND_HASHLIST_TABLE) + base as usize * 8) as *const u64);
     ctx.registers[dest_reg].set_x(entry);
     if let Some(n) = kirby_hat_flow_log_index() {
         dbg_log!("[kirbyhat] #{n} site={site} previous={previous}->{base} entry={entry:#x}");
@@ -1470,13 +1469,13 @@ pub(crate) unsafe fn bridge_removal_hashlist(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_REMOVAL_HASHLIST_A, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_REMOVAL_HASHLIST_A), inline)]
 pub(crate) unsafe fn kirby_copy_removal_hashlist_a(ctx: &mut skyline::hooks::InlineCtx) {
     bridge_removal_hashlist(ctx, 9, "removal-hashlist-a");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_REMOVAL_HASHLIST_B, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_REMOVAL_HASHLIST_B), inline)]
 pub(crate) unsafe fn kirby_copy_removal_hashlist_b(ctx: &mut skyline::hooks::InlineCtx) {
     bridge_removal_hashlist(ctx, 20, "removal-hashlist-b");
 }
@@ -1500,7 +1499,7 @@ macro_rules! copy_chara_table_hooks {
     ($($name:ident($offset:ident);)*) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 bridge_copy_chara_table_index(ctx);
             }
@@ -1519,7 +1518,7 @@ pub(crate) fn kirby_motion_bind_log_index() -> Option<u32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_COPY_MOTION_BIND_TAIL_KIND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_COPY_MOTION_BIND_TAIL_KIND), inline)]
 pub(crate) unsafe fn copy_motion_bind_tail_kind(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[0].x() as u32 as i32;
     let Some(definition) = clone_definition(kind) else {
@@ -1547,7 +1546,7 @@ pub(crate) fn copyset_log_index() -> Option<u32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_SETUP)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_SETUP))]
 pub(crate) unsafe fn kirby_copy_setup_probe(
     x0: u64,
     x1: u64,
@@ -1592,7 +1591,7 @@ pub(crate) unsafe fn kirby_copy_setup_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_SETUP_SHIM)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_SETUP_SHIM))]
 pub(crate) unsafe fn kirby_copy_setup_shim_probe(
     x0: u64,
     x1: u64,
@@ -1610,7 +1609,7 @@ pub(crate) unsafe fn kirby_copy_setup_shim_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_SV_BATTLE_OBJECT_KIND)]
+#[skyline::hook(offset = crate::game::rel(OFF_SV_BATTLE_OBJECT_KIND))]
 pub(crate) unsafe fn sv_battle_object_kind_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
     if clone_definition(ret as u32 as i32).is_some() {
@@ -1626,7 +1625,7 @@ pub(crate) unsafe fn sv_battle_object_kind_probe(x0: u64, x1: u64, x2: u64, x3: 
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_GET_COPY_KIND)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_GET_COPY_KIND))]
 pub(crate) unsafe fn kirby_get_copy_kind_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
     if let Some(n) = copyset_log_index() {
@@ -1636,7 +1635,7 @@ pub(crate) unsafe fn kirby_get_copy_kind_probe(x0: u64, x1: u64, x2: u64, x3: u6
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_GET_COPY_SLOT_NO)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_GET_COPY_SLOT_NO))]
 pub(crate) unsafe fn kirby_get_copy_slot_no_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
     if let Some(n) = copyset_log_index() {
@@ -1650,7 +1649,7 @@ pub(crate) static COPYTRACK_RESET_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_ABILITY_RESET)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_ABILITY_RESET))]
 pub(crate) unsafe fn kirby_copy_ability_reset_probe(
     x0: u64,
     x1: u64,
@@ -1668,7 +1667,7 @@ pub(crate) unsafe fn kirby_copy_ability_reset_probe(
     {
         lr = 0;
     }
-    let caller_off = lr.wrapping_sub(text_base());
+    let caller_off = crate::game::offset_of(lr);
     let n = COPYTRACK_RESET_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 24 {
         dbg_log!(
@@ -1801,7 +1800,7 @@ unsafe fn apply_copy_mesh_defaults(boma: u64, kind: i32) {
     let module =
         core::ptr::read_volatile((boma as usize + MODEL_MODULE_OFFSET) as *const usize);
     let entry = module_vtable_target(module, MODEL_SET_MESH_VISIBILITY_SLOT);
-    let (base, end) = (text_base(), text_end());
+    let (base, end) = (crate::game::raw_text_base(), text_end());
     if entry == 0 || base == 0 || end <= base || entry < base || entry >= end {
         let n = COPY_MESH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < 8 {
@@ -1857,7 +1856,7 @@ fn forget_copy_mesh_defaults(boma: u64) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_PER_FIGHTER_FRAME)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_PER_FIGHTER_FRAME))]
 pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let ret = call_original!(x0, x1, x2, x3);
     if x1 != 0 {
@@ -1920,7 +1919,7 @@ pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_COPY_SETUP_GATE1, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_COPY_SETUP_GATE1), inline)]
 pub(crate) unsafe fn copy_setup_gate1_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = copyset_log_index() else { return };
     dbg_log!(
@@ -1931,14 +1930,14 @@ pub(crate) unsafe fn copy_setup_gate1_probe(ctx: &mut skyline::hooks::InlineCtx)
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_COPY_SETUP_SLOT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_COPY_SETUP_SLOT), inline)]
 pub(crate) unsafe fn copy_setup_slot_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = copyset_log_index() else { return };
     dbg_log!("[copyset] #{n} slot={}", ctx.registers[25].x() as u32);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_COPY_SETUP_DISPATCH, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_COPY_SETUP_DISPATCH), inline)]
 pub(crate) unsafe fn copy_setup_dispatch_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = copyset_log_index() else { return };
     dbg_log!(
@@ -1948,7 +1947,7 @@ pub(crate) unsafe fn copy_setup_dispatch_probe(ctx: &mut skyline::hooks::InlineC
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_COPY_SETUP_GRANT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_COPY_SETUP_GRANT), inline)]
 pub(crate) unsafe fn copy_setup_grant_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = copyset_log_index() else { return };
     dbg_log!(
@@ -2109,7 +2108,7 @@ static KIRBY_INTERRUPT_STUB_LOG: core::sync::atomic::AtomicU32 =
 
 #[cfg(feature = "css_slot")]
 pub(crate) unsafe fn install_status_interrupt_stub() -> bool {
-    let site = crate::text_base() + OFF_STATUS_SET_KIND_INTERRUPT;
+    let site = crate::game::addr(OFF_STATUS_SET_KIND_INTERRUPT);
     let handler = kirby_copy_dispatch_status as usize as u64;
     let mut bytes = [0u8; 16];
     bytes[0..4].copy_from_slice(&0x5800_0051u32.to_le_bytes());
@@ -2141,7 +2140,7 @@ pub(crate) unsafe fn audit_status_interrupt_stub(site_label: &str) {
     if n >= 6 {
         return;
     }
-    let site = crate::text_base() + OFF_STATUS_SET_KIND_INTERRUPT;
+    let site = crate::game::addr(OFF_STATUS_SET_KIND_INTERRUPT);
     let mut live = [0u8; 16];
     for (index, slot) in live.iter_mut().enumerate() {
         *slot = core::ptr::read_volatile((site + index) as *const u8);
@@ -2296,7 +2295,7 @@ pub(crate) unsafe fn active_clone_slot_kind() -> Option<i32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_DIR_REGISTRAR)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_DIR_REGISTRAR))]
 pub(crate) unsafe fn kirby_copy_dir_registrar(
     ctx: u64,
     color: u32,
@@ -2331,7 +2330,7 @@ pub(crate) unsafe fn kirby_copy_dir_registrar(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_DIR_REGISTRAR_PARENT)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_DIR_REGISTRAR_PARENT))]
 pub(crate) unsafe fn kirby_copy_dir_registrar_parent(
     ctx: u64,
     record: u64,
@@ -2368,7 +2367,7 @@ pub(crate) fn wpn_log_index() -> Option<u32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_WEAPON_PRELOAD)]
+#[skyline::hook(offset = crate::game::rel(OFF_WEAPON_PRELOAD))]
 pub(crate) unsafe fn weapon_preload_probe(
     x0: u64,
     x1: u64,
@@ -2416,7 +2415,7 @@ pub(crate) unsafe fn weapon_preload_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_WEAPON_LOOP_CONT_A, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_WEAPON_LOOP_CONT_A), inline)]
 pub(crate) unsafe fn weapon_loop_cont_a(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = wpn_log_index() else { return };
     let weapon = ctx.registers[22].x() as u32;
@@ -2430,7 +2429,7 @@ pub(crate) unsafe fn weapon_loop_cont_a(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_WEAPON_LOOP_CONT_B, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_WEAPON_LOOP_CONT_B), inline)]
 pub(crate) unsafe fn weapon_loop_cont_b(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = wpn_log_index() else { return };
     let weapon = ctx.registers[22].x() as u32;
@@ -2444,7 +2443,7 @@ pub(crate) unsafe fn weapon_loop_cont_b(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_WEAPON_LOOP_SLOT_ARGS, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_WEAPON_LOOP_SLOT_ARGS), inline)]
 pub(crate) unsafe fn weapon_loop_slot_args(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = wpn_log_index() else { return };
     let w2 = ctx.registers[2].x() as u32;
@@ -2455,7 +2454,7 @@ pub(crate) unsafe fn weapon_loop_slot_args(ctx: &mut skyline::hooks::InlineCtx) 
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_WEAPON_LOOP_RESOLVED, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_WEAPON_LOOP_RESOLVED), inline)]
 pub(crate) unsafe fn weapon_loop_resolved(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(n) = wpn_log_index() else { return };
     let desc = ctx.registers[0].x();
@@ -2464,7 +2463,7 @@ pub(crate) unsafe fn weapon_loop_resolved(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_RESOURCE_SLOT)]
+#[skyline::hook(offset = crate::game::rel(OFF_RESOURCE_SLOT))]
 pub(crate) unsafe fn resource_slot_probe(
     x0: u64,
     x1: u64,

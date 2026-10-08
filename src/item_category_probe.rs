@@ -26,11 +26,6 @@ unsafe fn caller_lr() -> usize {
 }
 
 #[inline]
-unsafe fn text_base() -> usize {
-    skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize
-}
-
-#[inline]
 fn log(message: String) {
     crate::dbg_log_public(&message);
 }
@@ -52,14 +47,10 @@ fn next(counter: &AtomicU32) -> Option<u32> {
     (sequence < MAX_LOGS_PER_SITE).then_some(sequence)
 }
 
-unsafe fn words_match(
-    text: usize,
-    offset: usize,
-    expected: &[u32],
-) -> Result<(), (usize, u32, u32)> {
+unsafe fn words_match(offset: usize, expected: &[u32]) -> Result<(), (usize, u32, u32)> {
     for (index, wanted) in expected.iter().copied().enumerate() {
-        let address = text + offset + index * 4;
-        let found = (address as *const u32).read();
+        let address = crate::game::addr(offset) + index * 4;
+        let found = crate::game::text_word(offset + index * 4);
         if found != wanted {
             return Err((address, found, wanted));
         }
@@ -67,10 +58,10 @@ unsafe fn words_match(
     Ok(())
 }
 
-#[skyline::hook(offset = OFF_CREATE_BOSS)]
+#[skyline::hook(offset = crate::game::rel(OFF_CREATE_BOSS))]
 unsafe fn create_boss_probe(state: *mut libc::c_void, kind: i32, argument: i32) -> u32 {
     let lr = caller_lr();
-    let caller = lr.wrapping_sub(text_base());
+    let caller = crate::game::offset_of(lr);
     let sequence = next(&CREATE_BOSS_LOGS);
     if let Some(sequence) = sequence {
         log(format!(
@@ -94,7 +85,7 @@ unsafe fn create_boss_probe(state: *mut libc::c_void, kind: i32, argument: i32) 
     result
 }
 
-#[skyline::hook(offset = OFF_CREATE_WEAPON_WITH_VARIATION)]
+#[skyline::hook(offset = crate::game::rel(OFF_CREATE_WEAPON_WITH_VARIATION))]
 unsafe fn create_weapon_with_variation_probe(
     state: *mut libc::c_void,
     kind: i32,
@@ -105,7 +96,7 @@ unsafe fn create_weapon_with_variation_probe(
     lr_value: f32,
 ) -> u32 {
     let caller = caller_lr();
-    let caller_offset = caller.wrapping_sub(text_base());
+    let caller_offset = crate::game::offset_of(caller);
     let sequence = next(&CREATE_WEAPON_VARIATION_LOGS);
     if let Some(sequence) = sequence {
         log(format!(
@@ -126,7 +117,6 @@ unsafe fn create_weapon_with_variation_probe(
 
 pub(crate) fn install() {
     unsafe {
-        let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
         let sites: &[(usize, &[u32], &str)] = &[
             (OFF_CREATE_BOSS, &CREATE_BOSS_WORDS, "create_boss"),
             (
@@ -137,7 +127,7 @@ pub(crate) fn install() {
         ];
 
         for (offset, words, name) in sites {
-            if let Err((address, found, wanted)) = words_match(text, *offset, words) {
+            if let Err((address, found, wanted)) = words_match(*offset, words) {
                 skyline::println!(
                     "[itemcat] REFUSED all probes: {name} fingerprint mismatch at {address:#x}: found {found:#010x}, expected {wanted:#010x}"
                 );
@@ -150,7 +140,7 @@ pub(crate) fn install() {
             create_weapon_with_variation_probe
         );
         skyline::println!(
-            "[itemcat] installed 2 observation-only boss-family probes (SSBU 13.0.4 exact fingerprints; cap {MAX_LOGS_PER_SITE}/site)"
+            "[itemcat] installed 2 observation-only boss-family probes (exact fingerprints; cap {MAX_LOGS_PER_SITE}/site)"
         );
         skyline::println!(
             "[itemcat] Koopag kind 398 remains external-module-owned (lua2cpp_koopag) and is only labeled, never routed"

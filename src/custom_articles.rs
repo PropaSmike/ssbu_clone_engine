@@ -2,7 +2,7 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::RwLock;
 
-use crate::{text_base, RESULT_OK};
+use crate::RESULT_OK;
 use clone_engine_api::{
     ERROR_ARTICLE_CAPACITY, ERROR_ARTICLE_OWNER, ERROR_ARTICLE_RESOURCE_CONFLICT,
     ERROR_ARTICLE_SOURCE, ERROR_CUSTOM_KIND, ERROR_REGISTRATION_CLOSED,
@@ -85,7 +85,7 @@ fn kirby_copy_preload_headers() -> &'static RwLock<Vec<KirbyCopyPreloadHeader>> 
 }
 
 unsafe fn table_string(table: usize, index: usize) -> Option<&'static CStr> {
-    let slot = (text_base() + table + index * 8) as *const *const c_char;
+    let slot = (crate::game::addr(table) + index * 8) as *const *const c_char;
     let pointer = core::ptr::read_volatile(slot);
     (!pointer.is_null()).then(|| CStr::from_ptr(pointer))
 }
@@ -217,7 +217,7 @@ pub fn weapon_kind_from_names(owner: &str, weapon: &str) -> Option<i32> {
 pub fn weapon_kinds_of_owner(owner_kind: i32) -> Vec<i32> {
     (0..WEAPON_NAME_COUNT)
         .filter(|index| {
-            let slot = (text_base() + WEAPON_OWNER_KINDS + index * 4) as *const i32;
+            let slot = (crate::game::addr(WEAPON_OWNER_KINDS) + index * 4) as *const i32;
             let stored: i32 = unsafe { core::ptr::read_volatile(slot) };
             stored == owner_kind
         })
@@ -261,7 +261,7 @@ pub fn weapon_name_table_bias(weapon_kind: i32) -> Option<u64> {
             .map(|article| article.name_slot)?
     } else {
         let source = custom_weapon_source_kind(weapon_kind)?;
-        text_base() + LOWERCASE_WEAPON_NAMES + source as usize * 8
+        crate::game::addr(LOWERCASE_WEAPON_NAMES) + source as usize * 8
     };
     Some((slot as u64).wrapping_sub((weapon_kind as u64).wrapping_mul(8)))
 }
@@ -344,7 +344,7 @@ pub fn source_weapon_owner_kind(weapon_kind: i32) -> Option<i32> {
     if source < 0 || source as usize >= WEAPON_NAME_COUNT {
         return None;
     }
-    let slot = (text_base() + WEAPON_OWNER_KINDS + source as usize * 4) as *const i32;
+    let slot = (crate::game::addr(WEAPON_OWNER_KINDS) + source as usize * 4) as *const i32;
     Some(unsafe { core::ptr::read_volatile(slot) })
 }
 
@@ -369,7 +369,7 @@ pub fn callback_payload_offsets(callback: *const u8, owner_kind: i32) -> Vec<u32
     if payload % 8 != 0 || payload >= 0x8000 {
         return offsets;
     }
-    let Some(relative) = (callback as usize).checked_sub(text_base()) else {
+    let Some(relative) = (callback as usize).checked_sub(crate::game::raw_text_base()) else {
         return offsets;
     };
     if relative + PAYLOAD_SCAN_WORDS * 4 >= TEXT_LIMIT {
@@ -399,7 +399,7 @@ pub fn vanilla_weapon_owner_kind(weapon_kind: i32) -> Option<i32> {
     if weapon_kind < 0 || weapon_kind as usize >= WEAPON_NAME_COUNT {
         return None;
     }
-    let slot = (text_base() + WEAPON_OWNER_KINDS + weapon_kind as usize * 4) as *const i32;
+    let slot = (crate::game::addr(WEAPON_OWNER_KINDS) + weapon_kind as usize * 4) as *const i32;
     let owner = unsafe { core::ptr::read_volatile(slot) };
     (owner >= 0).then_some(owner)
 }

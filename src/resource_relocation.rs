@@ -8,7 +8,6 @@ use super::native_tables::{
     RESOURCE_TAIL_SIZE, TARGET_SLOTS,
 };
 
-use super::text_base;
 
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 
@@ -55,7 +54,7 @@ unsafe fn read_aligned_ptr(at: usize) -> Option<usize> {
 }
 
 unsafe fn resolve_chain() -> Option<Chain> {
-    let singleton = read_aligned_ptr(text_base() + RESOURCE_SINGLETON_SLOT)?;
+    let singleton = read_aligned_ptr(crate::game::addr(RESOURCE_SINGLETON_SLOT))?;
 
     let instance = read_aligned_ptr(singleton)?;
 
@@ -91,11 +90,11 @@ fn expanded_region(slots: usize) -> usize {
 }
 
 unsafe fn write_instruction(offset: usize, opcode: u32) -> bool {
-    crate::text_patch::write_word(text_base() + offset, opcode)
+    crate::text_patch::write_word(crate::game::addr(offset), opcode)
 }
 
 unsafe fn instruction_matches(offset: usize, expected: u32) -> bool {
-    core::ptr::read_volatile((text_base() + offset) as *const u32) == expected
+    core::ptr::read_volatile(crate::game::addr(offset) as *const u32) == crate::game::opcode(offset, expected)
 }
 
 unsafe fn patch_sites_intact() -> bool {
@@ -106,7 +105,7 @@ unsafe fn patch_sites_intact() -> bool {
             continue;
         }
 
-        let actual = core::ptr::read_volatile((text_base() + offset) as *const u32);
+        let actual = core::ptr::read_volatile(crate::game::addr(*offset) as *const u32);
 
         skyline::println!(
             "[resreloc] patch site {:#x} is not writable: expected {:#010x}, got {:#010x}{}",
@@ -174,7 +173,7 @@ unsafe fn apply_patches(patches: &[(usize, u32, u32)], label: &str) -> bool {
             );
         }
 
-        if crate::text_patch::write_words(text_base() + offset, &words) {
+        if crate::text_patch::write_words(crate::game::addr(offset), &words) {
             continue;
         }
 
@@ -237,7 +236,7 @@ unsafe fn build_buffer(block: usize, slots: usize) -> Option<(usize, Layout)> {
     Some((base, layout))
 }
 
-#[skyline::hook(offset = RESOURCE_RESET_FUNCTION)]
+#[skyline::hook(offset = crate::game::rel(RESOURCE_RESET_FUNCTION))]
 
 unsafe fn resource_reset_post_hook(object: u64) {
     call_original!(object);
@@ -277,7 +276,7 @@ pub(crate) unsafe fn try_relocate() -> bool {
     }
 
     if !validate_runtime_opcodes() {
-        skyline::println!("[resreloc] aborted: this is not the audited 13.0.4 image");
+        skyline::println!("[resreloc] aborted: this is not an audited {} image", crate::game::version().name());
 
         return false;
     }
@@ -289,12 +288,12 @@ pub(crate) unsafe fn try_relocate() -> bool {
     }
 
     let text_len =
-        skyline::hooks::getRegionAddress(skyline::hooks::Region::Rodata) as usize - text_base();
+        skyline::hooks::getRegionAddress(skyline::hooks::Region::Rodata) as usize - crate::game::raw_text_base();
 
     if let Some((offset, _, _)) = RESOURCE_TAIL_PATCHES
         .iter()
         .chain(RESOURCE_BOUND_PATCHES)
-        .find(|(offset, _, _)| *offset + 4 > text_len)
+        .find(|(offset, _, _)| crate::game::rel(*offset) + 4 > text_len)
     {
         skyline::println!(
             "[resreloc] aborted: patch offset {:#x} is outside .text (len {:#x})",
@@ -307,7 +306,7 @@ pub(crate) unsafe fn try_relocate() -> bool {
 
     skyline::println!(
         "[resreloc] text={:#x} len={:#x} record={:#x} block={:#x}",
-        text_base(),
+        crate::game::raw_text_base(),
         text_len,
         chain.record,
         chain.block
@@ -373,7 +372,7 @@ pub(crate) fn start() {
 
             let first = RESOURCE_TAIL_PATCHES[0];
 
-            let value = unsafe { core::ptr::read_volatile((text_base() + first.0) as *const u32) };
+            let value = unsafe { core::ptr::read_volatile(crate::game::addr(first.0) as *const u32) };
 
             skyline::println!(
                 "[pp] {} one read @{:#x} = {:#010x}",
@@ -394,8 +393,8 @@ pub(crate) fn start() {
                     );
                 }
 
-                if unsafe { core::ptr::read_volatile((text_base() + offset) as *const u32) }
-                    == *expected
+                if unsafe { core::ptr::read_volatile(crate::game::addr(*offset) as *const u32) }
+                    == crate::game::opcode(*offset, *expected)
                 {
                     untouched += 1;
                 }

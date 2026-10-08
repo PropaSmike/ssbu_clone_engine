@@ -107,7 +107,7 @@ mod live {
     }
 
     #[cfg(feature = "stage_pane_table")]
-    #[skyline::hook(offset = OFF_BUILD_PANELS)]
+    #[skyline::hook(offset = crate::game::rel(OFF_BUILD_PANELS))]
     pub(super) unsafe fn build_panels_hook(holder: usize, list: usize) {
         use crate::stage_pane_table::live;
         live::begin_capture();
@@ -129,7 +129,7 @@ mod live {
     }
 
     #[cfg(not(feature = "stage_pane_table"))]
-    #[skyline::hook(offset = OFF_BUILD_PANELS)]
+    #[skyline::hook(offset = crate::game::rel(OFF_BUILD_PANELS))]
     pub(super) unsafe fn build_panels_hook(holder: usize, list: usize) {
         let page = WANTED_PAGE.load(Ordering::Acquire);
 

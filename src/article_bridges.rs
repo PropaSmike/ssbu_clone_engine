@@ -4,7 +4,7 @@ macro_rules! custom_article_name_hooks {
     ($install:ident, $lookup:path; $($name:ident($src:expr, $dst:expr, $offset:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[$src].x() as i32;
                 let game = ctx.registers[$dst].x() as *const u8;
@@ -42,7 +42,7 @@ macro_rules! custom_article_scaled_name_hooks {
     ($install:ident, $lookup:path, $vanilla:path; $($name:ident($src:expr, $dst:expr, $offset:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = (ctx.registers[$src].x() >> 3) as i32;
                 if let Some(value) = $lookup(weapon_kind) {
@@ -84,7 +84,7 @@ macro_rules! custom_article_agent_gate_hooks {
     ($install:ident; $($name:ident($offset:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[22].x() as i32;
                 if custom_articles::is_custom_weapon_kind(weapon_kind) {
@@ -120,7 +120,7 @@ macro_rules! custom_article_owner_kind_hooks {
     ($install:ident, $lookup:path; $($name:ident($src:expr, $dst:expr, $offset:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[$src].x() as i32;
                 let game_owner = ctx.registers[$dst].x() as i32;
@@ -209,6 +209,33 @@ static WEAPON_RECORD_REBIAS_LOG: core::sync::atomic::AtomicU32 =
 static WEAPON_RECORD_VANILLA_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
+#[cfg(feature = "css_slot")]
+static WEAPON_RECORD_UNDECODED_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const WEAPON_RECORD_SWITCH: usize = 0x452c5c4;
+
+#[cfg(feature = "css_slot")]
+const WEAPON_RECORD_SWITCH_JOIN: usize = 0x33b5f30;
+
+#[cfg(feature = "css_slot")]
+unsafe fn weapon_record_kind(weapon_kind: i32) -> Option<i32> {
+    use clone_engine_core::weapon_record::{arm_record_kind, switch_index};
+    let Some(index) = switch_index(weapon_kind) else {
+        return Some(weapon_kind);
+    };
+    let table = crate::game::addr(WEAPON_RECORD_SWITCH);
+    let offset = core::ptr::read_volatile((table as *const i32).add(index));
+    let arm = table.wrapping_add_signed(offset as isize);
+    let join = crate::game::addr(WEAPON_RECORD_SWITCH_JOIN);
+    let words = [
+        core::ptr::read_volatile(arm as *const u32),
+        core::ptr::read_volatile((arm + 4) as *const u32),
+    ];
+    arm_record_kind(weapon_kind, arm, join, words)
+}
+
 fn weapon_record_slot(weapon_kind: i32) -> Option<usize> {
     use core::sync::atomic::Ordering;
     for index in 0..WEAPON_RECORD_SLOTS {
@@ -243,7 +270,7 @@ fn current_builder_kind() -> i32 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33b5f44, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33b5f44), inline)]
 pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks::InlineCtx) {
     const WEAPON_RECORD_STRIDE: i64 = 0xe8;
 
@@ -296,7 +323,19 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
         fighter_modules::ensure_loaded(owner, 3000);
     }
 
-    let bias = (source as i64 - weapon_kind as i64) * WEAPON_RECORD_STRIDE;
+    let record = match weapon_record_kind(source) {
+        Some(record) => record,
+        None => {
+            let n = WEAPON_RECORD_UNDECODED_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 4 {
+                crate::dbg_log_public(&format!(
+                    "[articlerecord] weapon kind {weapon_kind}: source {source}'s record switch arm did not decode; using record {source}"
+                ));
+            }
+            source
+        }
+    };
+    let bias = (record as i64 - weapon_kind as i64) * WEAPON_RECORD_STRIDE;
     let base = ctx.registers[25].x();
     let slot = weapon_record_slot(weapon_kind);
 
@@ -324,7 +363,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
     let n = RECORD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 16 {
         dbg_log!(
-            "[articlerecord] #{n} weapon kind {weapon_kind} uses source {source}'s record              (base {base:#x} biased by {bias} -> {biased:#x})"
+            "[articlerecord] #{n} weapon kind {weapon_kind} uses source {source}'s record {record} (base {base:#x} biased by {bias} -> {biased:#x})"
         );
     }
 }
@@ -346,7 +385,7 @@ static PAYLOAD_FILLED: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
     [const { core::sync::atomic::AtomicI32::new(-1) }; WEAPON_RECORD_SLOTS];
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x3a6fe8, inline)]
+#[skyline::hook(offset = crate::game::rel(0x3a6fe8), inline)]
 pub(crate) unsafe fn article_init_owner_payload(ctx: &mut skyline::hooks::InlineCtx) {
     let entry = ctx.registers[8].x();
     if entry == 0 {
@@ -403,7 +442,7 @@ pub(crate) unsafe fn article_init_owner_payload(ctx: &mut skyline::hooks::Inline
     }
     dbg_log!(
         "[articleinit] weapon {weapon_kind}: its source init {:#x} reads absent fighter          {owner}'s payload at {:?}; filled {filled} null field(s), {present} already had data.          The same fields on the RESIDENT destination fighter read: {resident}",
-        callback.wrapping_sub(text_base() as u64),
+        crate::game::offset_of(callback as usize) as u64,
         offsets.iter().map(|at| format!("{at:#x}")).collect::<Vec<_>>()
     );
 }
@@ -418,7 +457,7 @@ const RESOURCE_INDEX_MISSING: u32 = 0xffffff;
 const ARTICLE_LVD_COLLISIONS: u64 = 0x168;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33bf610)]
+#[skyline::hook(offset = crate::game::rel(0x33bf610))]
 pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
     if article == 0 {
         return;
@@ -652,7 +691,7 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33b6fb8, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33b6fb8), inline)]
 pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[28].x() as i32;
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
@@ -681,7 +720,6 @@ pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::Inlin
         return;
     }
 
-    let base = text_base() as u64;
     let read_u64 = |address: u64| -> u64 {
         if address == 0 {
             0
@@ -693,7 +731,7 @@ pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::Inlin
     let spec = ctx.registers[0].x();
     let vtable = read_u64(spec);
     let setup = read_u64(vtable.wrapping_add(ARTICLE_SPEC_DESCRIPTOR_SLOT));
-    let manager = read_u64(base + FIGHTER_PARAM_SINGLETON);
+    let manager = read_u64(crate::game::addr(FIGHTER_PARAM_SINGLETON as usize) as u64);
     let payload = match owner {
         Some(owner) if manager != 0 && owner >= 0 => read_u64(
             manager
@@ -714,14 +752,14 @@ pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::Inlin
 
     dbg_log!(
         "[articlespec] weapon kind {weapon_kind} source {source} owner {owner:?}          params={loaded} spec={:#x} vtable={:#x} setup={:#x} manager={manager:#x}          owner_payload={payload:#x} tls={thread_local:#x} thread={thread:#x} handle={handle:#x}",
-        spec.wrapping_sub(base),
-        vtable.wrapping_sub(base),
-        setup.wrapping_sub(base)
+        crate::game::offset_of(spec as usize),
+        crate::game::offset_of(vtable as usize),
+        crate::game::offset_of(setup as usize)
     );
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33bab50, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33bab50), inline)]
 pub(crate) unsafe fn article_param_fetch_probe(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = current_builder_kind();
     if kind < INHERITED_KIND_LOG_FLOOR {
@@ -748,12 +786,12 @@ pub(crate) unsafe fn article_param_fetch_probe(ctx: &mut skyline::hooks::InlineC
     };
     dbg_log!(
         "[articleparam] building kind {kind}: fetch index {index} object={object:#x}          accessor={accessor:#x} vtable={:#x} entries={entries:#x}",
-        vtable.wrapping_sub(text_base() as u64)
+        crate::game::offset_of(vtable as usize)
     );
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e09a8, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17e09a8), inline)]
 pub(crate) unsafe fn custom_article_owner_category(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
     if let Some(category) = custom_articles::custom_weapon_owner_category(weapon_kind) {
@@ -766,7 +804,7 @@ macro_rules! custom_article_source_kind_sites {
         $(
             #[doc = $what]
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let kind = ctx.registers[$reg].x() as i32;
                 if let Some(source) = custom_articles::custom_weapon_source_kind(kind) {
@@ -788,7 +826,7 @@ custom_article_source_kind_sites! {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = crate::offsets::OFF_WEAPON_CLASS_RECACHE, inline)]
+#[skyline::hook(offset = crate::game::rel(crate::offsets::OFF_WEAPON_CLASS_RECACHE), inline)]
 unsafe fn custom_article_class_recache(ctx: &mut skyline::hooks::InlineCtx) {
     let asked = ctx.registers[20].w() as i32;
     let object = ctx.registers[19].x() as usize;
@@ -799,7 +837,7 @@ unsafe fn custom_article_class_recache(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = crate::offsets::OFF_WEAPON_CLASS_RESOLVER)]
+#[skyline::hook(offset = crate::game::rel(crate::offsets::OFF_WEAPON_CLASS_RESOLVER))]
 unsafe fn custom_article_kind_spec(kind: u32) -> u64 {
     let Some(source) = custom_articles::custom_weapon_source_kind(kind as i32) else {
         return call_original!(kind);
@@ -811,7 +849,7 @@ unsafe fn custom_article_kind_spec(kind: u32) -> u64 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0890, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17e0890), inline)]
 pub(crate) unsafe fn custom_article_path_weapon_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[23].x() as i32;
     if let Some(base) = custom_articles::weapon_name_table_bias(weapon_kind) {
@@ -820,7 +858,7 @@ pub(crate) unsafe fn custom_article_path_weapon_name(ctx: &mut skyline::hooks::I
 }
 
 #[cfg(all(feature = "css_slot", feature = "diag_article"))]
-#[skyline::hook(offset = 0x48aba4, inline)]
+#[skyline::hook(offset = crate::game::rel(0x48aba4), inline)]
 pub(crate) unsafe fn module_190_factory(ctx: &mut skyline::hooks::InlineCtx) {
     static SEEN: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
     if SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 64 {
@@ -840,8 +878,8 @@ pub(crate) unsafe fn module_190_factory(ctx: &mut skyline::hooks::InlineCtx) {
     };
     dbg_log!(
         "[mod190] factory obj={object:#x} vt={vtable:#x} method={method:#x} rel={:#x} target={target:#x} target_rel={:#x} x9={:#x} x10={:#x}",
-        method.wrapping_sub(text_base() as u64),
-        target.wrapping_sub(text_base() as u64),
+        crate::game::offset_of(method as usize),
+        crate::game::offset_of(target as usize),
         ctx.registers[9].x(),
         ctx.registers[10].x()
     );
@@ -865,7 +903,7 @@ pub(crate) unsafe fn article_object_kind_field(setup: u64) -> Option<*mut i32> {
 
 #[cfg(feature = "css_slot")]
 #[allow(dead_code)]
-#[skyline::hook(offset = 0x48aba4, inline)]
+#[skyline::hook(offset = crate::game::rel(0x48aba4), inline)]
 pub(crate) unsafe fn article_agent_kind_spoof_enter(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(field) = article_object_kind_field(ctx.registers[20].x()) else {
         return;
@@ -886,7 +924,7 @@ pub(crate) unsafe fn article_agent_kind_spoof_enter(ctx: &mut skyline::hooks::In
 
 #[cfg(feature = "css_slot")]
 #[allow(dead_code)]
-#[skyline::hook(offset = 0x48abb0, inline)]
+#[skyline::hook(offset = crate::game::rel(0x48abb0), inline)]
 pub(crate) unsafe fn article_agent_kind_spoof_leave(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = SPOOFED_ARTICLE_KIND.swap(-1, core::sync::atomic::Ordering::Relaxed);
     if kind < 0 {
@@ -902,7 +940,7 @@ pub(crate) unsafe fn article_agent_kind_spoof_leave(ctx: &mut skyline::hooks::In
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33abee0)]
+#[skyline::hook(offset = crate::game::rel(0x33abee0))]
 pub(crate) unsafe fn article_status_agent_create(
     object: *mut u8,
     boma: *mut u8,
@@ -991,7 +1029,7 @@ pub(crate) fn seen_motion_modules() -> &'static std::sync::RwLock<std::collectio
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x49dc50)]
+#[skyline::hook(offset = crate::game::rel(0x49dc50))]
 pub(crate) unsafe fn motion_rate_guard(module: *mut u8) -> f32 {
     const DEFAULT_RATE: f32 = 1.0;
     const MAX_LOGGED: usize = 64;
@@ -1077,7 +1115,7 @@ pub(crate) unsafe fn motion_rate_guard(module: *mut u8) -> f32 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x497350)]
+#[skyline::hook(offset = crate::game::rel(0x497350))]
 pub(crate) unsafe fn motion_bind_probe(
     module: *mut u8,
     arg1: *mut u8,
@@ -1094,7 +1132,7 @@ pub(crate) unsafe fn motion_bind_probe(
     {
         lr = 0;
     }
-    let caller = lr.wrapping_sub(text_base());
+    let caller = crate::game::offset_of(lr);
 
     macro_rules! pass_through {
         () => {
@@ -1141,7 +1179,7 @@ pub(crate) unsafe fn motion_bind_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x6defa0)]
+#[skyline::hook(offset = crate::game::rel(0x6defa0))]
 pub(crate) unsafe fn change_motion_probe(
     module: *mut u8,
     motion: u64,
@@ -1190,7 +1228,7 @@ pub(crate) unsafe fn change_motion_probe(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x339fee0)]
+#[skyline::hook(offset = crate::game::rel(0x339fee0))]
 pub(crate) unsafe fn weapon_motion_setup_probe(object: *mut u8) -> u64 {
     if object.is_null() {
         return call_original!(object);
@@ -1303,7 +1341,7 @@ const ARTICLE_MODULE_OWNER: usize = 0x8;
 static ARTICLE_SETUP_SCOPE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x3d3f30)]
+#[skyline::hook(offset = crate::game::rel(0x3d3f30))]
 pub(crate) unsafe fn article_module_setup_scope(module: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let owner_kind = if module == 0
         || crate::active_construction_kind_public().is_some()
@@ -1334,7 +1372,7 @@ macro_rules! custom_article_gate_base_hooks {
     ($install:ident; $($name:ident($offset:expr, $base:expr, $kind_reg:expr));* $(;)?) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let weapon_kind = ctx.registers[$kind_reg].x() as i32;
                 let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
@@ -1374,7 +1412,7 @@ custom_article_gate_base_hooks! {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33afc00)]
+#[skyline::hook(offset = crate::game::rel(0x33afc00))]
 pub(crate) unsafe fn custom_article_capability_index(weapon_kind: i32) -> i32 {
     let Some(source) = custom_articles::custom_weapon_source_kind(weapon_kind) else {
         return call_original!(weapon_kind);
@@ -1421,7 +1459,7 @@ macro_rules! module_190_probes {
     ($install:ident; $($name:ident($offset:expr, $tag:expr, [$($reg:expr),*]));* $(;)?) => {
         $(
             #[cfg(all(feature = "css_slot", feature = "diag_article"))]
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 let n = MODULE_PROBE_SEEN.load(core::sync::atomic::Ordering::Relaxed);
                 if n >= 36 {
@@ -1547,7 +1585,7 @@ unsafe fn literal_article_path(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0840)]
+#[skyline::hook(offset = crate::game::rel(0x17e0840))]
 pub(crate) unsafe fn custom_article_path_probe(
     out: *mut u32,
     weapon_kind: i32,
@@ -1563,7 +1601,7 @@ pub(crate) unsafe fn custom_article_path_probe(
     {
         lr = 0;
     }
-    let caller = lr.wrapping_sub(text_base());
+    let caller = crate::game::offset_of(lr);
 
     call_original!(out, weapon_kind, resource_type, variant, color, flags);
 
@@ -1679,21 +1717,21 @@ pub(crate) unsafe fn tag_custom_article_cache_key(key: u64, site: &str) -> u64 {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17eea04, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17eea04), inline)]
 pub(crate) unsafe fn custom_article_cache_key_single(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[22].x();
     ctx.registers[22].set_x(tag_custom_article_cache_key(key, "single"));
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17eed48, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17eed48), inline)]
 pub(crate) unsafe fn custom_article_cache_key_variant(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[1].x();
     ctx.registers[1].set_x(tag_custom_article_cache_key(key, "variant"));
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17f0924, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17f0924), inline)]
 pub(crate) unsafe fn custom_article_cache_key_direct(ctx: &mut skyline::hooks::InlineCtx) {
     let key = ctx.registers[21].x();
     ctx.registers[21].set_x(tag_custom_article_cache_key(key, "direct"));
@@ -1721,7 +1759,7 @@ const ADDED_RESOURCE_INDEX_FLOOR: u32 = 0x8_0000;
 const BARE_WEAPON_KIND_CEILING: u64 = 0x1000;
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17dded0)]
+#[skyline::hook(offset = crate::game::rel(0x17dded0))]
 pub(crate) unsafe fn custom_article_data_cache_insert(
     tree: *mut u8,
     key: u64,
@@ -1819,13 +1857,13 @@ pub(crate) unsafe fn tag_custom_article_data_lookup(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a03c4, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33a03c4), inline)]
 pub(crate) unsafe fn custom_article_data_lookup_primary(ctx: &mut skyline::hooks::InlineCtx) {
     tag_custom_article_data_lookup(ctx, "primary");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a9798, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33a9798), inline)]
 pub(crate) unsafe fn custom_article_data_lookup_variant(ctx: &mut skyline::hooks::InlineCtx) {
     tag_custom_article_data_lookup(ctx, "variant");
 }
@@ -1858,13 +1896,13 @@ pub(crate) unsafe fn log_article_data_result(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a03c8, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33a03c8), inline)]
 pub(crate) unsafe fn custom_article_data_result_primary(ctx: &mut skyline::hooks::InlineCtx) {
     log_article_data_result(ctx, 0x30, "primary");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x33a979c, inline)]
+#[skyline::hook(offset = crate::game::rel(0x33a979c), inline)]
 pub(crate) unsafe fn custom_article_data_result_variant(ctx: &mut skyline::hooks::InlineCtx) {
     log_article_data_result(ctx, 0x20, "variant");
 }
@@ -1888,7 +1926,7 @@ pub(crate) unsafe fn handle_custom_base_module_name(
 macro_rules! declare_resource_name_hooks {
     ($install:ident, $handler:ident; $($name:ident($offset:expr, $dst:expr));* $(;)?) => {
         $(
-            #[skyline::hook(offset = $offset, inline)]
+            #[skyline::hook(offset = crate::game::rel($offset), inline)]
             unsafe fn $name(ctx: &mut skyline::hooks::InlineCtx) {
                 $handler(ctx, $dst);
             }
@@ -1965,7 +2003,7 @@ declare_resource_name_hooks! {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17df4f0, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17df4f0), inline)]
 pub(crate) unsafe fn custom_name_path_root(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[1].x() as i32;
     if let Some(definition) = clone_definition(kind) {
@@ -1979,7 +2017,7 @@ pub(crate) fn install_custom_resource_name_hooks() {
         let (attach, set_status_scripts) = article_agents::self_addresses();
         dbg_log!(
             "[selfbase] text={:#x} attach={attach:#x} set_status_scripts={set_status_scripts:#x} dbg_out={:#x}",
-            text_base(),
+            crate::game::raw_text_base(),
             dbg_out as *const () as usize
         );
     }

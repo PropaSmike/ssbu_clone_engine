@@ -24,6 +24,9 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Mutex, OnceLock, RwLock};
 
+mod game;
+mod game_reloc_13_0_5;
+
 #[cfg(feature = "native_table_backend")]
 mod native_tables;
 
@@ -89,6 +92,8 @@ compile_error!("diag_item_kind and item_clone_backend hook the same item lifecyc
 const VANILLA_COSTUME_SLOTS: u8 = 8;
 
 mod article_agents;
+#[cfg(feature = "css_slot")]
+mod article_item_order;
 mod custom_articles;
 
 #[cfg(feature = "css_slot")]
@@ -714,7 +719,7 @@ unsafe fn item_vtable(kind: i32) -> Option<(*const usize, bool)> {
     if kind < 0 {
         return None;
     }
-    Some(((text_base() + clone_vtables::ITEM_OBJECT_VTABLE) as *const usize, false))
+    Some(((crate::game::addr(clone_vtables::ITEM_OBJECT_VTABLE)) as *const usize, false))
 }
 
 unsafe fn fighter_vtable(kind: i32) -> Option<(*const usize, bool)> {
@@ -724,7 +729,7 @@ unsafe fn fighter_vtable(kind: i32) -> Option<(*const usize, bool)> {
     if !(0..94).contains(&kind) {
         return None;
     }
-    let class = *((text_base() + FIGHTER_CLASS_TABLE + kind as usize * 8) as *const u64);
+    let class = *((crate::game::addr(FIGHTER_CLASS_TABLE) + kind as usize * 8) as *const u64);
     if class == 0 {
         return None;
     }
@@ -769,7 +774,7 @@ pub unsafe extern "C" fn clone_engine_vtable_entry_v1(
         return 0;
     }
     let entry = table.add(index as usize);
-    let text = text_base();
+    let text = game::raw_text_base();
     if want_pointer != 0 {
         if private || (entry as usize) < text {
             return 0;
@@ -1287,7 +1292,7 @@ pub unsafe extern "C" fn clone_engine_shared_hook_v1(offset: u64, callback: usiz
         return ERROR_HOOK_PREFLIGHT;
     };
     shared_hook_result(
-        shared_hooks::register(text_base(), spec, callback),
+        shared_hooks::register(game::raw_text_base(), relocated_hook_spec(spec), callback),
         offset,
         callback,
     )
@@ -1347,10 +1352,23 @@ pub unsafe extern "C" fn clone_engine_shared_hook_v2(
         argument_count: registration.argument_count,
     };
     shared_hook_result(
-        shared_hooks::register(text_base(), spec, registration.callback),
+        shared_hooks::register(game::raw_text_base(), relocated_hook_spec(spec), registration.callback),
         registration.offset,
         registration.callback,
     )
+}
+
+fn relocated_hook_spec(spec: shared_hooks::HookSpec) -> shared_hooks::HookSpec {
+    let offset = spec.offset as usize;
+    let mut expected_opcodes = spec.expected_opcodes;
+    for (index, word) in expected_opcodes.iter_mut().enumerate() {
+        *word = game::opcode(offset + index * 4, *word);
+    }
+    shared_hooks::HookSpec {
+        offset: game::rel(offset) as u64,
+        expected_opcodes,
+        ..spec
+    }
 }
 
 #[no_mangle]
@@ -1370,7 +1388,7 @@ pub unsafe extern "C" fn clone_engine_shared_hook_original_v1(
     if args.is_null() || offset == 0 {
         return 0;
     }
-    shared_hooks::original(text_base(), offset, &*args)
+    shared_hooks::original(game::raw_text_base(), game::rel(offset as usize) as u64, &*args)
 }
 
 #[no_mangle]
@@ -1379,7 +1397,7 @@ pub unsafe extern "C" fn clone_engine_shared_hook_words_v1(offset: u64, words: *
         return 0;
     }
     let _registration_guard = registration_gate().lock().unwrap();
-    match shared_hooks::recorded_words(text_base(), offset) {
+    match shared_hooks::recorded_words(game::raw_text_base(), game::rel(offset as usize) as u64) {
         Some(found) => {
             *words = found;
             1
@@ -1601,7 +1619,7 @@ pub(crate) fn pending_weapon_kind() -> Option<i32> {
 
 macro_rules! nonshare_hook {
     ($name:ident, $off:expr) => {
-        #[skyline::hook(offset = $off)]
+        #[skyline::hook(offset = crate::game::rel($off))]
         unsafe fn $name(object: *mut u8, x1: u64, x2: u64) -> u64 {
             let kind_ptr = (object as usize + 0xC) as *mut i32;
             let kind = *kind_ptr;
@@ -1626,7 +1644,7 @@ nonshare_hook!(animcmd_sound_hook, OFF_SOUND);
 
 macro_rules! share_hook {
     ($name:ident, $off:expr) => {
-        #[skyline::hook(offset = $off)]
+        #[skyline::hook(offset = crate::game::rel($off))]
         unsafe fn $name(kind: u64, x1: u64, x2: u64, x3: u64) -> u64 {
             if let Some(base) = clone_base(kind as i32) {
                 diag_reroute_log!($name, kind as i32, base);
@@ -1644,19 +1662,7 @@ share_hook!(animcmd_effect_share_hook, OFF_EFFECT_SHARE);
 share_hook!(animcmd_expression_share_hook, OFF_EXPRESSION_SHARE);
 share_hook!(animcmd_sound_share_hook, OFF_SOUND_SHARE);
 
-static TEXT_BASE: OnceLock<usize> = OnceLock::new();
-
 static TEXT_END: OnceLock<usize> = OnceLock::new();
-
-fn text_base() -> usize {
-    *TEXT_BASE.get_or_init(|| unsafe {
-        skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize
-    })
-}
-
-pub(crate) fn text_base_public() -> usize {
-    text_base()
-}
 
 fn text_end() -> usize {
     *TEXT_END.get_or_init(|| unsafe {
@@ -1668,7 +1674,7 @@ fn caller_is_outside_main_text(lr: usize) -> bool {
     if lr == 0 {
         return false;
     }
-    let base = text_base();
+    let base = game::raw_text_base();
     let end = text_end();
     if base == 0 || end <= base {
         return false;
@@ -1747,7 +1753,7 @@ macro_rules! clone_fighter_acmd_hooks {
     ($($name:ident($offset:expr);)*) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset)]
+            #[skyline::hook(offset = crate::game::rel($offset))]
             unsafe fn $name(object: u64, boma: u64, lua_state: u64) -> u64 {
                 let clone_kind = clone_kind_of_object(object);
                 let _pending =
@@ -1829,13 +1835,13 @@ unsafe fn effect_request_probe(tag: &str, boma: u64, hash: u64) {
 }
 
 #[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-#[skyline::hook(offset = 0x20176b0, inline)]
+#[skyline::hook(offset = crate::game::rel(0x20176b0), inline)]
 unsafe fn effect_req_probe(ctx: &mut skyline::hooks::InlineCtx) {
     effect_request_probe("req", ctx.registers[0].x(), ctx.registers[1].x());
 }
 
 #[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-#[skyline::hook(offset = 0x2017730, inline)]
+#[skyline::hook(offset = crate::game::rel(0x2017730), inline)]
 unsafe fn effect_req_follow_probe(ctx: &mut skyline::hooks::InlineCtx) {
     effect_request_probe("req_follow", ctx.registers[0].x(), ctx.registers[1].x());
 }
@@ -1844,7 +1850,7 @@ unsafe fn effect_req_follow_probe(ctx: &mut skyline::hooks::InlineCtx) {
 static POCKET_NAME_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
-#[skyline::hook(offset = 0x17e0840)]
+#[skyline::hook(offset = crate::game::rel(0x17e0840))]
 unsafe fn weapon_name_owner_tables(a0: u64, kind: i32, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
@@ -1861,7 +1867,7 @@ unsafe fn weapon_name_owner_tables(a0: u64, kind: i32, a2: u64, a3: u64, a4: u64
     if n < 64 {
         dbg_log!(
             "[pocketname] #{n} kind={kind} source={source:?} caller=@{:#x}",
-            lr.wrapping_sub(text_base())
+            game::offset_of(lr)
         );
     }
     call_original!(a0, kind, a2, a3, a4, a5)
@@ -1872,7 +1878,7 @@ macro_rules! article_animcmd_agent_hooks {
     ($($name:ident($offset:expr, $tag:expr);)*) => {
         $(
             #[cfg(feature = "css_slot")]
-            #[skyline::hook(offset = $offset)]
+            #[skyline::hook(offset = crate::game::rel($offset))]
             unsafe fn $name(object: *mut u8, boma: *mut u8, lua_state: *mut u8) -> *mut u8 {
                 if object.is_null() {
                     return call_original!(object, boma, lua_state);
@@ -1919,7 +1925,7 @@ article_animcmd_agent_hooks! {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x64bbd0)]
+#[skyline::hook(offset = crate::game::rel(0x64bbd0))]
 unsafe fn clone_fighter_status_create(object: u64, boma: u64, lua_state: u64) -> u64 {
     let kind_field = (object + 0xc) as *mut i32;
     let kind = if object == 0 {
@@ -2173,12 +2179,16 @@ unsafe fn install_param_getter_bracket(
     handler: usize,
     tag: &str,
 ) {
-    let site = text_base() + offset;
+    let site = game::addr(offset);
     let mut live = [0u32; clone_engine_core::hook_site::PROLOGUE_WORDS];
     for (index, word) in live.iter_mut().enumerate() {
         *word = core::ptr::read_volatile((site + index * 4) as *const u32);
     }
-    if live != *expected {
+    let mut expected = *expected;
+    for (index, word) in expected.iter_mut().enumerate() {
+        *word = game::opcode(offset + index * 4, *word);
+    }
+    if live != expected {
         let why = match clone_engine_core::hook_site::relocation_hazard(&live) {
             Some(hazard) => hazard.reason(),
             None => "the thunk does not read as vanilla",
@@ -2312,7 +2322,7 @@ unsafe fn param_override_kind(module: u64) -> Option<i32> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x15cdff0)]
+#[skyline::hook(offset = crate::game::rel(0x15cdff0))]
 unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
@@ -3211,7 +3221,7 @@ static RESOLVER_LOG_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::A
 #[cfg(feature = "diag_article")]
 static GETTER_LOG_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
-#[skyline::hook(offset = OFF_FIGHTER_CLASS_RESOLVER)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_CLASS_RESOLVER))]
 unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
     #[cfg(feature = "diag_article")]
     {
@@ -3243,7 +3253,7 @@ unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
         }
     };
     if (0..94).contains(&resolved) {
-        let slot = text_base() + FIGHTER_CLASS_TABLE + resolved as usize * 8;
+        let slot = crate::game::addr(FIGHTER_CLASS_TABLE) + resolved as usize * 8;
         return *(slot as *const u64);
     }
     call_original!(kind)
@@ -3264,7 +3274,7 @@ static GETTER_ENTRY_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::Ato
 static NATIVE_KIND_CLAMP_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
-#[skyline::hook(offset = OFF_STATIC_FIGHTER_DATA)]
+#[skyline::hook(offset = crate::game::rel(OFF_STATIC_FIGHTER_DATA))]
 unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
     {
         let n = GETTER_ENTRY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -3313,6 +3323,8 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
             }
             #[cfg_attr(feature = "diag_article_nopatch", allow(unused_mut))]
             let mut patched = *own;
+            #[cfg_attr(feature = "diag_article_nopatch", allow(unused_mut))]
+            let mut base_blob = 0usize;
             #[cfg(not(feature = "diag_article_nopatch"))]
             {
                 let base_data: *const StaticFighterData = call_original!(base);
@@ -3320,8 +3332,22 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
                     return own;
                 }
                 patched.static_article_info = (*base_data).static_article_info;
+                base_blob = base_data as usize;
             }
-            return Box::into_raw(Box::new(patched));
+            let Ok(mut blobs) = remapped_fighter_blobs().lock() else {
+                return Box::into_raw(Box::new(patched));
+            };
+            if let Some((_, _, _, cached)) = blobs
+                .iter()
+                .find(|(cached_kind, own_blob, cached_base, _)| {
+                    *cached_kind == kind && *own_blob == own as usize && *cached_base == base_blob
+                })
+            {
+                return *cached as *const StaticFighterData;
+            }
+            let created = Box::into_raw(Box::new(patched));
+            blobs.push((kind, own as usize, base_blob, created as usize));
+            return created;
         }
     }
     if kind < 0 || kind > NATIVE_FIGHTER_KIND_MAX {
@@ -3401,7 +3427,7 @@ fn custom_kirby_copy_name_record(kind: i32) -> Option<usize> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_NAME, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_NAME), inline)]
 unsafe fn kirby_copy_record_name(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(kind) = active_clone_slot_kind() else {
         return;
@@ -3438,19 +3464,19 @@ unsafe fn kirby_copy_record_base_name(ctx: &mut skyline::hooks::InlineCtx, site:
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_BODY_NAME, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_BODY_NAME), inline)]
 unsafe fn kirby_copy_record_body_name(ctx: &mut skyline::hooks::InlineCtx) {
     kirby_copy_record_base_name(ctx, "bodymotion");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_SOUND_NAME, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_SOUND_NAME), inline)]
 unsafe fn kirby_copy_record_sound_name(ctx: &mut skyline::hooks::InlineCtx) {
     kirby_copy_record_base_name(ctx, "sound");
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_RECORD_CREATOR)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_RECORD_CREATOR))]
 unsafe fn kirby_copy_record_creator_probe(sub: u64, args: *const i32, x2: u64) -> u64 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
@@ -3471,7 +3497,7 @@ unsafe fn kirby_copy_record_creator_probe(sub: u64, args: *const i32, x2: u64) -
     if n < 32 {
         dbg_log!(
             "[kirbycreator] #{n} ENTER kind={kind} color={color} sub={sub:#x} caller=@{:#x}",
-            lr.wrapping_sub(text_base())
+            game::offset_of(lr)
         );
     }
     if let Some(clone_kind) = active_clone_slot_kind().filter(|_| !args.is_null()) {
@@ -3510,7 +3536,7 @@ unsafe fn kirby_copy_record_creator_probe(sub: u64, args: *const i32, x2: u64) -
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_KIRBY_COPY_MEMBER_BUILDER)]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_MEMBER_BUILDER))]
 unsafe fn kirby_copy_member_builder_probe(
     sub: u64,
     kind: u32,
@@ -3607,6 +3633,18 @@ unsafe fn append_custom_articles(
         return blob;
     }
 
+    let appended_kinds: Vec<i32> = appended.iter().map(|descriptor| descriptor.weapon_id).collect();
+    if let Some(cached) = patched_article_blobs().lock().ok().and_then(|blobs| {
+        blobs
+            .iter()
+            .find(|(cached_kind, cached_blob, kinds, _)| {
+                *cached_kind == kind && *cached_blob == blob as usize && *kinds == appended_kinds
+            })
+            .map(|(_, _, _, patched)| *patched)
+    }) {
+        return cached as *const StaticFighterData;
+    }
+
     for descriptor in appended.iter() {
         let Some(owner) = custom_articles::source_weapon_owner_kind(descriptor.weapon_id) else {
             continue;
@@ -3638,7 +3676,6 @@ unsafe fn append_custom_articles(
     {
         static TABLE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
         if TABLE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
-            let base = text_base() as u64;
             let rows: Vec<String> = core::slice::from_raw_parts(
                 (*article_info).descriptors,
                 (*article_info).count,
@@ -3649,21 +3686,35 @@ unsafe fn append_custom_articles(
                     "{{weapon {} max {} init {:#x} fini {:#x}}}",
                     d.weapon_id,
                     d.max_count,
-                    (d.on_init_callback as u64).wrapping_sub(base),
-                    (d.on_fini_callback as u64).wrapping_sub(base)
+                    game::offset_of(d.on_init_callback as usize),
+                    game::offset_of(d.on_fini_callback as usize)
                 )
             })
             .collect();
             dbg_log!("[articletable] fighter kind {kind}: {}", rows.join(" "));
         }
     }
-    Box::leak(Box::new(patched))
+    let patched = Box::leak(Box::new(patched)) as *const StaticFighterData;
+    if let Ok(mut blobs) = patched_article_blobs().lock() {
+        blobs.push((kind, blob as usize, appended_kinds, patched as usize));
+    }
+    patched
+}
+
+fn patched_article_blobs() -> &'static Mutex<Vec<(i32, usize, Vec<i32>, usize)>> {
+    static BLOBS: OnceLock<Mutex<Vec<(i32, usize, Vec<i32>, usize)>>> = OnceLock::new();
+    BLOBS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn remapped_fighter_blobs() -> &'static Mutex<Vec<(i32, usize, usize, usize)>> {
+    static BLOBS: OnceLock<Mutex<Vec<(i32, usize, usize, usize)>>> = OnceLock::new();
+    BLOBS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 #[cfg(feature = "true_kind")]
 static AUX_DATA_REMAP_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
-#[skyline::hook(offset = OFF_FIGHTER_AUX_DATA_INIT)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_AUX_DATA_INIT))]
 unsafe fn fighter_aux_data_init_hook(record: *mut u8, source: *mut u8, kind: i32) {
     if let Some(base) = clone_base(kind) {
         #[cfg(feature = "true_kind")]
@@ -3689,7 +3740,7 @@ unsafe fn fighter_aux_data_init_hook(record: *mut u8, source: *mut u8, kind: i32
 #[cfg(feature = "true_kind")]
 static BOUNDARY_REMAP_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
-#[skyline::hook(offset = OFF_FIGHTER_BOUNDARY_PARAMS, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_BOUNDARY_PARAMS), inline)]
 unsafe fn fighter_boundary_params_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[0].x() as i32;
     if let Some(base) = clone_base(kind) {
@@ -3723,12 +3774,12 @@ unsafe fn remap_fighter_ai_kind(ctx: &mut skyline::hooks::InlineCtx, phase: &str
     }
 }
 
-#[skyline::hook(offset = OFF_AI_PROFILE_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_PROFILE_KIND_BOUND), inline)]
 unsafe fn fighter_ai_profile_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_fighter_ai_kind(ctx, "profile");
 }
 
-#[skyline::hook(offset = OFF_AI_AGENT_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_AGENT_KIND_BOUND), inline)]
 unsafe fn fighter_ai_agent_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_fighter_ai_kind(ctx, "agents");
 }
@@ -3755,22 +3806,22 @@ unsafe fn remap_ai_data_kind(ctx: &mut skyline::hooks::InlineCtx, register: usiz
     }
 }
 
-#[skyline::hook(offset = OFF_AI_ATTACK_LIST_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_ATTACK_LIST_KIND_BOUND), inline)]
 unsafe fn fighter_ai_attack_list_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_ai_data_kind(ctx, 0, "attack_list");
 }
 
-#[skyline::hook(offset = OFF_AI_ATTACK_DATA_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_ATTACK_DATA_KIND_BOUND), inline)]
 unsafe fn fighter_ai_attack_data_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_ai_data_kind(ctx, 0, "attack_data");
 }
 
-#[skyline::hook(offset = OFF_AI_PARAM_FLOAT_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_PARAM_FLOAT_KIND_BOUND), inline)]
 unsafe fn fighter_ai_param_float_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_ai_data_kind(ctx, 8, "param_float");
 }
 
-#[skyline::hook(offset = OFF_AI_PARAM_INT_KIND_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_AI_PARAM_INT_KIND_BOUND), inline)]
 unsafe fn fighter_ai_param_int_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_ai_data_kind(ctx, 8, "param_int");
 }
@@ -4079,7 +4130,7 @@ unsafe fn take_pending_effect_kind(handle: u32) -> Option<(i32, i32)> {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x355f8f0)]
+#[skyline::hook(offset = crate::game::rel(0x355f8f0))]
 unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: *const u32) -> u32 {
     {
         static ENTRY_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
@@ -4175,7 +4226,7 @@ pub(crate) static ARTICLE_SETUP_OWNER: crate::thread_context::ThreadScopedKind =
     crate::thread_context::ThreadScopedKind::new("article_setup_owner");
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e0a4c, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17e0a4c), inline)]
 unsafe fn custom_article_owner_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[26].x() as i32;
     if let Some(owner) = custom_articles::custom_weapon_owner_name(weapon_kind) {
@@ -4221,7 +4272,7 @@ fn custom_article_definition(
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = 0x17e098c, inline)]
+#[skyline::hook(offset = crate::game::rel(0x17e098c), inline)]
 unsafe fn custom_article_weapon_name(ctx: &mut skyline::hooks::InlineCtx) {
     let weapon_kind = ctx.registers[23].x() as i32;
     if let Some(name) = custom_articles::custom_weapon_name(weapon_kind) {
@@ -4332,7 +4383,7 @@ pub extern "C" fn clone_engine_smashline_bridge_version() -> u32 {
 #[cfg(not(test))]
 #[skyline::main(name = "ssbu_clone_engine")]
 pub fn main() {
-    skyline::println!("[clone_engine] init (SSBU 13.0.4 create_agent clone engine)");
+    skyline::println!("[clone_engine] init (SSBU {} create_agent clone engine)", game::version().name());
     report_smashline_name_support();
     common_vtables::note_smashline();
 
@@ -4361,6 +4412,8 @@ pub fn main() {
     block_grid::install();
     #[cfg(feature = "css_slot")]
     finalsmash_residency::install();
+    #[cfg(feature = "css_slot")]
+    article_item_order::install();
     #[cfg(feature = "css_slot")]
     append_group::install();
     #[cfg(feature = "css_slot")]

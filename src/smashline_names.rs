@@ -56,7 +56,7 @@ unsafe fn hold(table: usize, count: i32, index: i32, name: *const u8) -> NameGua
         REFUSED.fetch_add(1, Ordering::Relaxed);
         return NameGuard::inactive();
     }
-    let slot = crate::text_base() + table + (index as usize) * 8;
+    let slot = crate::game::addr(table) + (index as usize) * 8;
     let previous = core::ptr::read_volatile(slot as *const usize);
     let wanted = name as usize;
     if previous == wanted {

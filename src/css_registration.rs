@@ -244,7 +244,7 @@ pub(crate) unsafe fn register_csk_css_slot() {
 
     for definition in published {
         let css = definition.css.expect("filtered on css.is_some()");
-        register_one_csk_css_slot(definition, css, add_chara, add_layout);
+        publish_css_slot_once(definition, css, add_chara, add_layout);
     }
 
     if let Some(get_ui_addr) = lookup_symbol(b"get_ui_chara_from_entry_id\0") {
@@ -254,6 +254,56 @@ pub(crate) unsafe fn register_csk_css_slot() {
     }
 
     CSS_SLOT_REGISTERED.store(true, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(feature = "css_slot")]
+static CSS_PUBLISHED_KINDS: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "css_slot")]
+unsafe fn publish_css_slot_once(
+    definition: &'static CloneDefinition,
+    css: &'static CloneCssEntry,
+    add_chara: unsafe extern "C" fn(*const core::ffi::c_void),
+    add_layout: unsafe extern "C" fn(*const core::ffi::c_void),
+) -> bool {
+    let Ok(mut published) = CSS_PUBLISHED_KINDS.lock() else {
+        return false;
+    };
+    if published.contains(&definition.kind) {
+        return false;
+    }
+    published.push(definition.kind);
+    register_one_csk_css_slot(definition, css, add_chara, add_layout);
+    true
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn publish_late_css_slot(kind: i32) {
+    if !CSS_SLOT_REGISTRATION_STARTED.load(core::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let Some(definition) = clone_definition(kind) else {
+        return;
+    };
+    let Some(css) = definition.css else {
+        return;
+    };
+    if clone_base(kind).is_none() {
+        return;
+    }
+    let (Some(add_chara_addr), Some(add_layout_addr)) = (
+        lookup_symbol(b"add_chara_db_entry_info\0"),
+        lookup_symbol(b"add_chara_layout_db_entry_info\0"),
+    ) else {
+        skyline::println!("[css118] {} registered after CSK's first pass but CSK is not resolvable; no CSS row", definition.resource_name);
+        return;
+    };
+    type AddEntryFn = unsafe extern "C" fn(*const core::ffi::c_void);
+    let add_chara: AddEntryFn = core::mem::transmute(add_chara_addr);
+    let add_layout: AddEntryFn = core::mem::transmute(add_layout_addr);
+    if publish_css_slot_once(definition, css, add_chara, add_layout) {
+        skyline::println!("[css118] {} registered after CSK's first pass; its CSS row was published on registration", definition.resource_name);
+    }
 }
 
 #[cfg(feature = "css_slot")]
@@ -448,7 +498,7 @@ pub(crate) fn css_slot_nro_hook(info: &skyline::nro::NroInfo) {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_CSS_ICON_COLUMN_BOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_CSS_ICON_COLUMN_BOUND), inline)]
 pub(crate) unsafe fn css_icon_column_bound_hook(ctx: &mut skyline::hooks::InlineCtx) {
     const LAST_NATIVE_COLUMN: i32 = 12;
 
@@ -466,7 +516,7 @@ pub(crate) unsafe fn css_icon_column_bound_hook(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_UI_FIGHTER_KIND_LOOKUP)]
+#[skyline::hook(offset = crate::game::rel(OFF_UI_FIGHTER_KIND_LOOKUP))]
 pub(crate) unsafe fn ui_fighter_kind_lookup_hook(database: *mut u8, encoded_hash: u64) -> i32 {
     close_registration("CSS fighter-kind lookup");
     let kind_hash = encoded_hash & 0x00ff_ffff_ffff;
@@ -485,7 +535,7 @@ pub(crate) unsafe fn ui_fighter_kind_lookup_hook(database: *mut u8, encoded_hash
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_UPDATE_SELECTED_FIGHTER)]
+#[skyline::hook(offset = crate::game::rel(OFF_UPDATE_SELECTED_FIGHTER))]
 pub(crate) unsafe fn update_selected_fighter_hook(
     records: *mut u8,
     entry_id: i32,
@@ -619,19 +669,19 @@ pub(crate) fn vanilla_kind_in_match(kind: i32) -> bool {
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_MATCH_ENTRY_EXPAND_OUTER_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_MATCH_ENTRY_EXPAND_OUTER_CALL), inline)]
 pub(crate) unsafe fn match_entry_expand_outer_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
     bridge_custom_entry_expander_input(ctx, "outer@66dd14", &CSS_ENTRY_OUTER_COUNT);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_MATCH_ENTRY_EXPAND_INNER_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_MATCH_ENTRY_EXPAND_INNER_CALL), inline)]
 pub(crate) unsafe fn match_entry_expand_inner_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
     bridge_custom_entry_expander_input(ctx, "inner@66db84", &CSS_ENTRY_INNER_COUNT);
 }
 
 #[cfg(feature = "css_slot")]
-#[skyline::hook(offset = OFF_CONSTRUCTION_ROSTER_EXPAND_CALL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_CONSTRUCTION_ROSTER_EXPAND_CALL), inline)]
 pub(crate) unsafe fn construction_roster_expand_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let entry_id = ctx.registers[21].x() as u8;
     if entry_id >= 8 {
@@ -678,7 +728,7 @@ pub(crate) fn base_name_hash(base: i32) -> Option<u64> {
 
 #[cfg(feature = "diag_article_initspoof")]
 pub(crate) unsafe fn manager_chain() -> (usize, usize, u64) {
-    let mgr = *((text_base() + 0x5323680) as *const usize);
+    let mgr = *((crate::game::addr(0x5323680)) as *const usize);
     if mgr == 0 {
         return (0, 0, 0);
     }
@@ -691,7 +741,7 @@ pub(crate) unsafe fn manager_chain() -> (usize, usize, u64) {
 
 #[cfg(any(feature = "diag_article_initspoof", feature = "clone_runtime"))]
 pub(crate) unsafe fn entry_kind_slot(entry_id: i32, kind: i32) -> Option<(*mut i32, usize, u32)> {
-    let t1 = *((text_base() + 0x52b84f8) as *const usize);
+    let t1 = *((crate::game::addr(0x52b84f8)) as *const usize);
     if t1 == 0 {
         return None;
     }
@@ -721,7 +771,7 @@ pub(crate) static INIT_LOG_COUNT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "diag_article_initspoof")]
-#[skyline::hook(offset = OFF_FIGHTER_INIT_OBJ)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_OBJ))]
 pub(crate) unsafe fn fighter_init_object_data_hook(
     object: *mut u8,
     id: u32,

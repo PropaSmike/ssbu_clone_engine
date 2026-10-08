@@ -56,7 +56,7 @@ pub(crate) fn note_registered_base_kind(base_kind: i32) {
 
 unsafe fn manager_inner() -> Option<usize> {
     let holder =
-        core::ptr::read_volatile((crate::text_base_public() + GRID_SINGLETON) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(GRID_SINGLETON)) as *const usize);
     if holder < LOWEST_PLAUSIBLE_POINTER {
         return None;
     }
@@ -120,9 +120,8 @@ pub(crate) unsafe fn sample() {
 }
 
 unsafe fn apply(frames: u32) {
-    let base = crate::text_base_public();
     for site in SCAN_MISS_SITES {
-        let found = core::ptr::read_volatile((base + site) as *const u32);
+        let found = core::ptr::read_volatile((crate::game::addr(site)) as *const u32);
         if found != MOV_W8_WZR {
             REFUSED.store(true, Ordering::Release);
             log(format!(
@@ -135,13 +134,13 @@ unsafe fn apply(frames: u32) {
     }
     let mut written = 0usize;
     for site in SCAN_MISS_SITES {
-        if !crate::text_patch::write_word(base + site, MOV_W8_ONE) {
+        if !crate::text_patch::write_word(crate::game::addr(site), MOV_W8_ONE) {
             REFUSED.store(true, Ordering::Release);
             log(format!(
                 "[blockgrid] REFUSED: the write to {site:#x} failed; rolling back {written} site(s)"
             ));
             for done in SCAN_MISS_SITES.iter().take(written) {
-                crate::text_patch::write_word(base + done, MOV_W8_WZR);
+                crate::text_patch::write_word(crate::game::addr(*done), MOV_W8_WZR);
             }
             return;
         }
@@ -149,19 +148,19 @@ unsafe fn apply(frames: u32) {
     }
     let mut live = 0usize;
     for site in SCAN_MISS_SITES {
-        if core::ptr::read_volatile((base + site) as *const u32) == MOV_W8_ONE {
+        if core::ptr::read_volatile((crate::game::addr(site)) as *const u32) == MOV_W8_ONE {
             live += 1;
         }
     }
     if live != SCAN_MISS_SITES.len() {
         for site in SCAN_MISS_SITES {
-            let found = core::ptr::read_volatile((base + site) as *const u32);
+            let found = core::ptr::read_volatile((crate::game::addr(site)) as *const u32);
             if found != MOV_W8_ONE {
                 log(format!(
                     "[blockgrid] {site:#x} still holds {found:#010x}, wanted {MOV_W8_ONE:#010x}"
                 ));
             }
-            crate::text_patch::write_word(base + site, MOV_W8_WZR);
+            crate::text_patch::write_word(crate::game::addr(site), MOV_W8_WZR);
         }
         REFUSED.store(true, Ordering::Release);
         log(format!(
@@ -188,9 +187,8 @@ unsafe fn restore(why: &str) {
     if !PATCHED.swap(false, Ordering::AcqRel) {
         return;
     }
-    let base = crate::text_base_public();
     for site in SCAN_MISS_SITES {
-        crate::text_patch::write_word(base + site, MOV_W8_WZR);
+        crate::text_patch::write_word(crate::game::addr(site), MOV_W8_WZR);
     }
     log(format!(
         "[blockgrid] the pickel scan is the game's own again ({why})"
@@ -198,9 +196,8 @@ unsafe fn restore(why: &str) {
 }
 
 pub(crate) fn install() {
-    let base = crate::text_base_public();
     for site in SCAN_MISS_SITES {
-        let found = unsafe { core::ptr::read_volatile((base + site) as *const u32) };
+        let found = unsafe { core::ptr::read_volatile((crate::game::addr(site)) as *const u32) };
         if found != MOV_W8_WZR {
             REFUSED.store(true, Ordering::Release);
             log(format!(
@@ -258,7 +255,7 @@ unsafe fn module_of(boma: usize, offset: usize) -> Option<usize> {
 unsafe fn native_slot(module: usize, slot: usize) -> Option<usize> {
     let vtable = read_pointer(module)?;
     let entry = read_pointer(vtable + slot)?;
-    (entry >= crate::text_base_public() && entry < crate::text_end()).then_some(entry)
+    (entry >= crate::game::raw_text_base() && entry < crate::text_end()).then_some(entry)
 }
 
 unsafe fn status_kind_of(boma: usize) -> Option<i32> {

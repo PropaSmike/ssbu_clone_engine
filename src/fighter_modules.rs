@@ -138,7 +138,7 @@ impl Tree {
 }
 
 unsafe fn manager() -> *mut u64 {
-    let slot = (crate::text_base() + DYNAMIC_MODULE_MANAGER) as *const *mut *mut u64;
+    let slot = (crate::game::addr(DYNAMIC_MODULE_MANAGER)) as *const *mut *mut u64;
     let outer = core::ptr::read_volatile(slot);
     if outer.is_null() {
         return core::ptr::null_mut();
@@ -151,7 +151,7 @@ unsafe fn module_tree(manager: *mut u64) -> *mut Tree {
 }
 
 unsafe fn filesystem() -> *mut u64 {
-    core::ptr::read_volatile((crate::text_base() + FILESYSTEM) as *const *mut u64)
+    core::ptr::read_volatile((crate::game::addr(FILESYSTEM)) as *const *mut u64)
 }
 
 pub unsafe fn load_file_reporting(path: &str) -> u32 {

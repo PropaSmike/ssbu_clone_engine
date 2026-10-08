@@ -451,7 +451,7 @@ unsafe fn entry_struct_clone(entry_struct: u64) -> Option<(i32, i32)> {
     Some((entry_id, clone_kind))
 }
 
-#[skyline::hook(offset = OFF_MODULE_ACCESSOR_INIT)]
+#[skyline::hook(offset = crate::game::rel(OFF_MODULE_ACCESSOR_INIT))]
 unsafe fn module_accessor_init_row_bridge(accessor: u64, entry_struct: u64) -> u64 {
     let found = entry_struct_clone(entry_struct);
     let guard = match found {
@@ -485,7 +485,7 @@ unsafe fn entry_struct_entry(entry_struct: u64) -> Option<i32> {
     (0..8).contains(&entry_id).then_some(entry_id)
 }
 
-#[skyline::hook(offset = OFF_FIGHTER_INIT_SECOND)]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_SECOND))]
 unsafe fn fighter_init_second_row_bridge(object: u64) -> u64 {
     let guard = enter_for_object(object as usize);
     let result = call_original!(object);
@@ -495,7 +495,7 @@ unsafe fn fighter_init_second_row_bridge(object: u64) -> u64 {
 
 macro_rules! phase_bracket {
     ($name:ident, $offset:ident) => {
-        #[skyline::hook(offset = $offset)]
+        #[skyline::hook(offset = crate::game::rel($offset))]
         unsafe fn $name(object: u64) -> u64 {
             let guard = enter_for_object(object as usize);
             let result = call_original!(object);

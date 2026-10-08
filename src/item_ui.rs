@@ -502,7 +502,7 @@ unsafe fn cycle_ordinary_page() -> bool {
     };
 
     let renderer: unsafe extern "C" fn(usize, i32) =
-        core::mem::transmute(crate::text_base() + OFF_TRAINING_MODE_RENDERER);
+        core::mem::transmute(crate::game::addr(OFF_TRAINING_MODE_RENDERER));
     renderer(object, 0);
     RESET_CURSOR_AFTER_PAGE.store(true, Ordering::Release);
     log(format!(
@@ -527,7 +527,7 @@ unsafe fn write_ui_string(output: *mut u8, value: &[u8]) {
     output.add(8 + value.len()).write(0);
 }
 
-#[skyline::hook(offset = OFF_UI_DB_HASH_LOOKUP)]
+#[skyline::hook(offset = crate::game::rel(OFF_UI_DB_HASH_LOOKUP))]
 unsafe fn ui_db_hash_lookup(document: *mut u8, hash: u64) -> i32 {
     if hash & UI_HASH_MASK == page_ui_hash() {
         if let Ok(pager) = ordinary_pager().read() {
@@ -547,7 +547,7 @@ unsafe fn ui_db_hash_lookup(document: *mut u8, hash: u64) -> i32 {
     call_original!(document, hash)
 }
 
-#[skyline::hook(offset = OFF_UI_DB_NAME_ID)]
+#[skyline::hook(offset = crate::game::rel(OFF_UI_DB_NAME_ID))]
 unsafe fn ui_db_name_id(output: *mut u8, document: *mut u8, token: u64) {
     call_original!(output, document, token);
     let hash = token & UI_HASH_MASK;
@@ -568,12 +568,12 @@ unsafe fn ui_db_name_id(output: *mut u8, document: *mut u8, token: u64) {
     }
 }
 
-#[skyline::hook(offset = OFF_TRAINING_ORDINARY_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_ORDINARY_LIST_DONE), inline)]
 unsafe fn training_ordinary_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     configure_ordinary_pager(ctx.registers[19].x() as usize);
 }
 
-#[skyline::hook(offset = OFF_TRAINING_POKEMON_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_POKEMON_LIST_DONE), inline)]
 unsafe fn training_pokemon_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     append_training_entries(
         ctx.registers[19].x() as usize,
@@ -584,7 +584,7 @@ unsafe fn training_pokemon_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     );
 }
 
-#[skyline::hook(offset = OFF_TRAINING_ASSIST_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_ASSIST_LIST_DONE), inline)]
 unsafe fn training_assist_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     append_training_entries(
         ctx.registers[19].x() as usize,
@@ -595,7 +595,7 @@ unsafe fn training_assist_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     );
 }
 
-#[skyline::hook(offset = OFF_TRAINING_MASTER_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_MASTER_LIST_DONE), inline)]
 unsafe fn training_master_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     append_training_entries(
         ctx.registers[19].x() as usize,
@@ -680,7 +680,7 @@ fn take_selection(thread: usize) -> Option<(i32, i32, ItemSpawnSource)> {
     None
 }
 
-#[skyline::hook(offset = OFF_TRAINING_SELECTION_TOKEN_LOAD, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_SELECTION_TOKEN_LOAD), inline)]
 unsafe fn training_selected_token(ctx: &mut skyline::hooks::InlineCtx) {
     let state = ctx.registers[8].x() as usize;
     if state == 0 || state & 7 != 0 {
@@ -710,7 +710,7 @@ unsafe fn training_selected_token(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_TRAINING_QUEUE_REQUEST, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_QUEUE_REQUEST), inline)]
 unsafe fn training_queue_request(ctx: &mut skyline::hooks::InlineCtx) {
     let thread = current_thread();
     let Some((public_kind, base_kind, source)) = take_selection(thread) else {
@@ -732,7 +732,7 @@ unsafe fn training_queue_request(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_TRAINING_CONFIRM_CALLBACK)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_CONFIRM_CALLBACK))]
 unsafe fn training_confirm_callback(callback: usize, token: *const u64, master: *const u8) {
     if !token.is_null() && token.read() & UI_HASH_MASK == page_ui_hash() {
         PAGE_CYCLE_PENDING.store(true, Ordering::Release);
@@ -741,14 +741,14 @@ unsafe fn training_confirm_callback(callback: usize, token: *const u64, master: 
     call_original!(callback, token, master)
 }
 
-#[skyline::hook(offset = OFF_TRAINING_INPUT_TICK, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_INPUT_TICK), inline)]
 unsafe fn training_input_tick(_ctx: &mut skyline::hooks::InlineCtx) {
     if PAGE_CYCLE_PENDING.swap(false, Ordering::AcqRel) && !cycle_ordinary_page() {
         log("[itemui] training-ordinary: deferred page change failed".into());
     }
 }
 
-#[skyline::hook(offset = OFF_TRAINING_CURSOR_COMMIT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_CURSOR_COMMIT), inline)]
 unsafe fn training_cursor_commit(ctx: &mut skyline::hooks::InlineCtx) {
     if !RESET_CURSOR_AFTER_PAGE.swap(false, Ordering::AcqRel) {
         return;
@@ -761,7 +761,7 @@ unsafe fn training_cursor_commit(ctx: &mut skyline::hooks::InlineCtx) {
     }
     if inner != 0 && inner & 7 == 0 {
         let set_cursor: unsafe extern "C" fn(*mut usize, i32, i32, bool) =
-            core::mem::transmute(crate::text_base() + 0x3783660);
+            core::mem::transmute(crate::game::addr(0x3783660));
         let cursor_slot = (inner + 0x7C0) as *mut usize;
         set_cursor(cursor_slot, 1, 1, true);
 
@@ -782,11 +782,10 @@ unsafe fn training_cursor_commit(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 unsafe fn preflight() -> Result<(), (usize, u32, u32, &'static str)> {
-    let text = crate::text_base();
     for &(offset, expected_words, label) in PREFLIGHT {
         for (index, expected) in expected_words.iter().copied().enumerate() {
             let address = offset + index * 4;
-            let found = ((text + address) as *const u32).read();
+            let found = crate::game::text_word(address);
             if found != expected {
                 return Err((address, found, expected, label));
             }

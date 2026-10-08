@@ -41,14 +41,14 @@ static PANEL_LOOP_REFRESH_INSTALLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PANEL_LOOP_TAIL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PANEL_LOOP_TAIL), inline)]
 unsafe fn panel_loop_translation_refresh(ctx: &mut skyline::hooks::InlineCtx) {
     #[cfg(feature = "stage_resolve_probe")]
     {
         let index = ctx.registers[28].x() as u32;
         if (116..=135).contains(&index) {
             let live_cmp =
-                core::ptr::read_volatile((crate::text_base() + OFF_PANEL_LOOP_CMP) as *const u32);
+                core::ptr::read_volatile((crate::game::addr(OFF_PANEL_LOOP_CMP)) as *const u32);
             skyline::println!("[paneltail] index={index} live_cmp={live_cmp:#010x}");
         }
     }
@@ -66,9 +66,7 @@ pub(crate) fn install_runtime_refresh() {
             return;
         }
 
-        let observed = unsafe {
-            core::ptr::read_volatile((crate::text_base() + OFF_PANEL_LOOP_TAIL) as *const u32)
-        };
+        let observed = unsafe { crate::game::text_word(OFF_PANEL_LOOP_TAIL) };
         if observed != PANEL_LOOP_TAIL_OPCODE {
             skyline::println!(
                 "[stagecap] panel-loop refresh REFUSED at {:#x}: expected {:#010x}, found {:#010x}",

@@ -93,22 +93,22 @@ unsafe fn report_training_list(ctx: &skyline::hooks::InlineCtx, offset: usize, n
     }
 }
 
-#[skyline::hook(offset = OFF_TRAINING_POKEMON_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_POKEMON_LIST_DONE), inline)]
 unsafe fn training_pokemon_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     report_training_list(ctx, TRAINING_POKEMON_VECTOR, "training-pokemon-list");
 }
 
-#[skyline::hook(offset = OFF_TRAINING_ASSIST_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_ASSIST_LIST_DONE), inline)]
 unsafe fn training_assist_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     report_training_list(ctx, TRAINING_ASSIST_VECTOR, "training-assist-list");
 }
 
-#[skyline::hook(offset = OFF_TRAINING_MASTER_LIST_DONE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_MASTER_LIST_DONE), inline)]
 unsafe fn training_master_list_done(ctx: &mut skyline::hooks::InlineCtx) {
     report_training_list(ctx, TRAINING_MASTER_VECTOR, "training-master-list");
 }
 
-#[skyline::hook(offset = OFF_TRAINING_SELECTION_TOKEN, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_SELECTION_TOKEN), inline)]
 unsafe fn training_selection_token(ctx: &mut skyline::hooks::InlineCtx) {
     let sequence = TRAINING_SELECTION_LOGS.fetch_add(1, Ordering::Relaxed);
     if sequence >= MAX_SELECTION_LOGS {
@@ -130,7 +130,7 @@ unsafe fn training_selection_token(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_TRAINING_QUEUE_REQUEST, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_TRAINING_QUEUE_REQUEST), inline)]
 unsafe fn training_queue_request(ctx: &mut skyline::hooks::InlineCtx) {
     let sequence = TRAINING_REQUEST_LOGS.fetch_add(1, Ordering::Relaxed);
     if sequence >= MAX_SELECTION_LOGS {
@@ -145,7 +145,7 @@ unsafe fn training_queue_request(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_RULES_LIST_COUNT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_RULES_LIST_COUNT), inline)]
 unsafe fn rules_list_count(ctx: &mut skyline::hooks::InlineCtx) {
     let count = ctx.registers[9].x() as u32;
     let visible = ctx.registers[10].x() as u32;
@@ -155,7 +155,7 @@ unsafe fn rules_list_count(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_RULES_ROW_TOKEN, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_RULES_ROW_TOKEN), inline)]
 unsafe fn rules_row_token(ctx: &mut skyline::hooks::InlineCtx) {
     let sequence = RULE_ROW_LOGS.fetch_add(1, Ordering::Relaxed);
     if sequence >= MAX_RULE_ROW_LOGS {
@@ -169,9 +169,8 @@ unsafe fn rules_row_token(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 unsafe fn preflight() -> Result<(), (usize, u32, u32, &'static str)> {
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
     for &(offset, expected, name) in SITES {
-        let found = ((text + offset) as *const u32).read();
+        let found = crate::game::text_word(offset);
         if found != expected {
             return Err((offset, found, expected, name));
         }
@@ -197,7 +196,7 @@ pub(crate) fn install() {
             rules_row_token
         );
         skyline::println!(
-            "[itemui] installed 7 observation-only Training/Rules probes (SSBU 13.0.4 exact opcodes)"
+            "[itemui] installed 7 observation-only Training/Rules probes (exact opcodes)"
         );
     }
 }

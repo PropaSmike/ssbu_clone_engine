@@ -21,16 +21,15 @@ pub(crate) fn foreign_stage_id_block() -> Option<usize> {
 
 #[cfg(feature = "stage_mint")]
 pub(crate) unsafe fn retake_foreign_sites(table: usize) -> (usize, usize) {
-    let text = crate::text_base();
     let mut references = Vec::new();
     let mut skipped = 0usize;
     for recorded in crate::stage_bounds::STAGE_REFERENCES {
         if recorded.table != "stage_id" {
             continue;
         }
-        let at = text + recorded.adrp_at;
-        let first = core::ptr::read_volatile(at as *const u32);
-        let second = core::ptr::read_volatile((at + 4) as *const u32);
+        let at = crate::game::addr(recorded.adrp_at);
+        let first = crate::game::text_word(recorded.adrp_at);
+        let second = crate::game::text_word(recorded.adrp_at + 4);
         let recognised = (first, second) == (recorded.adrp_opcode, recorded.add_opcode)
             || crate::stage_backend::is_foreign_patch(first, second);
         if !recognised {
@@ -80,7 +79,6 @@ pub(crate) unsafe fn retake_foreign_sites(table: usize) -> (usize, usize) {
 
 #[cfg(feature = "stage_mint")]
 pub(crate) unsafe fn finish_foreign_sites(sites: &[usize], table: usize) -> usize {
-    let text = crate::text_base();
     let mut references = Vec::new();
     for &site in sites {
         let Some(recorded) = crate::stage_bounds::STAGE_REFERENCES
@@ -89,9 +87,9 @@ pub(crate) unsafe fn finish_foreign_sites(sites: &[usize], table: usize) -> usiz
         else {
             continue;
         };
-        let at = text + site;
-        let first = core::ptr::read_volatile(at as *const u32);
-        let second = core::ptr::read_volatile((at + 4) as *const u32);
+        let at = crate::game::addr(site);
+        let first = crate::game::text_word(site);
+        let second = crate::game::text_word(site + 4);
         if (first, second) != (recorded.adrp_opcode, recorded.add_opcode) {
             skyline::println!(
                 "[stagereloc] straggler {site:#x} is no longer vanilla ({first:#010x}/{second:#010x}); skipping it"
@@ -170,7 +168,7 @@ fn required_bytes(tables: &[&str]) -> usize {
 }
 
 unsafe fn find_destination(needed: usize) -> Option<(usize, usize)> {
-    let text = crate::text_base() as u64;
+    let text = crate::game::raw_text_base() as u64;
     let mut info = MemoryInfo::default();
     let mut address = text;
     let mut region: Option<(u64, u64)> = None;
@@ -271,7 +269,7 @@ unsafe fn report_refused(label: &str, refused: usize, total: usize) {
 }
 
 unsafe fn text_span() -> (usize, usize) {
-    let base = crate::text_base();
+    let base = crate::game::raw_text_base();
     let end = skyline::hooks::getRegionAddress(skyline::hooks::Region::Rodata) as usize;
     (base, end)
 }
@@ -318,7 +316,7 @@ unsafe fn install_table(table: &StageTable, cursor: usize) -> (usize, usize) {
     let base = cursor + CANARY_LEN;
     let native = table.element_size * table.native_length;
     core::ptr::copy_nonoverlapping(
-        (crate::text_base() + table.address) as *const u8,
+        crate::game::addr(table.address) as *const u8,
         base as *mut u8,
         native,
     );
@@ -422,14 +420,12 @@ unsafe fn relocate_owned(plan: &crate::stage_backend::Plan) {
         return;
     }
 
-    let text = crate::text_base();
     for reference in crate::stage_bounds::STAGE_REFERENCES {
         if !owned.contains(&reference.table) {
             continue;
         }
-        let site = text + reference.adrp_at;
-        let first = core::ptr::read_volatile(site as *const u32);
-        let second = core::ptr::read_volatile((site + 4) as *const u32);
+        let first = crate::game::text_word(reference.adrp_at);
+        let second = crate::game::text_word(reference.adrp_at + 4);
         if (first, second) != (reference.adrp_opcode, reference.add_opcode) {
             skyline::println!(
                 "[stagereloc] {} site {:#x} changed under us ({:#010x}/{:#010x}); aborting with \
@@ -460,7 +456,7 @@ unsafe fn relocate_owned(plan: &crate::stage_backend::Plan) {
             .iter()
             .filter(|reference| reference.table == *name)
             .map(|reference| TableReference {
-                adrp_at: text + reference.adrp_at,
+                adrp_at: crate::game::addr(reference.adrp_at),
                 register: reference.register,
                 delta: reference.delta,
             })
@@ -539,8 +535,7 @@ unsafe fn relocate_owned(plan: &crate::stage_backend::Plan) {
 
 #[cfg(feature = "stage_mint_places")]
 pub(crate) unsafe fn widen_bounds(tables: &[&str]) {
-    let text = crate::text_base();
-    let read = |offset: usize| core::ptr::read_volatile((text + offset) as *const u32);
+    let read = |offset: usize| crate::game::text_word(offset);
     let bounds = crate::stage_bounds::bounds_for(tables);
     if bounds.is_empty() {
         return;
@@ -549,10 +544,10 @@ pub(crate) unsafe fn widen_bounds(tables: &[&str]) {
         Ok(patches) => {
             let mut landed = 0usize;
             for patch in &patches {
-                crate::text_patch::write_word(text + patch.address, patch.word);
+                crate::text_patch::write_word(crate::game::addr(patch.address), patch.word);
             }
             for patch in &patches {
-                if core::ptr::read_volatile((text + patch.address) as *const u32) == patch.word {
+                if core::ptr::read_volatile((crate::game::addr(patch.address)) as *const u32) == patch.word {
                     landed += 1;
                 }
             }
@@ -568,14 +563,14 @@ pub(crate) unsafe fn widen_bounds(tables: &[&str]) {
                 for patch in patches
                     .iter()
                     .filter(|patch| {
-                        core::ptr::read_volatile((text + patch.address) as *const u32) != patch.word
+                        core::ptr::read_volatile((crate::game::addr(patch.address)) as *const u32) != patch.word
                     })
                     .take(8)
                 {
                     skyline::println!(
                         "[stagereloc]   {:#x} still holds {:#010x}, wanted {:#010x}",
                         patch.address,
-                        core::ptr::read_volatile((text + patch.address) as *const u32),
+                        core::ptr::read_volatile((crate::game::addr(patch.address)) as *const u32),
                         patch.word,
                     );
                 }
@@ -587,14 +582,13 @@ pub(crate) unsafe fn widen_bounds(tables: &[&str]) {
 
 pub(crate) fn apply_select_cap(phase: &str) {
     use crate::stage_select_cap::{plan, TARGET_CAP, VANILLA_CAP};
-    let text = crate::text_base();
-    let read = |offset: usize| unsafe { core::ptr::read_volatile((text + offset) as *const u32) };
+    let read = |offset: usize| unsafe { crate::game::text_word(offset) };
 
     match plan(TARGET_CAP, read) {
         Ok(patches) => {
             for (offset, word) in &patches {
                 unsafe {
-                    crate::text_patch::write_word(text + offset, *word);
+                    crate::text_patch::write_word(crate::game::addr(*offset), *word);
                 }
             }
             let live = patches

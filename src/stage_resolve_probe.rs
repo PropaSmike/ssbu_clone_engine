@@ -48,7 +48,7 @@ fn minted_place(hash: u64) -> Option<(String, u32)> {
 }
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PLACE_HASH_RESOLVER)]
+#[skyline::hook(offset = crate::game::rel(OFF_PLACE_HASH_RESOLVER))]
 unsafe fn place_hash_resolver_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
@@ -57,7 +57,7 @@ unsafe fn place_hash_resolver_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     {
         lr = 0;
     }
-    let caller = lr.wrapping_sub(crate::text_base());
+    let caller = crate::game::offset_of(lr);
 
     let result = call_original!(x0, x1, x2, x3);
 
@@ -88,7 +88,7 @@ unsafe fn place_hash_resolver_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
 static NAME_REPORTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_STAGE_NAME_RESOLVER)]
+#[skyline::hook(offset = crate::game::rel(OFF_STAGE_NAME_RESOLVER))]
 unsafe fn stage_name_resolver_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let result = call_original!(x0, x1, x2, x3);
     if NAME_REPORTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < REPORT_LIMIT {
@@ -113,7 +113,7 @@ unsafe fn stage_name_resolver_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
 static SCAN_REPORTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PLACE_FORM_SCAN)]
+#[skyline::hook(offset = crate::game::rel(OFF_PLACE_FORM_SCAN))]
 unsafe fn place_form_scan_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let result = call_original!(x0, x1, x2, x3);
     if SCAN_REPORTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < REPORT_LIMIT {
@@ -133,7 +133,7 @@ unsafe fn place_form_scan_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
 static SELECT_REPORTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_STAGE_SELECT_TO_ID)]
+#[skyline::hook(offset = crate::game::rel(OFF_STAGE_SELECT_TO_ID))]
 unsafe fn stage_select_to_id_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
     let result = call_original!(x0, x1, x2, x3);
     if SELECT_REPORTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < REPORT_LIMIT {
@@ -151,7 +151,7 @@ unsafe fn stage_select_to_id_probe(x0: u64, x1: u64, x2: u64, x3: u64) -> u64 {
 }
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PANEL_LIST_COUNT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PANEL_LIST_COUNT), inline)]
 unsafe fn panel_list_count_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST: AtomicU64 = AtomicU64::new(u64::MAX);
@@ -166,7 +166,7 @@ unsafe fn panel_list_count_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PANEL_LIST_SIZED, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PANEL_LIST_SIZED), inline)]
 unsafe fn panel_list_sized_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST: AtomicU64 = AtomicU64::new(u64::MAX);
@@ -197,7 +197,7 @@ unsafe fn panel_list_sized_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(not(test))]
-#[skyline::hook(offset = OFF_PANEL_LOOKUP_RESULT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_PANEL_LOOKUP_RESULT), inline)]
 unsafe fn panel_lookup_result_probe(ctx: &mut skyline::hooks::InlineCtx) {
     use std::sync::atomic::{AtomicU32, Ordering};
     static CALLS: AtomicU32 = AtomicU32::new(0);
@@ -253,13 +253,12 @@ unsafe fn panel_lookup_result_probe(ctx: &mut skyline::hooks::InlineCtx) {
 pub fn install() {
     let mut preflight_ok = true;
     unsafe {
-        let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as *const u8;
         for (site, expected, install) in [
             (OFF_PANEL_LIST_COUNT, PANEL_LIST_COUNT_OPCODE, 0u8),
             (OFF_PANEL_LIST_SIZED, PANEL_LIST_SIZED_OPCODE, 1u8),
             (OFF_PANEL_LOOKUP_RESULT, PANEL_LOOKUP_RESULT_OPCODE, 2u8),
         ] {
-            let observed = core::ptr::read_volatile(text.add(site) as *const u32);
+            let observed = crate::game::text_word(site);
             if observed != expected {
                 preflight_ok = false;
                 skyline::println!(

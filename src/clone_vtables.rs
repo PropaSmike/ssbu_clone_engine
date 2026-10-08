@@ -7,7 +7,7 @@ use clone_engine_core::vtable_copy;
 use crate::custom_articles::{self, FIRST_CUSTOM_WEAPON_KIND, MAX_CUSTOM_ARTICLES};
 use crate::item_clones::FIRST_SPARSE_ITEM_KIND;
 use crate::item_params::MAX_CLONE_KINDS as MAX_CLONE_ITEMS;
-use crate::{clone_base, dbg_log_public, offsets, text_base, FIGHTER_CLASS_TABLE, FIRST_CUSTOM_KIND};
+use crate::{clone_base, dbg_log_public, offsets, FIGHTER_CLASS_TABLE, FIRST_CUSTOM_KIND};
 
 pub(crate) const FIGHTER_SLOTS: usize = 147;
 pub(crate) const WEAPON_SLOTS: usize = 104;
@@ -128,7 +128,7 @@ fn item_slot(kind: i32) -> Option<&'static AtomicUsize> {
 }
 
 fn item_image_vtable() -> usize {
-    text_base() + ITEM_OBJECT_VTABLE
+    crate::game::addr(ITEM_OBJECT_VTABLE)
 }
 
 pub(crate) unsafe fn item_table_for(kind: i32) -> Option<usize> {
@@ -256,7 +256,7 @@ unsafe fn sync(kind: i32, space: Space, table: usize, vanilla: usize) {
                 drift.index,
                 drift.old,
                 drift.now,
-                drift.now.wrapping_sub(text_base()),
+                crate::game::offset_of(drift.now),
                 if drift.adopted {
                     "adopted".to_string()
                 } else {
@@ -283,7 +283,7 @@ pub(crate) unsafe fn adopt_item_object(kind: i32, object: usize) {
         if n < 8 {
             dbg_log_public(&format!(
                 "[vtable] item kind {kind:#x} object {object:#x} holds vtable {held:#x} (image +{:#x}), not the Item object's; left alone",
-                held.wrapping_sub(text_base())
+                crate::game::offset_of(held)
             ));
         }
         return;
@@ -373,7 +373,7 @@ unsafe fn vanilla_fighter_class(base: i32) -> usize {
     if !(0..94).contains(&base) {
         return 0;
     }
-    *((text_base() + FIGHTER_CLASS_TABLE + base as usize * 8) as *const usize)
+    *((crate::game::addr(FIGHTER_CLASS_TABLE) + base as usize * 8) as *const usize)
 }
 
 pub(crate) unsafe fn fighter_class_for(kind: i32, base: i32) -> Option<usize> {
@@ -391,7 +391,7 @@ pub(crate) unsafe fn fighter_class(kind: i32) -> Option<usize> {
 
 pub(crate) unsafe fn vanilla_weapon_class(kind: i32) -> usize {
     let getter: extern "C" fn(u32) -> usize =
-        core::mem::transmute(text_base() + offsets::OFF_WEAPON_CLASS_RESOLVER);
+        core::mem::transmute(crate::game::addr(offsets::OFF_WEAPON_CLASS_RESOLVER));
     getter(kind as u32)
 }
 
@@ -554,7 +554,7 @@ pub(crate) unsafe fn report_vanilla_fighter_construction(kind: i32, object: usiz
     if object == 0 || !(0..94).contains(&kind) {
         return;
     }
-    let own = *((text_base() + FIGHTER_CLASS_TABLE + kind as usize * 8) as *const usize);
+    let own = *((crate::game::addr(FIGHTER_CLASS_TABLE) + kind as usize * 8) as *const usize);
     let held = core::ptr::read_volatile((object + FIGHTER_CLASS_FIELD) as *const usize);
     report_vanilla("fighter", "holds", kind, object, FIGHTER_CLASS_FIELD, held, own, &FIGHTER_CLASSES, FIRST_CUSTOM_KIND);
 }

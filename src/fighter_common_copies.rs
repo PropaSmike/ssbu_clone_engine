@@ -239,7 +239,7 @@ pub(crate) unsafe fn on_accessor_init(accessor: u64, entry_id: i32, clone_kind: 
     apply_power_up_clone(registration, "after accessor init");
 }
 
-#[skyline::hook(offset = OFF_PARAM_BIND_KIND)]
+#[skyline::hook(offset = crate::game::rel(OFF_PARAM_BIND_KIND))]
 unsafe fn param_bind_kind_bridge(wrapper: u64, kind: i32) -> u64 {
     let result = call_original!(wrapper, kind);
     if wrapper != 0 {
@@ -279,7 +279,7 @@ unsafe fn after_bind(object: usize, copy: &Copy) {
 
 macro_rules! binder_bridge {
     ($name:ident, $offset:ident, $index:expr) => {
-        #[skyline::hook(offset = $offset)]
+        #[skyline::hook(offset = crate::game::rel($offset))]
         unsafe fn $name(object: u64, tree: u64) -> u64 {
             let result = call_original!(object, tree);
             after_bind(object as usize, &COPIES[$index]);

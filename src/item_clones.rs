@@ -151,8 +151,7 @@ pub(crate) unsafe fn base_resource_name(kind: i32) -> Option<&'static CStr> {
     if !(0..=LAST_ORDINARY_ITEM_KIND).contains(&kind) {
         return None;
     }
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
-    let row = text + ITEM_DESCRIPTOR_TABLE + kind as usize * ITEM_DESCRIPTOR_STRIDE;
+    let row = crate::game::addr(ITEM_DESCRIPTOR_TABLE) + kind as usize * ITEM_DESCRIPTOR_STRIDE;
     if (row as *const i32).read_unaligned() != kind {
         return None;
     }
@@ -175,7 +174,7 @@ unsafe fn descriptor_meta(kind: i32) -> Option<ItemDescriptorMeta> {
     if !(0..NATIVE_ITEM_COUNT as i32).contains(&kind) {
         return None;
     }
-    let row = crate::text_base() + ITEM_DESCRIPTOR_TABLE + kind as usize * ITEM_DESCRIPTOR_STRIDE;
+    let row = crate::game::addr(ITEM_DESCRIPTOR_TABLE) + kind as usize * ITEM_DESCRIPTOR_STRIDE;
     if core::ptr::read_unaligned(row as *const i32) != kind {
         return None;
     }
@@ -697,7 +696,7 @@ pub(crate) unsafe fn live_identity_of_object(object: usize) -> Option<(i32, i32)
     })
 }
 
-#[skyline::hook(offset = OFF_BATTLE_OBJECT_UPDATE)]
+#[skyline::hook(offset = crate::game::rel(OFF_BATTLE_OBJECT_UPDATE))]
 unsafe fn battle_object_update(object: *mut u8) {
     crate::block_grid::sample();
     let row = crate::fighter_param_rows::enter_for_object(object as usize);
@@ -1215,27 +1214,27 @@ unsafe fn rewrite_requested_kind(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_ITEM_REQUEST_FULL, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_REQUEST_FULL), inline)]
 unsafe fn item_request_full_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
 
-#[skyline::hook(offset = OFF_ITEM_REQUEST_SIMPLE, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_REQUEST_SIMPLE), inline)]
 unsafe fn item_request_simple_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
 
-#[skyline::hook(offset = OFF_ITEM_HAVE_ITEM, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_HAVE_ITEM), inline)]
 unsafe fn item_have_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
 
-#[skyline::hook(offset = OFF_ITEM_BORN_ITEM, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_BORN_ITEM), inline)]
 unsafe fn item_born_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
 
-#[skyline::hook(offset = OFF_ITEM_ATTACH_ITEM, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_ATTACH_ITEM), inline)]
 unsafe fn item_attach_item_bridge(ctx: &mut skyline::hooks::InlineCtx) {
     rewrite_requested_kind(ctx);
 }
@@ -1319,7 +1318,7 @@ pub(crate) fn clone_kind_of_object(object_id: u32, base_kind: i32) -> Option<i32
     (definition(public_kind)?.base_kind == base_kind).then_some(public_kind)
 }
 
-#[skyline::hook(offset = OFF_ITEM_LOWER_CREATOR)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_LOWER_CREATOR))]
 unsafe fn item_lower_creator_bridge(
     manager: *mut u8,
     descriptor: *const u8,
@@ -1405,7 +1404,7 @@ unsafe fn item_lower_creator_bridge(
     item
 }
 
-#[skyline::hook(offset = OFF_ITEM_OBJECT_ADOPT, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_OBJECT_ADOPT), inline)]
 unsafe fn item_object_adopt(ctx: &mut skyline::hooks::InlineCtx) {
     let Some(public_kind) = crate::item_params::runtime_clone_on_thread() else {
         return;
@@ -1413,7 +1412,7 @@ unsafe fn item_object_adopt(ctx: &mut skyline::hooks::InlineCtx) {
     crate::clone_vtables::adopt_item_object(public_kind, ctx.registers[22].x() as usize);
 }
 
-#[skyline::hook(offset = OFF_ITEM_DEACTIVATE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_DEACTIVATE))]
 unsafe fn item_deactivate_bridge(manager: *mut u8, item: *mut u8, recycle: u32) {
     let object_id = if item.is_null() {
         u32::MAX
@@ -1938,11 +1937,10 @@ unsafe fn words_match(address: usize, expected: &[u32]) -> bool {
 }
 
 unsafe fn main_preflight() -> Result<(), (usize, u32, u32)> {
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
     for (offset, expected) in MAIN_PREFLIGHT {
         for (index, wanted) in expected.iter().enumerate() {
-            let address = text + *offset + index * 4;
-            let found = (address as *const u32).read();
+            let address = crate::game::addr(*offset) + index * 4;
+            let found = crate::game::text_word(*offset + index * 4);
             if found != *wanted {
                 return Err((address, found, *wanted));
             }

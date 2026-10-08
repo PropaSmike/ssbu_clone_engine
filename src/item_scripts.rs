@@ -124,7 +124,7 @@ fn claim_slot(public_kind: i32) -> Option<&'static CloneAgent> {
 
 unsafe fn native_agent_hash(kind: i32) -> u64 {
     if (0..KIND_AGENT_ROWS as i32).contains(&kind) {
-        let row = crate::text_base() + KIND_AGENT_TABLE + kind as usize * KIND_AGENT_STRIDE;
+        let row = crate::game::addr(KIND_AGENT_TABLE) + kind as usize * KIND_AGENT_STRIDE;
         if core::ptr::read_volatile((row + 8) as *const u32) == kind as u32 {
             return core::ptr::read_volatile(row as *const u64);
         }
@@ -143,7 +143,7 @@ unsafe fn mint_agent_hash(public_kind: i32, content_root: &str, namespace: &str)
         return None;
     }
     for kind in 0..KIND_AGENT_ROWS {
-        let row = crate::text_base() + KIND_AGENT_TABLE + kind * KIND_AGENT_STRIDE;
+        let row = crate::game::addr(KIND_AGENT_TABLE) + kind * KIND_AGENT_STRIDE;
         if core::ptr::read_volatile(row as *const u64) & 0xFF_FFFF_FFFF == hash {
             crate::dbg_log_public(&format!(
                 "[itemlua] minted hash {hash:#x} for clone {public_kind:#x} collides with \
@@ -236,9 +236,9 @@ unsafe fn reset_lua_stack(state: usize) {
 unsafe fn with_agent_lock<T>(body: impl FnOnce() -> T) -> Option<T> {
     let manager = agent_manager()?;
     let target = manager + AGENT_MANAGER_LOCK_FIELD;
-    let lock: unsafe extern "C" fn(usize) = core::mem::transmute(crate::text_base() + OFF_AGENT_LOCK);
+    let lock: unsafe extern "C" fn(usize) = core::mem::transmute(crate::game::addr(OFF_AGENT_LOCK));
     let unlock: unsafe extern "C" fn(usize) =
-        core::mem::transmute(crate::text_base() + OFF_AGENT_UNLOCK);
+        core::mem::transmute(crate::game::addr(OFF_AGENT_UNLOCK));
     lock(target);
     let out = body();
     unlock(target);
@@ -255,7 +255,7 @@ unsafe fn compile_own_chunk(state: usize, hash: u64) -> Result<usize, String> {
         ));
     }
     let load: unsafe extern "C" fn(usize, *const u8, usize, *const u8, u32) -> u32 =
-        core::mem::transmute(crate::text_base() + OFF_LUA_LOAD_CHUNK);
+        core::mem::transmute(crate::game::addr(OFF_LUA_LOAD_CHUNK));
     let Some(result) = with_agent_lock(|| {
         load(
             state,
@@ -295,7 +295,7 @@ fn request_files(slot: &CloneAgent) {
 
 unsafe fn agent_manager() -> Option<usize> {
     let holder =
-        core::ptr::read_volatile((crate::text_base() + AGENT_MANAGER_GLOBAL) as *const usize);
+        core::ptr::read_volatile((crate::game::addr(AGENT_MANAGER_GLOBAL)) as *const usize);
     if holder == 0 {
         return None;
     }
@@ -347,7 +347,7 @@ unsafe fn load_chunks(
     state: usize,
 ) -> (usize, Vec<&'static str>, Vec<String>) {
     let load_chunk: unsafe extern "C" fn(usize, *const u32, u32) =
-        core::mem::transmute(crate::text_base() + OFF_AGENT_LOAD_CHUNK);
+        core::mem::transmute(crate::game::addr(OFF_AGENT_LOAD_CHUNK));
     let mut compiled = 0usize;
     let mut pending: Vec<&'static str> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
@@ -391,7 +391,7 @@ unsafe fn retire_agent(
     parent_state: usize,
 ) {
     let release: unsafe extern "C" fn(usize, u64) =
-        core::mem::transmute(crate::text_base() + OFF_AGENT_RELEASE);
+        core::mem::transmute(crate::game::addr(OFF_AGENT_RELEASE));
     let taken = slot.acquired.swap(0, Ordering::AcqRel);
     for _ in 0..taken {
         release(manager, hash);
@@ -463,7 +463,7 @@ pub(crate) fn ensure_agent(public_kind: i32) -> Option<u64> {
         request_files(slot);
         let (agents, [parent_live, _]) = survey_agents(manager, [ITEM_PARENT_AGENT, hash]);
         let get_or_create: unsafe extern "C" fn(usize, u64, u64) -> u32 =
-            core::mem::transmute(crate::text_base() + OFF_AGENT_GET_OR_CREATE);
+            core::mem::transmute(crate::game::addr(OFF_AGENT_GET_OR_CREATE));
         let result = get_or_create(manager, hash, ITEM_PARENT_AGENT);
         let (_, [_, agent]) = survey_agents(manager, [ITEM_PARENT_AGENT, hash]);
         if result != 0 || agent == 0 {
@@ -624,7 +624,7 @@ unsafe fn preflight() -> Result<(), String> {
             ));
         }
     }
-    let table = crate::text_base() + KIND_AGENT_TABLE;
+    let table = crate::game::addr(KIND_AGENT_TABLE);
     for kind in 0..KIND_AGENT_ROWS {
         let row = table + kind * KIND_AGENT_STRIDE;
         if core::ptr::read_volatile((row + 8) as *const u32) != kind as u32 {
@@ -641,11 +641,10 @@ pub(crate) fn install() {
     match unsafe { preflight() } {
         Ok(()) => unsafe {
             PREFLIGHT_OK.store(true, Ordering::Release);
-            let text = crate::text_base();
             let mut failed: Vec<usize> = Vec::new();
             for (offset, original, hook) in SITES {
                 skyline::hooks::A64InlineHook(
-                    (text + *offset) as *const libc::c_void,
+                    crate::game::addr(*offset) as *const libc::c_void,
                     *hook as *const () as *const libc::c_void,
                 );
                 if text_word(*offset) == *original {

@@ -163,7 +163,7 @@ pub(crate) unsafe fn ensure_owner_bank_bound(owner: i32) {
          kind {owner:#x}"
     ));
     type Load = unsafe extern "C" fn(usize, u32, *const u32) -> u32;
-    let load: Load = core::mem::transmute(crate::text_base_public() + EFFECT_BANK_LOAD);
+    let load: Load = core::mem::transmute(crate::game::addr(EFFECT_BANK_LOAD));
     let result = load(manager, handle, &index_u32 as *const u32);
     limited_log(format!(
         "[ownereffect] effect bank handle={handle:#x} bound, result={result}"

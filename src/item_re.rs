@@ -87,11 +87,10 @@ unsafe fn words_match(address: usize, expected: &[u32]) -> bool {
 }
 
 unsafe fn main_preflight() -> Result<(), (usize, usize, u32, u32)> {
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
     for (offset, expected) in MAIN_PREFLIGHT {
         for (index, wanted) in expected.iter().enumerate() {
-            let address = text + *offset + index * 4;
-            let found = (address as *const u32).read();
+            let address = crate::game::addr(*offset) + index * 4;
+            let found = crate::game::text_word(*offset + index * 4);
             if found != *wanted {
                 return Err((address, index, found, *wanted));
             }
@@ -100,7 +99,7 @@ unsafe fn main_preflight() -> Result<(), (usize, usize, u32, u32)> {
     Ok(())
 }
 
-#[skyline::hook(offset = OFF_ITEM_LOWER_CREATOR)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_LOWER_CREATOR))]
 unsafe fn item_lower_creator_trace(
     manager: *mut u8,
     descriptor: *const u8,
@@ -169,17 +168,17 @@ unsafe fn trace_param(ctx: &skyline::hooks::InlineCtx, counter: &AtomicU32, valu
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_PARAM_FLOAT_ORDINARY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_PARAM_FLOAT_ORDINARY), inline)]
 unsafe fn item_param_float_trace(ctx: &mut skyline::hooks::InlineCtx) {
     trace_param(ctx, &PARAM_FLOAT_LOGS, "float");
 }
 
-#[skyline::hook(offset = OFF_ITEM_PARAM_INT_ORDINARY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_PARAM_INT_ORDINARY), inline)]
 unsafe fn item_param_int_trace(ctx: &mut skyline::hooks::InlineCtx) {
     trace_param(ctx, &PARAM_INT_LOGS, "int");
 }
 
-#[skyline::hook(offset = OFF_ITEM_REMOVE_REQUEST_FOUND, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_REMOVE_REQUEST_FOUND), inline)]
 unsafe fn item_remove_request_trace(ctx: &mut skyline::hooks::InlineCtx) {
     let item = ctx.registers[8].x() as *const u8;
     if item.is_null() || read_i32(item, 0x0C) != BEAM_SWORD_KIND {
@@ -202,7 +201,7 @@ unsafe fn item_remove_request_trace(ctx: &mut skyline::hooks::InlineCtx) {
     ));
 }
 
-#[skyline::hook(offset = OFF_ITEM_DEACTIVATE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_DEACTIVATE))]
 unsafe fn item_deactivate_trace(manager: *mut u8, item: *mut u8, recycle: u32) {
     let tracked = !item.is_null() && read_i32(item, 0x0C) == BEAM_SWORD_KIND;
     let sequence = if tracked {
@@ -243,7 +242,7 @@ unsafe fn item_deactivate_trace(manager: *mut u8, item: *mut u8, recycle: u32) {
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_INIT)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_INIT))]
 unsafe fn item_resource_init_trace(slot: *mut u8, arg: u32) {
     let kind = if slot.is_null() {
         -1
@@ -284,7 +283,7 @@ unsafe fn item_resource_init_trace(slot: *mut u8, arg: u32) {
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_RELEASE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_RELEASE))]
 unsafe fn item_resource_release_trace(manager: *mut u8, kind: i32) {
     let sequence = if kind == BEAM_SWORD_KIND {
         RESOURCE_RELEASE_LOGS.fetch_add(1, Ordering::Relaxed)
@@ -304,7 +303,7 @@ unsafe fn item_resource_release_trace(manager: *mut u8, kind: i32) {
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_IDENTITY, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_IDENTITY), inline)]
 unsafe fn item_resource_identity_trace(ctx: &mut skyline::hooks::InlineCtx) {
     let slot = ctx.registers[19].x() as *const u8;
     let row = ctx.registers[9].x() as *const u8;
@@ -337,17 +336,17 @@ unsafe fn trace_resource_group(ctx: &skyline::hooks::InlineCtx, group: &str) {
     }
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_GAME_GROUP, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_GAME_GROUP), inline)]
 unsafe fn item_resource_game_group_trace(ctx: &mut skyline::hooks::InlineCtx) {
     trace_resource_group(ctx, "game_");
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_EFFECT_GROUP, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_EFFECT_GROUP), inline)]
 unsafe fn item_resource_effect_group_trace(ctx: &mut skyline::hooks::InlineCtx) {
     trace_resource_group(ctx, "effect_");
 }
 
-#[skyline::hook(offset = OFF_ITEM_RESOURCE_SOUND_GROUP, inline)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_RESOURCE_SOUND_GROUP), inline)]
 unsafe fn item_resource_sound_group_trace(ctx: &mut skyline::hooks::InlineCtx) {
     trace_resource_group(ctx, "sound_");
 }

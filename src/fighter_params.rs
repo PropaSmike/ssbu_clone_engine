@@ -80,7 +80,7 @@ pub(crate) fn clone_slot_peak() -> (i32, u32) {
 }
 
 unsafe fn singleton() -> Option<usize> {
-    let value = core::ptr::read_volatile((text_base() + PARAM_SINGLETON) as *const usize);
+    let value = core::ptr::read_volatile((crate::game::addr(PARAM_SINGLETON)) as *const usize);
     (value != 0 && value & 7 == 0).then_some(value)
 }
 
@@ -189,13 +189,13 @@ unsafe fn write_instance(record: usize, instance: Instance) {
 
 unsafe fn lock_param_singleton(singleton: usize) {
     type Mutex = unsafe extern "C" fn(usize);
-    let lock: Mutex = core::mem::transmute(text_base() + PARAM_MUTEX_LOCK);
+    let lock: Mutex = core::mem::transmute(crate::game::addr(PARAM_MUTEX_LOCK));
     lock(singleton + PARAM_MUTEX);
 }
 
 unsafe fn unlock_param_singleton(singleton: usize) {
     type Mutex = unsafe extern "C" fn(usize);
-    let unlock: Mutex = core::mem::transmute(text_base() + PARAM_MUTEX_UNLOCK);
+    let unlock: Mutex = core::mem::transmute(crate::game::addr(PARAM_MUTEX_UNLOCK));
     unlock(singleton + PARAM_MUTEX);
 }
 
@@ -203,12 +203,12 @@ pub(crate) unsafe fn request_resource_file(index: i32) {
     if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
         return;
     }
-    let loader = core::ptr::read_volatile((text_base() + PARAM_FILE_LOADER) as *const usize);
+    let loader = core::ptr::read_volatile((crate::game::addr(PARAM_FILE_LOADER)) as *const usize);
     if loader == 0 {
         return;
     }
     type Request = unsafe extern "C" fn(usize, i32);
-    let request: Request = core::mem::transmute(text_base() + PARAM_FILE_REQUEST);
+    let request: Request = core::mem::transmute(crate::game::addr(PARAM_FILE_REQUEST));
     request(loader, index);
 }
 
@@ -216,12 +216,12 @@ pub(crate) unsafe fn release_resource_file(index: i32) {
     if index < 0 || index == RESOURCE_INDEX_NOT_FOUND {
         return;
     }
-    let loader = core::ptr::read_volatile((text_base() + PARAM_FILE_LOADER) as *const usize);
+    let loader = core::ptr::read_volatile((crate::game::addr(PARAM_FILE_LOADER)) as *const usize);
     if loader == 0 {
         return;
     }
     type Release = unsafe extern "C" fn(usize, i32);
-    let release: Release = core::mem::transmute(text_base() + PARAM_FILE_RELEASE);
+    let release: Release = core::mem::transmute(crate::game::addr(PARAM_FILE_RELEASE));
     release(loader, index);
 }
 
@@ -229,7 +229,7 @@ const SEARCH_PATH_TO_FILE_PATH: usize = 0x353e4e0;
 
 unsafe fn file_path_index(search: i32) -> Option<i32> {
     type Convert = unsafe extern "C" fn(u32) -> u32;
-    let convert: Convert = core::mem::transmute(text_base() + SEARCH_PATH_TO_FILE_PATH);
+    let convert: Convert = core::mem::transmute(crate::game::addr(SEARCH_PATH_TO_FILE_PATH));
     let value = convert(search as u32) as i32;
     (value >= 0 && value != RESOURCE_INDEX_NOT_FOUND).then_some(value)
 }
@@ -266,8 +266,8 @@ unsafe fn build_instance(base_kind: i32, indices: (i32, i32)) -> Option<Instance
     lock_param_singleton(singleton);
     let saved = read_instance(record);
 
-    let loader_a: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER);
-    let loader_b: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER_B);
+    let loader_a: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER));
+    let loader_b: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER_B));
     write_instance(
         record,
         Instance {
@@ -369,8 +369,8 @@ unsafe fn load_owned_params(kind: i32, entry_id: i32) -> bool {
     if index_b < 0 || index_b == RESOURCE_INDEX_NOT_FOUND {
         return false;
     }
-    let loader_a: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER);
-    let loader_b: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER_B);
+    let loader_a: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER));
+    let loader_b: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER_B));
     let held_a = substitute_param_file(kind, index_a);
     let held_b = substitute_param_file(kind, index_b);
     request_resource_file(held_a);
@@ -825,7 +825,7 @@ pub(crate) unsafe fn file_resident(index: u32) -> Result<u64, &'static str> {
     if index == RESOURCE_FILE_MISSING {
         return Err("the index is the not-found sentinel");
     }
-    let loader = core::ptr::read_volatile((text_base() + PARAM_FILE_LOADER) as *const u64);
+    let loader = core::ptr::read_volatile((crate::game::addr(PARAM_FILE_LOADER)) as *const u64);
     if loader == 0 {
         return Err("the resource loader is null");
     }
@@ -1005,8 +1005,8 @@ pub(crate) unsafe fn ensure_kind_params_loaded(kind: i32) -> bool {
         foreign_log(kind, "its param directories did not resolve");
         return false;
     };
-    let loader_a: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER);
-    let loader_b: ParamLoader = core::mem::transmute(text_base() + PARAM_LOADER_B);
+    let loader_a: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER));
+    let loader_b: ParamLoader = core::mem::transmute(crate::game::addr(PARAM_LOADER_B));
     let held_a = substitute_param_file(kind, index_a);
     let held_b = substitute_param_file(kind, index_b);
     request_resource_file(held_a);

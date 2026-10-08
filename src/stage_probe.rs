@@ -214,7 +214,7 @@ pub(crate) fn run() {
     if RAN.swap(true, Ordering::AcqRel) {
         return;
     }
-    let text = crate::text_base();
+    let text = crate::game::raw_text_base();
     skyline::println!(
         "[stageprobe] begin: text={:#x} refs={} bounds={} tables={}",
         text,
@@ -229,7 +229,7 @@ pub(crate) fn run() {
 
     let mut mismatches = 0usize;
     for anchor in STAGE_OPCODE_ANCHORS {
-        let actual = unsafe { read_u32(text + anchor.offset) };
+        let actual = unsafe { crate::game::text_word(anchor.offset) };
         if actual != anchor.opcode {
             if mismatches < 8 {
                 skyline::println!(
@@ -250,7 +250,7 @@ pub(crate) fn run() {
     );
 
     for entry in STAGE_TABLES {
-        let base = text + entry.address;
+        let base = crate::game::addr(entry.address);
         skyline::println!(
             "[stageprobe] {} @{:#x} stride={:#x} len={} -> expanded {} (end {:#x})",
             entry.name,
@@ -263,7 +263,7 @@ pub(crate) fn run() {
     }
 
     if let Some(entry) = table("stage_id") {
-        let base = text + entry.address;
+        let base = crate::game::addr(entry.address);
         let first = unsafe { read_u64(base + STAGE_ID_NAME) };
         let end_row = unsafe { read_u64(base + 3 * entry.element_size + STAGE_ID_NAME) };
         let photo = unsafe { read_u64(base + PHOTOSTAGE_ID * entry.element_size + STAGE_ID_NAME) };
@@ -289,7 +289,7 @@ pub(crate) fn run() {
     }
 
     if let Some(entry) = table("stage_place") {
-        let base = text + entry.address;
+        let base = crate::game::addr(entry.address);
         let first = unsafe { read_u64(base + STAGE_PLACE_NAME) };
         let photo =
             unsafe { read_u64(base + PHOTOSTAGE_PLACE * entry.element_size + STAGE_PLACE_NAME) };
@@ -303,7 +303,7 @@ pub(crate) fn run() {
     }
 
     if let Some(entry) = table("stage_place_aux") {
-        let base = text + entry.address;
+        let base = crate::game::addr(entry.address);
         let first = unsafe { read_u32(base) };
         let last = unsafe { read_u32(base + (entry.native_length - 1) * entry.element_size) };
         skyline::println!(
@@ -316,8 +316,8 @@ pub(crate) fn run() {
     }
 
     let (span_lo, span_hi) = REFERENCE_SPAN;
-    let site_lo = text + span_lo;
-    let site_hi = text + span_hi;
+    let site_lo = crate::game::addr(span_lo);
+    let site_hi = crate::game::addr(span_hi);
     let own_code = run as usize;
     let (lo_verdict, lo_delta) = reach(site_lo, own_code);
     let (hi_verdict, hi_delta) = reach(site_hi, own_code);
@@ -379,7 +379,7 @@ fn survey_address_space(site_lo: usize, site_hi: usize) {
     let mut printed = 0usize;
     let mut mapped_printed = 0usize;
     let mut game_rw: Option<(u64, u64)> = None;
-    let text = crate::text_base() as u64;
+    let text = crate::game::raw_text_base() as u64;
 
     while regions < 4096 {
         let result = unsafe { query_memory(&mut info, address) };

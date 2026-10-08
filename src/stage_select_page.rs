@@ -314,7 +314,7 @@ mod live {
         }
     }
 
-    #[skyline::hook(offset = OFF_BUILD_PANELS)]
+    #[skyline::hook(offset = crate::game::rel(OFF_BUILD_PANELS))]
     pub(super) unsafe fn build_panels_hook(holder: usize, argument: u64) {
         call_original!(holder, argument);
 
@@ -357,7 +357,7 @@ mod live {
         show_if_changed(wanted);
     }
 
-    #[skyline::hook(offset = OFF_HOLDER_MEMBER_DTOR)]
+    #[skyline::hook(offset = crate::game::rel(OFF_HOLDER_MEMBER_DTOR))]
     pub(super) unsafe fn holder_member_dtor_hook(member: usize) {
         let holder = HOLDER.load(Ordering::Acquire);
         if holder != 0 && member == holder + HOLDER_MEMBER_OFFSET {
@@ -370,7 +370,7 @@ mod live {
         call_original!(member)
     }
 
-    #[skyline::hook(offset = OFF_FIND_BY_DISP_ORDER)]
+    #[skyline::hook(offset = crate::game::rel(OFF_FIND_BY_DISP_ORDER))]
     pub(super) unsafe fn find_by_disp_order_hook(db: u64, disp_order: u32) -> u64 {
         let found = call_original!(db, disp_order);
         if !FOLLOW.load(Ordering::Acquire) || !is_found(found) {

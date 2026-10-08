@@ -235,7 +235,7 @@ const END_BATTLE_DECORATION_DECISION: usize = 0x28394a4;
 const END_BATTLE_DECORATION_DECISION_OPCODE: u32 = 0xf9418a6a;
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = STAGE_FACTORY_DISPATCH, inline)]
+#[skyline::hook(offset = crate::game::rel(STAGE_FACTORY_DISPATCH), inline)]
 unsafe fn stage_factory_dispatch_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let minted = ctx.registers[8].x() as u32;
     let Some(donor) = donor_for(minted) else {
@@ -252,7 +252,7 @@ unsafe fn stage_factory_dispatch_hook(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = STAGE_DATA_FACTORY_DISPATCH, inline)]
+#[skyline::hook(offset = crate::game::rel(STAGE_DATA_FACTORY_DISPATCH), inline)]
 unsafe fn stage_data_factory_dispatch_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let minted = ctx.registers[8].x() as u32;
     let Some(donor) = donor_for(minted) else {
@@ -268,7 +268,7 @@ unsafe fn stage_data_factory_dispatch_hook(ctx: &mut skyline::hooks::InlineCtx) 
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = STAGE_DATA_CACHE_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(STAGE_DATA_CACHE_GATE), inline)]
 unsafe fn stage_data_cache_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let cached = ctx.registers[8].x() as usize;
     let wrapper = ctx.registers[19].x() as usize;
@@ -298,7 +298,7 @@ unsafe fn stage_data_cache_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = STAGE_DATA_DONOR_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(STAGE_DATA_DONOR_GATE), inline)]
 unsafe fn stage_data_donor_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let minted = ctx.registers[8].x() as u32;
     let Some(donor) = donor_for(minted) else {
@@ -313,7 +313,7 @@ unsafe fn stage_data_donor_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = STAGE_STDAT_METADATA_LOOKUP, inline)]
+#[skyline::hook(offset = crate::game::rel(STAGE_STDAT_METADATA_LOOKUP), inline)]
 unsafe fn stage_stdat_metadata_lookup_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let minted = ctx.registers[9].x() as u32;
     let Some(donor) = donor_for(minted) else {
@@ -356,19 +356,19 @@ unsafe fn translate_end_stage_id(
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = END_FLAT_STAGE_ID_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(END_FLAT_STAGE_ID_GATE), inline)]
 unsafe fn end_flat_stage_id_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
     translate_end_stage_id(ctx, 9, "flat");
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = END_FOUR_PLATE_GATE, inline)]
+#[skyline::hook(offset = crate::game::rel(END_FOUR_PLATE_GATE), inline)]
 unsafe fn end_four_plate_gate_hook(ctx: &mut skyline::hooks::InlineCtx) {
     translate_end_stage_id(ctx, 9, "four-plate");
 }
 
 #[cfg(feature = "stage_mint_places")]
-#[skyline::hook(offset = END_BATTLE_DECORATION_DECISION, inline)]
+#[skyline::hook(offset = crate::game::rel(END_BATTLE_DECORATION_DECISION), inline)]
 unsafe fn end_battle_decoration_decision_hook(ctx: &mut skyline::hooks::InlineCtx) {
     let stage = ctx.registers[19].x() as usize;
     if stage == 0 {
@@ -390,7 +390,6 @@ unsafe fn end_battle_decoration_decision_hook(ctx: &mut skyline::hooks::InlineCt
 #[cfg(feature = "stage_mint_places")]
 pub(crate) fn install() {
     unsafe {
-        let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as *const u8;
         for (site, expected, label) in [
             (
                 STAGE_DATA_FACTORY_DISPATCH,
@@ -433,7 +432,7 @@ pub(crate) fn install() {
                 "End Battlefield decoration decision",
             ),
         ] {
-            let observed = core::ptr::read_volatile(text.add(site) as *const u32);
+            let observed = crate::game::text_word(site);
             if observed != expected {
                 skyline::println!(
                     "[stagedisp] REFUSED {label} dispatch at {site:#x}: expected \

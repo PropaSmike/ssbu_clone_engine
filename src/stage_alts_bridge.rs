@@ -188,7 +188,7 @@ unsafe fn disown_this_stage() {
         return;
     }
     let stage_id =
-        core::ptr::read_volatile((crate::text_base_public() + STAGE_ID_GLOBAL) as *const u32);
+        core::ptr::read_volatile((crate::game::addr(STAGE_ID_GLOBAL)) as *const u32);
     if !minted_stage_is_loading(stage_id) {
         return;
     }
@@ -201,7 +201,7 @@ unsafe fn disown_this_stage() {
 }
 
 #[cfg(not(test))]
-#[skyline::hook(offset = INIT_LOADED_DIR)]
+#[skyline::hook(offset = crate::game::rel(INIT_LOADED_DIR))]
 unsafe fn init_loaded_dir_hook(filesystem: u64, index: u32) -> u64 {
     disown_this_stage();
     call_original!(filesystem, index)

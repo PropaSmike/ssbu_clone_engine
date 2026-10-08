@@ -123,7 +123,7 @@ unsafe fn module_of(boma: usize, offset: usize) -> Option<usize> {
 unsafe fn native_slot(module: usize, slot: usize) -> Option<usize> {
     let vtable = read_pointer(module)?;
     let entry = read_pointer(vtable + slot)?;
-    (entry >= crate::text_base_public() && entry < crate::text_end()).then_some(entry)
+    (entry >= crate::game::raw_text_base() && entry < crate::text_end()).then_some(entry)
 }
 
 unsafe fn work_float(module: usize, id: i32) -> Option<f32> {
@@ -150,7 +150,7 @@ static STATUS_CONSTS_LOGGED: AtomicBool = AtomicBool::new(false);
 
 unsafe fn grid_owner_at(at: &[f32; 2]) -> u32 {
     let native: unsafe extern "C" fn(*const [f32; 2]) -> u32 =
-        core::mem::transmute(crate::text_base_public() + OFF_ID_FROM_GRID_POS);
+        core::mem::transmute(crate::game::addr(OFF_ID_FROM_GRID_POS));
     native(at as *const [f32; 2])
 }
 
@@ -173,7 +173,7 @@ unsafe fn request_placed_status(boma: usize) -> Option<i32> {
 const GRID_SINGLETON: usize = 0x532E490;
 
 unsafe fn report_grid_state(when: &str) {
-    let slot = crate::text_base_public() + GRID_SINGLETON;
+    let slot = crate::game::addr(GRID_SINGLETON);
     let singleton = core::ptr::read_volatile(slot as *const usize);
     if singleton == 0 {
         crate::dbg_log_public(&format!(
@@ -266,8 +266,8 @@ unsafe fn agent_state(boma: usize) -> String {
     let vtable = core::ptr::read_volatile(agent as *const usize);
     let origin = if nro != 0 && vtable > nro {
         format!("item NRO +{:#x}", vtable - nro)
-    } else if vtable >= crate::text_base_public() && vtable < crate::text_end() {
-        format!("main +{:#x}", vtable - crate::text_base_public())
+    } else if vtable >= crate::game::raw_text_base() && vtable < crate::text_end() {
+        format!("main +{:#x}", crate::game::offset_of(vtable))
     } else {
         format!("{vtable:#x}")
     };
@@ -394,16 +394,15 @@ unsafe fn replace_stale_registration(
     if watch.replaced.swap(true, Ordering::AcqRel) {
         return;
     }
-    let base = crate::text_base_public();
     let create: unsafe extern "C" fn(usize) -> u64 =
-        core::mem::transmute(base + OFF_CREATE_GROUND_COLLISION);
+        core::mem::transmute(crate::game::addr(OFF_CREATE_GROUND_COLLISION));
     let regist: unsafe extern "C" fn(usize, *const [f32; 2]) =
-        core::mem::transmute(base + OFF_REGIST_BLOCK_TO_GRID);
+        core::mem::transmute(crate::game::addr(OFF_REGIST_BLOCK_TO_GRID));
     let unregist: unsafe extern "C" fn(*const [f32; 2]) =
-        core::mem::transmute(base + OFF_UNREGIST_BLOCK_FROM_GRID);
+        core::mem::transmute(crate::game::addr(OFF_UNREGIST_BLOCK_FROM_GRID));
 
     let update_collision: unsafe extern "C" fn(usize) -> u64 =
-        core::mem::transmute(base + OFF_UPDATE_COLLISION_WORK);
+        core::mem::transmute(crate::game::addr(OFF_UPDATE_COLLISION_WORK));
 
     report_grid_state("at settle");
     let stale = take_registration(object);
@@ -418,9 +417,9 @@ unsafe fn replace_stale_registration(
     let seeded = grid_owner_at(&settled);
     let requested = request_placed_status(boma);
     let grid_status: unsafe extern "C" fn(*const [f32; 2]) -> i32 =
-        core::mem::transmute(base + OFF_GRID_STATUS);
+        core::mem::transmute(crate::game::addr(OFF_GRID_STATUS));
     let id_from_grid: unsafe extern "C" fn(*const [f32; 2]) -> u32 =
-        core::mem::transmute(base + OFF_ID_FROM_GRID_POS);
+        core::mem::transmute(crate::game::addr(OFF_ID_FROM_GRID_POS));
     let cell_status = grid_status(&settled as *const [f32; 2]);
     let cell_owner = id_from_grid(&settled as *const [f32; 2]);
     let own_id = core::ptr::read_volatile((object + AGENT_ID_SLOT) as *const u32);
@@ -592,7 +591,7 @@ pub(crate) unsafe fn observe(object: usize, public_kind: i32, base_kind: i32) {
     ));
 }
 
-#[skyline::hook(offset = OFF_CREATE_GROUND_COLLISION)]
+#[skyline::hook(offset = crate::game::rel(OFF_CREATE_GROUND_COLLISION))]
 unsafe fn create_ground_collision_probe(boma: u64) -> u64 {
     note_block((boma as usize).wrapping_sub(BOMA_OFFSET_IN_OBJECT));
     report_block_status_constants();
@@ -617,7 +616,7 @@ unsafe fn create_ground_collision_probe(boma: u64) -> u64 {
     result
 }
 
-#[skyline::hook(offset = OFF_CHECK_RANGE_FROM_OWNER)]
+#[skyline::hook(offset = crate::game::rel(OFF_CHECK_RANGE_FROM_OWNER))]
 unsafe fn check_range_from_owner_probe(boma: u64) -> u64 {
     let result = call_original!(boma);
     if OWNER_LINES.fetch_add(1, Ordering::Relaxed) < MAX_ENTRY_LINES {
@@ -629,7 +628,7 @@ unsafe fn check_range_from_owner_probe(boma: u64) -> u64 {
     result
 }
 
-#[skyline::hook(offset = OFF_REGIST_BLOCK_TO_GRID)]
+#[skyline::hook(offset = crate::game::rel(OFF_REGIST_BLOCK_TO_GRID))]
 unsafe fn regist_block_to_grid_probe(boma: u64, position: u64) -> u64 {
     if GRID_LINES.fetch_add(1, Ordering::Relaxed) < MAX_ENTRY_LINES {
         let coordinates = if plausible(position as usize) {
@@ -662,7 +661,7 @@ unsafe fn object_of_lua_state(lua_state: usize) -> Option<(usize, usize)> {
     Some((boma, object))
 }
 
-#[skyline::hook(offset = OFF_ITEM_SET_LIFE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_SET_LIFE))]
 unsafe fn item_set_life_probe(lua_state: u64, life: i32) -> u64 {
     if LIFE_LINES.fetch_add(1, Ordering::Relaxed) < MAX_ENTRY_LINES {
         match object_of_lua_state(lua_state as usize) {
@@ -683,7 +682,7 @@ unsafe fn item_set_life_probe(lua_state: u64, life: i32) -> u64 {
     call_original!(lua_state, life)
 }
 
-#[skyline::hook(offset = OFF_ITEM_SET_LIFE_TYPE)]
+#[skyline::hook(offset = crate::game::rel(OFF_ITEM_SET_LIFE_TYPE))]
 unsafe fn item_set_life_type_probe(lua_state: u64, kind: i32) -> u64 {
     if LIFE_LINES.fetch_add(1, Ordering::Relaxed) < MAX_ENTRY_LINES {
         match object_of_lua_state(lua_state as usize) {
@@ -702,9 +701,8 @@ unsafe fn item_set_life_type_probe(lua_state: u64, kind: i32) -> u64 {
 pub(crate) fn install() {
     unsafe {
         for (offset, expected) in PREFLIGHT {
-            let address = crate::text_base_public() + offset;
             for (index, word) in expected.iter().enumerate() {
-                let found = core::ptr::read_volatile((address + index * 4) as *const u32);
+                let found = crate::game::text_word(offset + index * 4);
                 if found != *word {
                     crate::dbg_log_public(&format!(
                         "[itemwork] preflight FAILED at {offset:#x} word {index}: found={found:#010x} expected={word:#010x}; probe inert"
