@@ -1,6 +1,7 @@
 pub mod article_literals;
 pub mod article_lvd;
 pub mod common_vtable;
+pub mod csk_stage_vec;
 pub mod fighter_common_copies;
 pub mod fighter_toml;
 pub mod fighter_param_row;

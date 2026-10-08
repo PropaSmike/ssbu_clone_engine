@@ -300,7 +300,7 @@ pub unsafe fn install_stage_id_backend() -> Option<(crate::stage_csk_table::VecF
         Ok(fields) => fields,
         Err(error) => {
             skyline::println!(
-                "[stagecsk] CSK at {base:#x} does not match the fingerprint: {error:?}"
+                "[stagecsk] CSK at {base:#x} has no recognisable stage_id Vec access: {error:?}"
             );
             return None;
         }
