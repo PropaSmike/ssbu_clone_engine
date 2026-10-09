@@ -1,3 +1,5 @@
+use crate::grab_rule::{status_kind, GrabRule};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub line: usize,
@@ -86,6 +88,7 @@ pub struct FighterDeclaration {
     pub articles: Vec<ArticleDeclaration>,
     pub kirby: Option<KirbyDeclaration>,
     pub global_motions: Vec<MotionDeclaration>,
+    pub grabs: Vec<GrabRule>,
     pub params: Vec<ParamDeclaration>,
 }
 
@@ -149,6 +152,7 @@ enum Section {
     Kirby,
     Motion,
     GlobalMotion,
+    Grab,
     Mesh,
     Params { slot: Option<i32>, op: ParamOp },
 }
@@ -246,6 +250,7 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
         ("kirby.motion", true) => Ok(Section::Motion),
         ("kirby.mesh", true) => Ok(Section::Mesh),
         ("global_motion", true) => Ok(Section::GlobalMotion),
+        ("grab", true) => Ok(Section::Grab),
         ("params", false) => Ok(Section::Params {
             slot: None,
             op: ParamOp::Set,
@@ -299,6 +304,7 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                 Section::GlobalMotion => declaration
                     .global_motions
                     .push(MotionDeclaration::default()),
+                Section::Grab => declaration.grabs.push(GrabRule::new(-1)),
                 Section::Mesh => declaration
                     .kirby
                     .get_or_insert_with(KirbyDeclaration::default)
@@ -395,6 +401,10 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     .last_mut()
                     .expect("pushed at header");
                 motion_key(motion, key, value, line_number)?;
+            }
+            Section::Grab => {
+                let grab = declaration.grabs.last_mut().expect("pushed at header");
+                grab_key(grab, key, value, line_number)?;
             }
             Section::Mesh => {
                 let mesh = declaration
@@ -499,7 +509,51 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
             ));
         }
     }
+    for grab in &declaration.grabs {
+        if grab.status < 0 {
+            return Err(error(0, "a grab needs status, the grabber status its CATCH box belongs to"));
+        }
+    }
     Ok(declaration)
+}
+
+fn parse_status(value: &str, line: usize, key: &str) -> Result<i32, ParseError> {
+    let value = value.trim();
+    let status = if value.starts_with('"') {
+        let name = unquote(value, line)?;
+        status_kind(&name).ok_or_else(|| {
+            error(line, format!("{key}: {name:?} is not a known status name; write its number"))
+        })?
+    } else {
+        parse_int::<i32>(value, line, key)?
+    };
+    if status < 0 {
+        return Err(error(line, format!("{key} must not be negative")));
+    }
+    Ok(status)
+}
+
+fn grab_key(grab: &mut GrabRule, key: &str, value: &str, line_number: usize) -> Result<(), ParseError> {
+    match key {
+        "status" => grab.status = parse_status(value, line_number, key)?,
+        "victim" => grab.victim = Some(parse_status(value, line_number, key)?),
+        "then" => grab.then = Some(parse_status(value, line_number, key)?),
+        "node" => grab.node = Some(unquote(value, line_number)?),
+        "offset" => {
+            let parts = parse_list(value, line_number, key)?;
+            if parts.len() != 3 {
+                return Err(error(line_number, "offset must be [x, y, z]"));
+            }
+            for (slot, part) in grab.offset.iter_mut().zip(&parts) {
+                *slot = part
+                    .parse::<f32>()
+                    .map_err(|_| error(line_number, "offset must be [x, y, z] numbers"))?;
+            }
+        }
+        "catch" => grab.catch = parse_bool(value, line_number, key)?,
+        _ => return Err(error(line_number, format!("unknown grab key {key}"))),
+    }
+    Ok(())
 }
 
 fn motion_key(
@@ -801,5 +855,52 @@ scale = 0.95
     fn a_key_before_the_first_block_is_refused_at_its_line() {
         let failure = parse_all("name = \"lost\"\n[[fighter]]\nname = \"a\"\nbase = \"mario\"\n").unwrap_err();
         assert_eq!(failure.line, 1);
+    }
+
+    #[test]
+    fn a_grab_takes_status_names_or_numbers() {
+        let fighter = parse(
+            "name = \"a\"\nbase = \"mario\"\n\
+             [[grab]]\nstatus = \"SPECIAL_S\"\nvictim = \"CATCHED_GANON\"\nthen = 0x1e2\n\
+             [[grab]]\nstatus = 0x1de\nvictim = 0xbd\nnode = \"\"\ncatch = true\noffset = [0.0, 2.5, -1]\n",
+        )
+        .unwrap();
+        assert_eq!(fighter.grabs.len(), 2);
+        let choke = &fighter.grabs[0];
+        assert_eq!((choke.status, choke.victim, choke.then), (0x1dd, Some(0xbe), Some(0x1e2)));
+        assert_eq!(choke.node.as_deref(), Some("throw"));
+        assert!(!choke.catch);
+        let dive = &fighter.grabs[1];
+        assert_eq!(dive.node.as_deref(), Some(""));
+        assert!(dive.catch);
+        assert_eq!(dive.offset, [0.0, 2.5, -1.0]);
+        assert_eq!(dive.then, None);
+    }
+
+    #[test]
+    fn a_grab_needs_a_status_and_refuses_what_it_cannot_read() {
+        let missing = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nvictim = 0xbe\n").unwrap_err();
+        assert!(missing.message.contains("status"));
+        let unknown = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = \"SPECIAL_Q\"\n").unwrap_err();
+        assert_eq!(unknown.line, 4);
+        assert!(unknown.message.contains("write its number"));
+        let bad_key = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = 1\nhold = true\n").unwrap_err();
+        assert_eq!(bad_key.line, 5);
+        let short = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = 1\noffset = [1.0, 2.0]\n").unwrap_err();
+        assert!(short.message.contains("[x, y, z]"));
+        let negative = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = -3\n").unwrap_err();
+        assert!(negative.message.contains("negative"));
+    }
+
+    #[test]
+    fn a_fighter_block_takes_its_own_grabs() {
+        let fighters = parse_all(
+            "[[fighter]]\nname = \"a\"\nbase = \"mario\"\n[[fighter.grab]]\nstatus = \"ATTACK\"\nvictim = \"CAPTURE_PULLED\"\nthen = \"CATCH_PULL\"\n\
+             [[fighter]]\nname = \"b\"\nbase = \"luigi\"\n",
+        )
+        .unwrap();
+        assert_eq!(fighters[0].grabs.len(), 1);
+        assert_eq!(fighters[0].grabs[0].then, Some(0x38));
+        assert!(fighters[1].grabs.is_empty());
     }
 }

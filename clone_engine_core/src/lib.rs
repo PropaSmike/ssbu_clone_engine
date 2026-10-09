@@ -6,6 +6,7 @@ pub mod fighter_common_copies;
 pub mod fighter_toml;
 pub mod fighter_param_row;
 pub mod fighter_param_thrown;
+pub mod grab_rule;
 pub mod hash;
 pub mod hook_site;
 pub mod item_common_row;

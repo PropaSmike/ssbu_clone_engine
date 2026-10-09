@@ -48,15 +48,16 @@ mod live {
     use crate::{ManifestCss, ManifestRegistration};
     use clone_engine_api::{
         CloneArticleRegistrationV1, CloneCopyMeshV1, CloneCopyModelV1, CloneCopyMotionV1,
-        CloneRegistrationV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA, COPY_MOTION_SET_ANIMATION_UNK,
-        COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME, COPY_MOTION_SET_FLAGS,
-        COPY_MOTION_SET_GAME_SCRIPT, COPY_MOTION_SET_NO_STOP_INTP, COPY_MOTION_SET_SCRIPTS,
-        COPY_MOTION_SET_XLU, COPY_MOTION_VICTIM, FLAG_KIRBY_COPY_FULL_MODEL,
-        FLAG_OWNS_PARAM_RESOURCES, KIND_AUTO,
+        CloneGrabRuleV1, CloneRegistrationV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA,
+        COPY_MOTION_SET_ANIMATION_UNK, COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME,
+        COPY_MOTION_SET_FLAGS, COPY_MOTION_SET_GAME_SCRIPT, COPY_MOTION_SET_NO_STOP_INTP,
+        COPY_MOTION_SET_SCRIPTS, COPY_MOTION_SET_XLU, COPY_MOTION_VICTIM, FLAG_KIRBY_COPY_FULL_MODEL,
+        FLAG_OWNS_PARAM_RESOURCES, GRAB_CATCH, GRAB_SET_THEN, GRAB_SET_VICTIM, KIND_AUTO,
     };
     use clone_engine_core::fighter_toml::{
         parse_all, ArticleDeclaration, KirbyDeclaration, MotionDeclaration,
     };
+    use clone_engine_core::grab_rule::GrabRule;
     use std::ffi::CString;
 
     fn leak(text: &str) -> &'static str {
@@ -290,6 +291,7 @@ mod live {
             register_kirby(directory, kind, kirby);
         }
         register_global_motions(directory, kind, &declaration.global_motions);
+        register_grabs(directory, kind, &declaration.grabs);
         if declaration.jingle.is_some() {
             skyline::println!(
                 "[fighterpack] {directory}: jingle is accepted but not served by this engine yet"
@@ -437,6 +439,46 @@ mod live {
                     "[fighterpack] {directory}: global motion {} result={result}",
                     motion.name
                 );
+            }
+        }
+    }
+
+    fn register_grabs(directory: &str, kind: i32, grabs: &[GrabRule]) {
+        for grab in grabs {
+            let node = match grab.node.as_deref() {
+                Some(node) => match cstring(directory, "grab node", node) {
+                    Some(node) => Some(node),
+                    None => continue,
+                },
+                None => None,
+            };
+            let mut present = 0;
+            if grab.victim.is_some() {
+                present |= GRAB_SET_VICTIM;
+            }
+            if grab.then.is_some() {
+                present |= GRAB_SET_THEN;
+            }
+            if grab.catch {
+                present |= GRAB_CATCH;
+            }
+            let registration = CloneGrabRuleV1 {
+                api_version: API_VERSION_V1,
+                struct_size: core::mem::size_of::<CloneGrabRuleV1>() as u32,
+                fighter_kind: kind,
+                present,
+                status: grab.status,
+                victim: grab.victim.unwrap_or(-1),
+                then: grab.then.unwrap_or(-1),
+                reserved0: 0,
+                node: node.as_ref().map_or(core::ptr::null(), |node| node.as_ptr()),
+                offset: grab.offset,
+                reserved1: 0,
+                reserved: [0; 4],
+            };
+            let result = unsafe { crate::grab_rules::clone_engine_grab_rule_v1(&registration) };
+            if result < 0 {
+                skyline::println!("[fighterpack] {directory}: grab {} result={result}", grab.describe());
             }
         }
     }

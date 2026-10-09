@@ -108,6 +108,47 @@ a grabbed pose on a fighter nobody holds crashes.
 plugin with no fighter calls `clone_engine_api::global_motion` or
 `global_victim_motion`. Every key is in the [API reference](../API.md#fighters).
 
+## Command grabs
+
+A CATCH box only catches when the grabber accepts. The game accepts by itself
+in its grab statuses (`CATCH`, `CATCH_DASH`, `CATCH_TURN`); anywhere else the
+victim slips out. A grab rule accepts it in your own status:
+
+```rust
+use clone_engine_api::v2::Grab;
+
+Manifest::new("my_fighter", "mario")
+    .grab(Grab::new(*FIGHTER_STATUS_KIND_SPECIAL_S)
+        .victim(*FIGHTER_STATUS_KIND_CATCHED_GANON)
+        .then(MY_STATUS_SPECIAL_S_CATCH))
+```
+
+```toml
+[[grab]]
+status = "SPECIAL_S"        # the grabber status the CATCH box is out in
+victim = "CATCHED_GANON"    # the status the box gives the victim; any if left out
+then = 0x1e2                # the grabber status once caught
+```
+
+- The victim is held at the `throw` joint. `node = "hip"` picks another,
+  `node = ""` leaves it free, as in Ganondorf's Dark Dive. `offset = [x, y, z]`
+  moves it.
+- `catch = true` calls the grabber's `CatchModule::set_catch(victim)`, for a `then`
+  status that does not.
+- The victim plays the motion its status names (`catched_ganon` for
+  `CATCHED_GANON`) from your motion list: list it with your animation, plus
+  `_dx` and `_girl`. Every other fighter's entry is empty, so they all play
+  yours.
+- `victim = "CAPTURE_PULLED"` with `then = "CATCH_PULL"` makes the move an
+  ordinary grab with your pummel and throws.
+  `custom_fighters/template_v2` does this on side special.
+- `then` starts before the victim is linked; read `LINK_NO_CAPTURE` from
+  `Main` on.
+
+A status is a number or a name from the
+[API reference](../API.md#fighters). A plugin with no manifest calls
+`clone_engine_api::grab(kind, &Grab)`.
+
 ## Packs written before `fighter.toml`
 
 They register with `CloneRegistration` and `allocate`, and check `is_kind`

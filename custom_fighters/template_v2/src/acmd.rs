@@ -60,3 +60,22 @@ pub unsafe extern "C" fn game_appeallw(agent: &mut L2CAgentBase) {
         crate::TEMPLATE.article("template_fireball").spawn(&*agent);
     }
 }
+
+// A command grab. The game only lets a CATCH box catch in its grab statuses;
+// this one is out in SPECIAL_S and catches because lib.rs declares a grab rule
+// for that status.
+pub unsafe extern "C" fn game_specials(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::CATCH(
+            agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 5.0, // id, bone, size, position
+            Some(0.0), Some(8.0), Some(12.0),                   // the box stretches to here
+            *FIGHTER_STATUS_KIND_CAPTURE_PULLED,                // the status the victim goes to
+            *COLLISION_SITUATION_MASK_G,                        // grounded victims only
+        );
+    }
+    wait(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        GrabModule::clear_all(agent.module_accessor);
+    }
+}

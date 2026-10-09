@@ -1,3 +1,5 @@
+use crate::grab_rule::GrabRule;
+
 fn quoted(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -110,6 +112,74 @@ impl Motion {
     }
 }
 
+pub struct Grab {
+    rule: GrabRule,
+}
+
+impl Grab {
+    pub fn new(status: i32) -> Self {
+        Self {
+            rule: GrabRule::new(status),
+        }
+    }
+
+    pub fn victim(mut self, status: i32) -> Self {
+        self.rule.victim = Some(status);
+        self
+    }
+
+    pub fn then(mut self, status: i32) -> Self {
+        self.rule.then = Some(status);
+        self
+    }
+
+    pub fn node(mut self, joint: &str) -> Self {
+        self.rule.node = Some(joint.to_string());
+        self
+    }
+
+    pub fn unpinned(mut self) -> Self {
+        self.rule.node = Some(String::new());
+        self
+    }
+
+    pub fn offset(mut self, x: f32, y: f32, z: f32) -> Self {
+        self.rule.offset = [x, y, z];
+        self
+    }
+
+    pub fn catch(mut self) -> Self {
+        self.rule.catch = true;
+        self
+    }
+
+    pub fn rule(&self) -> &GrabRule {
+        &self.rule
+    }
+
+    fn lines(&self) -> Vec<String> {
+        let rule = &self.rule;
+        let mut lines = vec![format!("status = {:#x}", rule.status)];
+        if let Some(victim) = rule.victim {
+            lines.push(format!("victim = {victim:#x}"));
+        }
+        if let Some(then) = rule.then {
+            lines.push(format!("then = {then:#x}"));
+        }
+        if let Some(node) = &rule.node {
+            lines.push(format!("node = {}", quoted(node)));
+        }
+        if rule.offset != [0.0; 3] {
+            let [x, y, z] = rule.offset.map(|value| float(f64::from(value)));
+            lines.push(format!("offset = [{x}, {y}, {z}]"));
+        }
+        if rule.catch {
+            lines.push("catch = true".to_string());
+        }
+        lines
+    }
+}
+
 pub struct Manifest {
     name: String,
     fighter: Vec<String>,
@@ -118,6 +188,7 @@ pub struct Manifest {
     motions: Vec<Motion>,
     meshes: Vec<(String, bool)>,
     global_motions: Vec<Motion>,
+    grabs: Vec<Grab>,
     params: Vec<(Option<u32>, bool, String, String)>,
     raw: Vec<String>,
 }
@@ -135,6 +206,7 @@ impl Manifest {
             motions: Vec::new(),
             meshes: Vec::new(),
             global_motions: Vec::new(),
+            grabs: Vec::new(),
             params: Vec::new(),
             raw: Vec::new(),
         }
@@ -286,6 +358,11 @@ impl Manifest {
         self
     }
 
+    pub fn grab(mut self, grab: Grab) -> Self {
+        self.grabs.push(grab);
+        self
+    }
+
     fn push_param(mut self, costume: Option<u32>, mul: bool, name: &str, value: String) -> Self {
         self.params.push((costume, mul, name.to_string(), value));
         self
@@ -375,6 +452,13 @@ impl Manifest {
             out.push_str("\n[[global_motion]]\n");
             for line in &motion.lines {
                 out.push_str(line);
+                out.push('\n');
+            }
+        }
+        for grab in &self.grabs {
+            out.push_str("\n[[grab]]\n");
+            for line in grab.lines() {
+                out.push_str(&line);
                 out.push('\n');
             }
         }
@@ -628,6 +712,25 @@ mod tests {
         assert!(fighter.global_motions.iter().all(|motion| motion.victim));
         assert_eq!(fighter.global_motions[0].animation, "e01thrownblusterf.nuanmb");
         assert!(fighter.global_motions[1].animation.is_empty());
+    }
+
+    #[test]
+    fn grabs_render_and_parse_back() {
+        let text = Manifest::new("bluster", "donkey")
+            .grab(Grab::new(0x1dd).victim(0xbe).then(0x1e2))
+            .grab(Grab::new(0x1de).victim(0xbd).unpinned().catch().offset(0.0, 2.5, 0.0))
+            .grab(Grab::new(0x27).victim(0x41).then(0x38).node("haver"))
+            .to_toml();
+        assert!(text.contains("\n[[grab]]\nstatus = 0x1dd\nvictim = 0xbe\nthen = 0x1e2\nnode = \"throw\"\n"));
+        assert!(text.contains("offset = [0.0, 2.5, 0.0]\ncatch = true\n"));
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.grabs.len(), 3);
+        assert_eq!(&fighter.grabs[0], Grab::new(0x1dd).victim(0xbe).then(0x1e2).rule());
+        assert_eq!(
+            &fighter.grabs[1],
+            Grab::new(0x1de).victim(0xbd).unpinned().catch().offset(0.0, 2.5, 0.0).rule()
+        );
+        assert_eq!(fighter.grabs[2].node.as_deref(), Some("haver"));
     }
 
     #[test]

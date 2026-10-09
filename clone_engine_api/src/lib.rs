@@ -102,6 +102,7 @@ pub const CAP_STAGE_CONFIG: u64 = 1 << 13;
 pub const CAP_STAGE_SELECT_EXTENDED: u64 = 1 << 14;
 pub const CAP_STAGE_CSK: u64 = 1 << 15;
 pub const CAP_GLOBAL_MOTIONS: u64 = 1 << 16;
+pub const CAP_GRAB_RULES: u64 = 1 << 17;
 pub const CAP_RESEARCH_ITEM_FAMILIES: u64 = 1 << 32;
 pub const CAP_RESEARCH_ITEM_MULTIBASE_STATUS_RESERVED: u64 = 1 << 33;
 
@@ -559,6 +560,7 @@ static CLONE_COPY_ARTICLE_FN: AtomicUsize = AtomicUsize::new(0);
 static COPY_ARTICLE_INDEX_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
 static GLOBAL_MOTION_FN: AtomicUsize = AtomicUsize::new(0);
+static GRAB_RULE_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MODEL_FN: AtomicUsize = AtomicUsize::new(0);
 static CLONE_COPY_MESH_FN: AtomicUsize = AtomicUsize::new(0);
 static LOG_FN: AtomicUsize = AtomicUsize::new(0);
@@ -1882,6 +1884,69 @@ fn submit_motion(
     };
 
     let function: CloneCopyMotionFn = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(&registration) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub const GRAB_SET_VICTIM: u32 = 1 << 0;
+pub const GRAB_SET_THEN: u32 = 1 << 1;
+pub const GRAB_CATCH: u32 = 1 << 2;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CloneGrabRuleV1 {
+    pub api_version: u32,
+    pub struct_size: u32,
+    pub fighter_kind: i32,
+    pub present: u32,
+    pub status: i32,
+    pub victim: i32,
+    pub then: i32,
+    pub reserved0: u32,
+    pub node: *const c_char,
+    pub offset: [f32; 3],
+    pub reserved1: u32,
+    pub reserved: [u64; 4],
+}
+
+type CloneGrabRuleFn = unsafe extern "C" fn(*const CloneGrabRuleV1) -> i32;
+
+pub fn grab(fighter_kind: i32, grab: &manifest::Grab) -> Result<(), Error> {
+    let address = resolve(&GRAB_RULE_FN, b"clone_engine_grab_rule_v1\0").ok_or(Error::EngineUnavailable)?;
+    let rule = grab.rule();
+    let node = rule
+        .node
+        .as_deref()
+        .map(|node| CString::new(node).map_err(|_| Error::InvalidName))
+        .transpose()?;
+    let mut present = 0;
+    if rule.victim.is_some() {
+        present |= GRAB_SET_VICTIM;
+    }
+    if rule.then.is_some() {
+        present |= GRAB_SET_THEN;
+    }
+    if rule.catch {
+        present |= GRAB_CATCH;
+    }
+    let registration = CloneGrabRuleV1 {
+        api_version: API_VERSION_V1,
+        struct_size: std::mem::size_of::<CloneGrabRuleV1>() as u32,
+        fighter_kind,
+        present,
+        status: rule.status,
+        victim: rule.victim.unwrap_or(-1),
+        then: rule.then.unwrap_or(-1),
+        reserved0: 0,
+        node: node.as_ref().map_or(std::ptr::null(), |node| node.as_ptr()),
+        offset: rule.offset,
+        reserved1: 0,
+        reserved: [0; 4],
+    };
+    let function: CloneGrabRuleFn = unsafe { std::mem::transmute(address) };
     let result = unsafe { function(&registration) };
     if result < 0 {
         return Err(Error::Engine(result));

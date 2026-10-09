@@ -440,7 +440,7 @@ fn compiled_capabilities() -> u64 {
     }
     #[cfg(feature = "css_slot")]
     {
-        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS;
+        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS | clone_engine_api::CAP_GRAB_RULES;
     }
     #[cfg(feature = "research_item_families")]
     {
@@ -4324,6 +4324,8 @@ use kirby_copy::*;
 mod kirby_motions;
 #[cfg(feature = "css_slot")]
 mod global_motions;
+#[cfg(feature = "css_slot")]
+mod grab_rules;
 
 #[cfg(feature = "css_slot")]
 mod css_registration;

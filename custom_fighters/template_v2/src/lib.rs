@@ -3,7 +3,8 @@
 
 pub use smashline::skyline_smash as smash;
 
-use clone_engine_api::v2::{fighter, Manifest, Motion};
+use clone_engine_api::v2::{fighter, Grab, Manifest, Motion};
+use smash::lib::lua_const::*;
 use smashline::{Agent, Main, Priority};
 
 mod acmd;
@@ -85,6 +86,20 @@ pub fn main() {
     } else {
         manifest
     };
+
+    // A command grab: the engine accepts the CATCH box in acmd::game_specials.
+    // For a Ganondorf-style hold instead, ask for CATCHED_GANON, go to a status
+    // of your own, and ship catched_ganon, catched_ganon_dx and
+    // catched_ganon_girl in your motion list: every opponent plays your file.
+    let manifest = if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_GRAB_RULES != 0 {
+        manifest.grab(
+            Grab::new(*FIGHTER_STATUS_KIND_SPECIAL_S)        // the grabber status the CATCH box is out in
+                .victim(*FIGHTER_STATUS_KIND_CAPTURE_PULLED) // the status the box gives the opponent
+                .then(*FIGHTER_STATUS_KIND_CATCH_PULL),      // the grabber's status once caught: an ordinary grab from here
+        )
+    } else {
+        manifest
+    };
     let kind = match TEMPLATE.register(manifest) {
         Ok(kind) => kind,
         Err(error) => {
@@ -102,6 +117,7 @@ pub fn main() {
         .sound_acmd("sound_attack11", acmd::sound_attack11, Priority::Default)
         .expression_acmd("expression_attack11", acmd::expression_attack11, Priority::Default)
         .game_acmd("game_appeallw", acmd::game_appeallw, Priority::Default)
+        .game_acmd("game_specials", acmd::game_specials, Priority::Default) // the command grab
         .status(smashline::Exec, *smash::lib::lua_const::FIGHTER_STATUS_KIND_WAIT, status::wait_exec) // status line, status kind, function
         .on_line(Main, frame::once_per_frame) // once per frame
         .on_start(frame::on_start)            // when the fighter is created
