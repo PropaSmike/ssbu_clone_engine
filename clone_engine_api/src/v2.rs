@@ -8,7 +8,7 @@ use std::ffi::{c_void, CString};
 use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
 pub use clone_engine_macros::hook;
-pub use crate::manifest::{register_fighter_manifest, register_item_manifest, Grab, ItemManifest, Manifest, Motion};
+pub use crate::manifest::{register_fighter_manifest, register_item_manifest, Grab, Hurtbox, ItemManifest, Manifest, Motion};
 pub use crate::slot;
 pub use crate::ArticleStatusLine as Line;
 pub use crate::{fighter, install_hooks, item};

@@ -512,6 +512,14 @@ pub(crate) fn fighter_kind_of_class(class: usize) -> Option<i32> {
     private_owner(&FIGHTER_CLASSES, FIRST_CUSTOM_KIND, class)
 }
 
+pub(crate) fn weapon_kind_of_class(class: usize) -> Option<i32> {
+    private_owner(&WEAPON_CLASSES, FIRST_CUSTOM_WEAPON_KIND, class)
+}
+
+pub(crate) fn minted_kind_of_object(object: usize) -> Option<i32> {
+    minted_kind_of(object)
+}
+
 fn private_owner(classes: &[AtomicUsize], first_kind: i32, class: usize) -> Option<i32> {
     if class == 0 {
         return None;

@@ -127,6 +127,7 @@ mod stage_transaction;
 mod text_patch;
 mod thread_context;
 mod clone_vtables;
+mod article_hurtboxes;
 mod common_vtables;
 
 #[cfg(feature = "css_slot")]

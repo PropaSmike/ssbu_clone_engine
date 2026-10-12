@@ -375,6 +375,24 @@ mod live {
                 article.name,
                 if article.kirby { " (Kirby copy)" } else { "" }
             );
+            if !article.hurtboxes.is_empty() {
+                match crate::article_hurtboxes::register(minted, &article.hurtboxes) {
+                    Ok(count) => skyline::println!(
+                        "[fighterpack] {directory}: article {} carries {count} hurtbox(es): {}",
+                        article.name,
+                        article
+                            .hurtboxes
+                            .iter()
+                            .map(|hurtbox| hurtbox.describe())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ),
+                    Err(message) => skyline::println!(
+                        "[fighterpack] {directory}: article {} hurtboxes REFUSED: {message}",
+                        article.name
+                    ),
+                }
+            }
         }
     }
 

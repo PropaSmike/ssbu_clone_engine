@@ -353,7 +353,12 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
         }
     }
 
-    let biased = base.wrapping_add(bias as u64);
+    let source_record = base.wrapping_add((record as i64 * WEAPON_RECORD_STRIDE) as u64) as usize;
+    let biased = match crate::article_hurtboxes::record_with_hit_module(weapon_kind, source_record) {
+        Some(private) => (private as u64)
+            .wrapping_sub((weapon_kind as i64 * WEAPON_RECORD_STRIDE) as u64),
+        None => base.wrapping_add(bias as u64),
+    };
     ctx.registers[25].set_x(biased);
     if let Some(index) = slot {
         WEAPON_RECORD_RESULT[index].store(biased, core::sync::atomic::Ordering::Relaxed);

@@ -42,7 +42,7 @@ pub(crate) struct SwapGuard {
     kind: i32,
     base_kind: i32,
     mode: GuardMode,
-    refcount: Option<u32>,
+    holds_refcount: bool,
 }
 
 impl SwapGuard {
@@ -53,7 +53,7 @@ impl SwapGuard {
             kind: -1,
             base_kind: -1,
             mode: GuardMode::Idle,
-            refcount: None,
+            holds_refcount: false,
         }
     }
 }
@@ -166,6 +166,28 @@ unsafe fn read_refcount(record: usize) -> u32 {
 
 unsafe fn write_refcount(record: usize, value: u32) {
     core::ptr::write_volatile((record + PARAM_RECORD_REFCOUNT) as *mut u32, value);
+}
+
+unsafe fn hold_unconstructed_record(record: usize) -> bool {
+    let Some(singleton) = singleton() else {
+        return false;
+    };
+    lock_param_singleton(singleton);
+    let unconstructed = read_refcount(record) == 0;
+    if unconstructed {
+        write_refcount(record, 1);
+    }
+    unlock_param_singleton(singleton);
+    unconstructed
+}
+
+unsafe fn release_record_hold(record: usize) {
+    let Some(singleton) = singleton() else {
+        return;
+    };
+    lock_param_singleton(singleton);
+    write_refcount(record, read_refcount(record).saturating_sub(1));
+    unlock_param_singleton(singleton);
 }
 
 unsafe fn read_instance(record: usize) -> Instance {
@@ -556,7 +578,7 @@ pub(crate) unsafe fn enter_clone_window(
             } else {
                 GuardMode::CaptureClone
             },
-            refcount: None,
+            holds_refcount: false,
         };
     }
 
@@ -574,7 +596,7 @@ pub(crate) unsafe fn enter_clone_window(
                 kind: clone_kind,
                 base_kind,
                 mode: GuardMode::Restore,
-                refcount: None,
+                holds_refcount: hold_unconstructed_record(record),
             }
         }
         _ => SwapGuard::idle(),
@@ -585,10 +607,11 @@ pub(crate) unsafe fn enter_clone_window(
     if n < 32 {
         let (peak, refused) = clone_slot_peak();
         dbg_log!(
-            "[cloneparam] #{n} enter clone={clone_kind} base={base_kind} resident={:#x} instance={:#x} swapped={} slots peak {peak}/{CLONE_SLOTS} refused {refused}",
+            "[cloneparam] #{n} enter clone={clone_kind} base={base_kind} resident={:#x} instance={:#x} swapped={} record_held={} slots peak {peak}/{CLONE_SLOTS} refused {refused}",
             current.payload,
             instance.map(|instance| instance.payload).unwrap_or(0),
-            matches!(guard.mode, GuardMode::Restore)
+            matches!(guard.mode, GuardMode::Restore),
+            guard.holds_refcount
         );
     }
     guard
@@ -615,7 +638,7 @@ pub(crate) unsafe fn enter_vanilla_window(base_kind: i32, entry_id: i32) -> Swap
             kind: -1,
             base_kind,
             mode: GuardMode::CaptureVanilla,
-            refcount: None,
+            holds_refcount: false,
         };
     }
 
@@ -642,11 +665,12 @@ pub(crate) unsafe fn enter_vanilla_window(base_kind: i32, entry_id: i32) -> Swap
         }
         None
     };
+    let holds_refcount = installed.is_some() && hold_unconstructed_record(record);
     unlock_swaps(swap_owned);
 
     if let Some(instance) = installed {
         dbg_log_public(&format!(
-            "[cloneparam] base {base_kind} shares its vl.prc struct with a clone; installed the base fighter's own instance A {:#x} B {:#x} as resident",
+            "[cloneparam] base {base_kind} shares its vl.prc struct with a clone; installed the base fighter's own instance A {:#x} B {:#x} as resident (record_held={holds_refcount})",
             instance.payload, instance.payload_b
         ));
     } else if separate {
@@ -654,21 +678,31 @@ pub(crate) unsafe fn enter_vanilla_window(base_kind: i32, entry_id: i32) -> Swap
             "[cloneparam] WARNING base {base_kind} needs its own vl.prc instance but none could be built; it will run on the clone's params this match"
         ));
     }
-    SwapGuard::idle()
+    if !holds_refcount {
+        return SwapGuard::idle();
+    }
+    SwapGuard {
+        record,
+        saved: EMPTY_INSTANCE,
+        kind: -1,
+        base_kind,
+        mode: GuardMode::Idle,
+        holds_refcount,
+    }
 }
 
 pub(crate) unsafe fn leave_window(guard: SwapGuard) {
     if guard.record == 0 {
         return;
     }
+    if guard.holds_refcount {
+        release_record_hold(guard.record);
+    }
     match guard.mode {
         GuardMode::Idle => {}
         GuardMode::Restore => {
             let swap_owned = lock_swaps();
             write_instance(guard.record, guard.saved);
-            if let Some(held) = guard.refcount {
-                write_refcount(guard.record, held);
-            }
             unlock_swaps(swap_owned);
         }
         GuardMode::CaptureClone => {

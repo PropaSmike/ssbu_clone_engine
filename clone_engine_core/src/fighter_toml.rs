@@ -1,3 +1,4 @@
+use crate::article_hurtbox::{Field, Hurtbox, MAX_PER_ARTICLE};
 use crate::grab_rule::{status_kind, GrabRule};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,12 +27,13 @@ pub struct ParamDeclaration {
     pub value: ParamValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ArticleDeclaration {
     pub name: String,
     pub from: Option<(String, String)>,
     pub base_article: Option<String>,
     pub kirby: bool,
+    pub hurtboxes: Vec<Hurtbox>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -149,6 +151,7 @@ impl MotionDeclaration {
 enum Section {
     Fighter,
     Article,
+    ArticleHurtbox,
     Kirby,
     Motion,
     GlobalMotion,
@@ -246,6 +249,7 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
     match (name, array) {
         ("fighter", false) => Ok(Section::Fighter),
         ("article", true) => Ok(Section::Article),
+        ("article.hurtbox", true) => Ok(Section::ArticleHurtbox),
         ("kirby", false) => Ok(Section::Kirby),
         ("kirby.motion", true) => Ok(Section::Motion),
         ("kirby.mesh", true) => Ok(Section::Mesh),
@@ -293,6 +297,15 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
             section = section_for(&name, array, line_number)?;
             match section {
                 Section::Article => declaration.articles.push(ArticleDeclaration::default()),
+                Section::ArticleHurtbox => match declaration.articles.last_mut() {
+                    Some(article) => article.hurtboxes.push(Hurtbox::default()),
+                    None => {
+                        return Err(error(
+                            line_number,
+                            "[[article.hurtbox]] must follow the [[article]] it belongs to",
+                        ))
+                    }
+                },
                 Section::Kirby => {
                     declaration.kirby.get_or_insert_with(KirbyDeclaration::default);
                 }
@@ -376,6 +389,14 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     "kirby" => article.kirby = parse_bool(value, line_number, key)?,
                     _ => return Err(error(line_number, format!("unknown article key {key}"))),
                 }
+            }
+            Section::ArticleHurtbox => {
+                let hurtbox = declaration
+                    .articles
+                    .last_mut()
+                    .and_then(|article| article.hurtboxes.last_mut())
+                    .expect("pushed at header");
+                hurtbox_key(hurtbox, key, value, line_number)?;
             }
             Section::Kirby => {
                 let kirby = declaration.kirby.as_mut().expect("inserted at header");
@@ -473,6 +494,26 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
                 format!("article {} has both from and base_article", article.name),
             ));
         }
+        if article.hurtboxes.is_empty() {
+            continue;
+        }
+        if article.from.is_none() {
+            return Err(error(
+                0,
+                format!("article {}: hurtboxes need from = \"fighter/weapon\"", article.name),
+            ));
+        }
+        if article.hurtboxes.len() > MAX_PER_ARTICLE {
+            return Err(error(
+                0,
+                format!("article {}: at most {MAX_PER_ARTICLE} hurtboxes", article.name),
+            ));
+        }
+        for hurtbox in &article.hurtboxes {
+            hurtbox
+                .check()
+                .map_err(|message| error(0, format!("article {}: {message}", article.name)))?;
+        }
     }
     if let Some(kirby) = &declaration.kirby {
         if kirby.statuses < 0 {
@@ -552,6 +593,54 @@ fn grab_key(grab: &mut GrabRule, key: &str, value: &str, line_number: usize) -> 
         }
         "catch" => grab.catch = parse_bool(value, line_number, key)?,
         _ => return Err(error(line_number, format!("unknown grab key {key}"))),
+    }
+    Ok(())
+}
+
+fn parse_vector(value: &str, line: usize, key: &str) -> Result<[f32; 3], ParseError> {
+    let parts = parse_list(value, line, key)?;
+    if parts.len() != 3 {
+        return Err(error(line, format!("{key} must be [x, y, z]")));
+    }
+    let mut out = [0.0f32; 3];
+    for (slot, part) in out.iter_mut().zip(&parts) {
+        *slot = part
+            .parse::<f32>()
+            .map_err(|_| error(line, format!("{key} must be [x, y, z] numbers")))?;
+    }
+    Ok(out)
+}
+
+fn parse_field(field: Field, value: &str, line: usize) -> Result<i32, ParseError> {
+    let value = value.trim();
+    if value.starts_with('"') {
+        let name = unquote(value, line)?;
+        return field.value(&name).ok_or_else(|| {
+            error(
+                line,
+                format!("{}: {name:?} is not one of {}", field.key(), field.names()),
+            )
+        });
+    }
+    parse_int::<i32>(value, line, field.key())
+}
+
+fn hurtbox_key(hurtbox: &mut Hurtbox, key: &str, value: &str, line_number: usize) -> Result<(), ParseError> {
+    match key {
+        "node" => hurtbox.node = unquote(value, line_number)?,
+        "size" => {
+            hurtbox.size = value
+                .trim()
+                .parse::<f32>()
+                .map_err(|_| error(line_number, "size must be a number"))?
+        }
+        "offset" => hurtbox.offset = parse_vector(value, line_number, key)?,
+        "offset2" => hurtbox.offset2 = Some(parse_vector(value, line_number, key)?),
+        "part" => hurtbox.part = parse_field(Field::Part, value, line_number)?,
+        "height" => hurtbox.height = parse_field(Field::Height, value, line_number)?,
+        "status" => hurtbox.status = parse_field(Field::Status, value, line_number)?,
+        "shape" => hurtbox.shape = Some(parse_field(Field::Shape, value, line_number)?),
+        _ => return Err(error(line_number, format!("unknown hurtbox key {key}"))),
     }
     Ok(())
 }
@@ -751,6 +840,32 @@ scale = 0.95
         let failure = parse("name = \"wawa\"\nbase = \"samus\"\n[sound]\nbank = 1\n").unwrap_err();
         assert_eq!(failure.line, 3);
         assert!(failure.message.starts_with("unknown table"));
+    }
+
+    #[test]
+    fn article_hurtboxes_parse_names_and_numbers() {
+        let text = "name = \"wawa\"\nbase = \"samus\"\n[[article]]\nname = \"rock\"\nfrom = \"pacman/firehydrant\"\n[[article.hurtbox]]\nnode = \"hip\"\nsize = 4\noffset = [0, 4, 0]\noffset2 = [0, 9, 0]\npart = \"COLLISION_PART_HEAD\"\nheight = 2\nstatus = \"xlu\"\n[[article.hurtbox]]\nnode = \"top\"\nsize = 1.5\nshape = \"aabb\"\n";
+        let fighter = parse(text).unwrap();
+        let boxes = &fighter.articles[0].hurtboxes;
+        assert_eq!(boxes.len(), 2);
+        assert_eq!(boxes[0].size, 4.0);
+        assert_eq!(boxes[0].offset2, Some([0.0, 9.0, 0.0]));
+        assert_eq!((boxes[0].part, boxes[0].height, boxes[0].status), (4, 2, 2));
+        assert_eq!(boxes[0].resolved_shape(), 2);
+        assert_eq!(boxes[1].resolved_shape(), 1);
+    }
+
+    #[test]
+    fn article_hurtboxes_are_refused_where_the_engine_cannot_serve_them() {
+        let head = "name = \"wawa\"\nbase = \"samus\"\n";
+        let orphan = format!("{head}[[article.hurtbox]]\nnode = \"hip\"\nsize = 1\n");
+        assert!(parse(&orphan).unwrap_err().message.contains("must follow"));
+        let renamed = format!("{head}[[article]]\nname = \"x\"\nbase_article = \"cshot\"\n[[article.hurtbox]]\nnode = \"hip\"\nsize = 1\n");
+        assert!(parse(&renamed).unwrap_err().message.contains("need from"));
+        let sizeless = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\n[[article.hurtbox]]\nnode = \"hip\"\n");
+        assert!(parse(&sizeless).unwrap_err().message.contains("size"));
+        let unknown = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\n[[article.hurtbox]]\nnode = \"hip\"\nsize = 1\nshape = \"cube\"\n");
+        assert!(parse(&unknown).unwrap_err().message.contains("sphere, aabb, capsule"));
     }
 
     #[test]

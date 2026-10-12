@@ -1,3 +1,4 @@
+use crate::article_hurtbox::Hurtbox;
 use crate::grab_rule::GrabRule;
 
 fn quoted(text: &str) -> String {
@@ -184,6 +185,7 @@ pub struct Manifest {
     name: String,
     fighter: Vec<String>,
     articles: Vec<Vec<String>>,
+    article_hurtboxes: Vec<(String, Hurtbox)>,
     kirby: Vec<String>,
     motions: Vec<Motion>,
     meshes: Vec<(String, bool)>,
@@ -202,6 +204,7 @@ impl Manifest {
                 format!("base = {}", quoted(base)),
             ],
             articles: Vec::new(),
+            article_hurtboxes: Vec::new(),
             kirby: Vec::new(),
             motions: Vec::new(),
             meshes: Vec::new(),
@@ -323,6 +326,11 @@ impl Manifest {
         self
     }
 
+    pub fn article_hurtbox(mut self, article: &str, hurtbox: Hurtbox) -> Self {
+        self.article_hurtboxes.push((article.to_string(), hurtbox));
+        self
+    }
+
     pub fn kirby(mut self, statuses: i32) -> Self {
         self.kirby.push(format!("statuses = {statuses}"));
         self
@@ -424,10 +432,32 @@ impl Manifest {
             out.push_str(line);
             out.push('\n');
         }
+        let mut placed = vec![false; self.article_hurtboxes.len()];
         for article in &self.articles {
             out.push_str("\n[[article]]\n");
             for line in article {
                 out.push_str(line);
+                out.push('\n');
+            }
+            for (index, (name, hurtbox)) in self.article_hurtboxes.iter().enumerate() {
+                if placed[index] || article.first() != Some(&format!("name = {}", quoted(name))) {
+                    continue;
+                }
+                placed[index] = true;
+                out.push_str("\n[[article.hurtbox]]\n");
+                for line in hurtbox.lines() {
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+            }
+        }
+        for (index, (name, hurtbox)) in self.article_hurtboxes.iter().enumerate() {
+            if placed[index] {
+                continue;
+            }
+            out.push_str(&format!("\n[[article]]\nname = {}\n\n[[article.hurtbox]]\n", quoted(name)));
+            for line in hurtbox.lines() {
+                out.push_str(&line);
                 out.push('\n');
             }
         }
@@ -731,6 +761,34 @@ mod tests {
             Grab::new(0x1de).victim(0xbd).unpinned().catch().offset(0.0, 2.5, 0.0).rule()
         );
         assert_eq!(fighter.grabs[2].node.as_deref(), Some("haver"));
+    }
+
+    #[test]
+    fn article_hurtboxes_render_under_their_article_and_parse_back() {
+        use crate::article_hurtbox::Hurtbox;
+        let rock = Hurtbox::new("hip", 4.0).offset(0.0, 4.0, 0.0).offset2(0.0, 9.0, 0.0);
+        let text = Manifest::new("wawa", "samus")
+            .article("beam", "samus/cshot")
+            .article("rock", "pacman/firehydrant")
+            .article_hurtbox("rock", rock.clone())
+            .article_hurtbox("rock", Hurtbox::new("top", 2.0).part(4))
+            .to_toml();
+        assert!(text.contains("from = \"pacman/firehydrant\"\n\n[[article.hurtbox]]\nnode = \"hip\"\n"));
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert!(fighter.articles[0].hurtboxes.is_empty());
+        assert_eq!(fighter.articles[1].hurtboxes.len(), 2);
+        assert_eq!(fighter.articles[1].hurtboxes[0], rock);
+        assert_eq!(fighter.articles[1].hurtboxes[1].part, 4);
+    }
+
+    #[test]
+    fn a_hurtbox_for_an_undeclared_article_fails_the_parse() {
+        use crate::article_hurtbox::Hurtbox;
+        let text = Manifest::new("wawa", "samus")
+            .article_hurtbox("ghost", Hurtbox::new("hip", 1.0))
+            .to_toml();
+        let message = crate::fighter_toml::parse_all(&text).unwrap_err().message;
+        assert!(message.contains("ghost"), "{message}");
     }
 
     #[test]

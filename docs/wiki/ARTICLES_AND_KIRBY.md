@@ -50,6 +50,51 @@ A costume folder without its own `.lvd` uses the one from the nearest costume
 that has one. Several articles made from the same base article each use their
 own file.
 
+## Hurtboxes
+
+An article made with `from` can be given hurtboxes, on top of any its source already has.
+In the manifest:
+
+```rust
+use clone_engine_api::v2::Hurtbox;
+
+Manifest::new("my_fighter", "samus")
+    .article("rock", "koopajr/cannonball")
+    .article_hurtbox(
+        "rock",                          // the article
+        Hurtbox::new("rot", 4.0)         // joint of the article's model, radius
+            .offset(0.0, 2.0, 0.0)       // from the joint
+            .offset2(0.0, 6.0, 0.0),     // second end: makes a capsule
+    )
+```
+
+or in `fighter.toml`, under the article:
+
+```toml
+[[article]]
+name = "rock"
+from = "koopajr/cannonball"
+
+[[article.hurtbox]]
+node = "rot"            # joint of the article's model
+size = 4.0              # radius
+offset = [0, 2, 0]      # from the joint
+offset2 = [0, 6, 0]     # optional second end; with it the shape is a capsule
+```
+
+| Key | Values | Default |
+|---|---|---|
+| `node` | a joint of the article's model | required |
+| `size` | radius | required |
+| `offset`, `offset2` | `[x, y, z]` | `[0, 0, 0]`, none |
+| `part` | `body`, `etc`, `legs`, `body_legs`, `head` | `etc` |
+| `height` | `low`, `center`, `high` | `center` |
+| `status` | `normal`, `invincible`, `xlu`, `off` | `normal` |
+| `shape` | `sphere`, `aabb`, `capsule` | `capsule` with `offset2`, else `sphere` |
+
+The names also accept the game's constant names (`COLLISION_PART_HEAD`) and plain numbers.
+Up to 16 per article. What a hit does is up to the article's status scripts.
+
 ## Kirby copies
 
 Reserve the status numbers the copied move needs:

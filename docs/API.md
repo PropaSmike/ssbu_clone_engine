@@ -202,6 +202,7 @@ With no plugin, drop `css = false` and add `series`, `disp_order`,
 | `display_name` | `name_label`. |
 | `css = false` | `own_css()`. |
 | `[[article]]` with `name`, `from` or `base_article`, `kirby = true` | `article`, `base_article`, `kirby_article`. |
+| `[[article.hurtbox]]` with `node`, `size`, `offset`, `offset2`, `part`, `height`, `status`, `shape` | `article_hurtbox(article, Hurtbox)`. See [Articles](wiki/ARTICLES_AND_KIRBY.md#hurtboxes). |
 | `[kirby]` with `statuses`, `first`, `full_model`, `model`; `[[kirby.mesh]]` with `name`, `visible` | `kirby`, `kirby_first`, `kirby_full_model`, `kirby_model`, `kirby_mesh`. |
 | `[[kirby.motion]]` with `name`, `animation`, `template`, `scripts` or `game`/`sound`/`effect`/`expression`, `flags` or `loop`, `blend_frames`, `cancel_frame`, `xlu`, `no_stop_intp`, `animation_unk`, `no_extra` | `kirby_motion`. |
 | `[[global_motion]]` with `name`, then `template`, `animation`, `victim = true` or a mix, plus any `[[kirby.motion]]` key | `global_motion`. |

@@ -1,3 +1,4 @@
+pub mod article_hurtbox;
 pub mod article_literals;
 pub mod article_lvd;
 pub mod common_vtable;
