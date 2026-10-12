@@ -134,6 +134,11 @@ pub fn branch(site: usize, target: usize) -> u32 {
     B_OPCODE | ((((target as i64 - site as i64) >> 2) as u32) & 0x03ff_ffff)
 }
 
+pub fn trampoline_return(words: &[u32; PROLOGUE_WORDS]) -> Option<usize> {
+    (words[0] == LDR_X17_LITERAL && words[1] == BR_X17)
+        .then(|| (u64::from(words[2]) | (u64::from(words[3]) << 32)) as usize)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +249,24 @@ mod tests {
         assert!(!windows_overlap(0x48abb0, 0x48abc4));
         assert!(!windows_overlap(0x4e53a0, 0x4e53e0));
         assert!(!windows_overlap(0x4e53a0, 0x4e53b4));
+    }
+
+    #[test]
+    fn a_jump_back_stub_names_its_return_into_main() {
+        assert_eq!(
+            trampoline_return(&[0x5800_0051, 0xd61f_0220, 0x80f1_ed18, 0x0000_0000]),
+            Some(0x80f1_ed18)
+        );
+        assert_eq!(
+            trampoline_return(&[0x5800_0051, 0xd61f_0220, 0x8b57_2400, 0x0000_0071]),
+            Some(0x71_8b57_2400)
+        );
+    }
+
+    #[test]
+    fn other_code_at_a_return_address_is_not_a_stub() {
+        assert_eq!(trampoline_return(&GANONDORF_ON_LINK_EVENT), None);
+        assert_eq!(trampoline_return(&[0x5800_0091, 0xd61f_0220, 1, 1]), None);
+        assert_eq!(trampoline_return(&[0x5800_0051, 0xd63f_0220, 1, 1]), None);
     }
 }

@@ -306,16 +306,6 @@ fn clone_definition_from_ui(ui_chara: u64) -> Option<&'static CloneDefinition> {
 }
 
 #[cfg(feature = "css_slot")]
-fn clone_definition_from_fighter_hash(fighter_kind: u64) -> Option<&'static CloneDefinition> {
-    clone_definitions()
-        .read()
-        .unwrap()
-        .iter()
-        .copied()
-        .find(|definition| hash40(definition.fighter_kind_name) == fighter_kind)
-}
-
-#[cfg(feature = "css_slot")]
 const OFF_UI_FIGHTER_KIND_LOOKUP: usize = 0x326_2130;
 #[cfg(feature = "css_slot")]
 const OFF_UPDATE_SELECTED_FIGHTER: usize = 0x331_1190;
@@ -326,7 +316,19 @@ const OFF_MATCH_ENTRY_EXPAND_INNER_CALL: usize = 0x66_db84;
 #[cfg(feature = "css_slot")]
 const OFF_CONSTRUCTION_ROSTER_EXPAND_CALL: usize = 0x14e_c248;
 #[cfg(feature = "css_slot")]
+const OFF_FIGHTER_CHANGE_EXPAND_CALL: usize = 0x32c_a150;
+#[cfg(feature = "css_slot")]
+const OFF_FIGHTER_CHANGE_REQUEST_CALL: usize = 0x178_aae0;
+#[cfg(feature = "css_slot")]
+const OFF_TEAM_QUEUE_EXPAND_INPUT: usize = 0x249_376c;
+#[cfg(feature = "css_slot")]
 const OFF_CSS_ICON_COLUMN_BOUND: usize = 0x19f_1dec;
+#[cfg(feature = "css_slot")]
+const OFF_PLAYER_INFO_COSTUME_STORED: usize = 0x178_8380;
+#[cfg(feature = "css_slot")]
+const OFF_TEAM_MEMBER_COSTUME_STORED: usize = 0x249_3330;
+#[cfg(feature = "css_slot")]
+const OFF_KIND_DISPLAY_UI: usize = 0x138_c9b0;
 
 static REGISTRY: OnceLock<RwLock<HashMap<i32, i32>>> = OnceLock::new();
 static REGISTRATION_GATE: OnceLock<Mutex<()>> = OnceLock::new();
@@ -3003,6 +3005,9 @@ unsafe fn weapon_owner_clone_kind(
     owner_work_id: i32,
     allow_kirby_copy: bool,
 ) -> Option<i32> {
+    if active_vanilla_construction_kind().is_some() {
+        return None;
+    }
     let owner_id = smash::app::lua_bind::WorkModule::get_int(boma, owner_work_id) as u32;
     if owner_id == *smash::lib::lua_const::BATTLE_OBJECT_ID_INVALID as u32
         || !smash::app::sv_battle_object::is_active(owner_id)
@@ -4331,6 +4336,8 @@ mod grab_rules;
 mod css_registration;
 #[cfg(feature = "css_slot")]
 use css_registration::*;
+#[cfg(feature = "css_slot")]
+mod csk_row_bridge;
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 mod fighter_params;
@@ -4688,10 +4695,15 @@ pub fn main() {
             skyline::install_hook!(clone_fighter_status_create);
             install_custom_module_name_hook();
             skyline::install_hook!(ui_fighter_kind_lookup_hook);
+            skyline::install_hook!(kind_display_ui_hook);
             skyline::install_hook!(update_selected_fighter_hook);
             skyline::install_hook!(match_entry_expand_outer_call_hook);
             skyline::install_hook!(match_entry_expand_inner_call_hook);
             skyline::install_hook!(construction_roster_expand_call_hook);
+            skyline::install_hook!(fighter_change_expand_call_hook);
+            skyline::install_hook!(fighter_change_request_hook);
+            skyline::install_hook!(team_queue_expand_input_hook);
+            unsafe { csk_row_bridge::install() };
             #[cfg(feature = "diag_load_barrier")]
             {
                 skyline::install_hook!(load_pipeline::load_barrier_poll_probe);

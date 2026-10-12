@@ -645,7 +645,9 @@ pub(crate) unsafe fn model_path_namespace_hook(
 ) {
     let entry = entry_for_resource_record(record as usize);
     let selected_kind = entry.and_then(|entry| entry_custom_kind(entry as u8));
-    let definition = selected_kind.and_then(clone_definition);
+    let definition = selected_kind
+        .and_then(clone_definition)
+        .filter(|definition| kind == definition.base_kind || kind == definition.kind);
     let is_custom_entry = definition.is_some();
     let effective_kind = match definition {
         Some(definition) if kind == definition.base_kind => definition.kind,
@@ -997,19 +999,40 @@ pub(crate) unsafe fn load_barrier_poll_probe(ctx: &mut skyline::hooks::InlineCtx
 }
 
 #[cfg(feature = "true_kind")]
+unsafe fn return_into_main(lr: usize) -> usize {
+    let text = crate::game::raw_text_base()..crate::text_end();
+    if lr == 0 || lr & 3 != 0 || text.contains(&lr) {
+        return lr;
+    }
+    let at = lr as *const u32;
+    let words = [
+        core::ptr::read_volatile(at),
+        core::ptr::read_volatile(at.add(1)),
+        core::ptr::read_volatile(at.add(2)),
+        core::ptr::read_volatile(at.add(3)),
+    ];
+    match clone_engine_core::hook_site::trampoline_return(&words) {
+        Some(target) if text.contains(&target) => target,
+        _ => lr,
+    }
+}
+
 #[skyline::hook(offset = crate::game::rel(OFF_KIND_EXPANDER))]
 pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
-    close_registration("match roster expansion");
     let lr: usize;
     #[cfg(target_arch = "aarch64")]
-    core::arch::asm!("mov {}, x30", out(reg) lr);
+    core::arch::asm!("mov {}, x30", out(reg) lr, options(nomem, nostack, preserves_flags));
     #[cfg(not(target_arch = "aarch64"))]
     {
         lr = 0;
     }
-    let caller_off = crate::game::offset_of(lr);
+    close_registration("match roster expansion");
+    let caller_off = crate::game::offset_of(return_into_main(lr));
 
     let n = ENTRY118_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "css_slot")]
+    let k = kind;
+    #[cfg(not(feature = "css_slot"))]
     let mut k = kind;
 
     #[cfg(feature = "css_slot")]
@@ -1020,12 +1043,9 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
                 definition.kind
             );
         } else if caller_off == IN_MATCH_RESOURCE_LOADER_CALLER {
-            k = definition.base_kind;
             dbg_log!(
-                "[entrykind] expand #{n}: kind {} -> {} ({}, RESOURCE-LOADER caller @{caller_off:#x})",
-                definition.kind,
-                definition.base_kind,
-                definition.base_resource_name
+                "[entrykind] expand #{n}: kind {} retained (RESOURCE-LOADER caller @{caller_off:#x})",
+                definition.kind
             );
         } else {
             dbg_log!(
@@ -1699,6 +1719,27 @@ pub(crate) static LOAD_DISP_HI: core::sync::atomic::AtomicU32 =
 pub(crate) static LOAD_DISP_LO: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+static ENTRY_IDENTITY_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+unsafe fn refresh_entry_identity(record: usize, kind: i32) {
+    let Some(entry) = entry_for_resource_record(record) else {
+        return;
+    };
+    let previous = entry_custom_kind(entry as u8);
+    let incoming = clone_definition(kind).map(|definition| definition.kind);
+    if previous == incoming {
+        return;
+    }
+    cache_custom_entry_selection(entry as i32, incoming);
+    if ENTRY_IDENTITY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 16 {
+        dbg_log_public(&format!(
+            "[cssentry] entry {entry} loads kind {kind}; its clone identity {previous:?} -> {incoming:?}"
+        ));
+    }
+}
+
 #[cfg(feature = "clone_runtime")]
 #[skyline::hook(offset = crate::game::rel(OFF_LOAD_DISPATCH))]
 pub(crate) unsafe extern "C" fn load_dispatch_kind_hook(
@@ -1725,6 +1766,11 @@ pub(crate) unsafe extern "C" fn load_dispatch_kind_hook(
     } else {
         0xffff_ffff
     };
+
+    #[cfg(feature = "css_slot")]
+    if (kind as i32) >= 0 {
+        refresh_entry_identity(a0 as usize, kind as i32);
+    }
 
     if let Some(definition) = clone_definition(kind as i32) {
         let n = LOAD_DISP_HI.fetch_add(1, core::sync::atomic::Ordering::Relaxed);

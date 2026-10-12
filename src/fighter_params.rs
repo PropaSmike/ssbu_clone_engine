@@ -761,6 +761,9 @@ static PARAM_DATA_REAL: [AtomicBool; PARAM_NATIVE_KINDS as usize] =
 static FOREIGN_LOADED: [AtomicBool; PARAM_NATIVE_KINDS as usize] =
     [const { AtomicBool::new(false) }; PARAM_NATIVE_KINDS as usize];
 
+static FOREIGN_PAYLOAD: [AtomicUsize; PARAM_NATIVE_KINDS as usize] =
+    [const { AtomicUsize::new(0) }; PARAM_NATIVE_KINDS as usize];
+
 const PAYLOAD_STUB_BYTES: usize = 0x4000;
 
 pub(crate) fn kind_params_present(kind: i32) -> bool {
@@ -959,7 +962,7 @@ pub(crate) fn kind_params_have_real_data(kind: i32) -> bool {
     if !kind_params_are_foreign(kind) {
         return kind_params_present(kind);
     }
-    PARAM_DATA_REAL[kind as usize].load(Ordering::Relaxed)
+    PARAM_DATA_REAL[kind as usize].load(Ordering::Relaxed) && kind_params_present(kind)
 }
 
 pub(crate) fn kind_params_are_foreign(kind: i32) -> bool {
@@ -991,6 +994,11 @@ pub(crate) unsafe fn ensure_kind_params_loaded(kind: i32) -> bool {
     if read_pair(record).0 != 0 {
         return true;
     }
+    if FOREIGN_PAYLOAD[kind as usize].swap(0, Ordering::Relaxed) != 0 {
+        FOREIGN_LOADED[kind as usize].store(false, Ordering::Relaxed);
+        PARAM_DATA_REAL[kind as usize].store(false, Ordering::Relaxed);
+        foreign_log(kind, "the game released the earlier load with its match; loading it again");
+    }
     if FOREIGN_LOADED[kind as usize].swap(true, Ordering::Relaxed) {
         return false;
     }
@@ -1020,6 +1028,7 @@ pub(crate) unsafe fn ensure_kind_params_loaded(kind: i32) -> bool {
         foreign_log(kind, "the loaders produced an incomplete record");
         return false;
     }
+    FOREIGN_PAYLOAD[kind as usize].store(loaded.payload, Ordering::Relaxed);
     foreign_log(
         kind,
         &format!(

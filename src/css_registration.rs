@@ -30,6 +30,10 @@ pub(crate) static CSS_CUSTOM_ENTRY_KINDS: [core::sync::atomic::AtomicI32; 8] =
     [const { core::sync::atomic::AtomicI32::new(ENTRY_SELECTION_UNOBSERVED) }; 8];
 
 #[cfg(feature = "css_slot")]
+static CSS_REPORTED_ENTRY_UI: [core::sync::atomic::AtomicU64; 8] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 8];
+
+#[cfg(feature = "css_slot")]
 static ENTRY_RECOVERY_REFUSED_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
@@ -130,18 +134,58 @@ pub(crate) const ENTRY_RECORD_UI_CHARA: usize = 0x00;
 pub(crate) const ENTRY_RECORD_COSTUME: usize = 0x19;
 
 #[cfg(feature = "css_slot")]
+unsafe fn record_ui_chara(source: *const u8) -> u64 {
+    let mut ui_chara = 0u64;
+    for index in 0..5 {
+        let byte = core::ptr::read_volatile(source.add(ENTRY_RECORD_UI_CHARA + index));
+        ui_chara |= u64::from(byte) << (index * 8);
+    }
+    ui_chara
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) unsafe fn record_clone_definition(
     source: *const u8,
 ) -> Option<&'static CloneDefinition> {
     if source.is_null() {
         return None;
     }
-    let mut ui_chara = 0u64;
-    for index in 0..5 {
-        let byte = core::ptr::read_volatile(source.add(ENTRY_RECORD_UI_CHARA + index));
-        ui_chara |= u64::from(byte) << (index * 8);
+    clone_definition_from_ui(record_ui_chara(source))
+}
+
+#[cfg(feature = "css_slot")]
+fn costume_in_css_colours(definition: &CloneDefinition, costume: u8) -> bool {
+    costume >= definition.color_start
+        && u16::from(costume)
+            < u16::from(definition.color_start) + u16::from(definition.css_color_count())
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn record_clone_kind(source: *const u8) -> Option<i32> {
+    let definition = record_clone_definition(source)?;
+    let costume = core::ptr::read_volatile(source.add(ENTRY_RECORD_COSTUME));
+    costume_in_css_colours(definition, costume).then_some(definition.kind)
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn rewritten_record_kind(
+    entry_id: u8,
+    source: *const u8,
+    site: &'static str,
+) -> Option<Option<i32>> {
+    let reported = CSS_REPORTED_ENTRY_UI.get(entry_id as usize)?;
+    let reported_ui = reported.load(core::sync::atomic::Ordering::SeqCst);
+    let record_ui = record_ui_chara(source);
+    if reported_ui == 0 || record_ui == 0 || record_ui == reported_ui {
+        return None;
     }
-    clone_definition_from_ui(ui_chara)
+    let kind = record_clone_kind(source);
+    reported.store(record_ui, core::sync::atomic::Ordering::SeqCst);
+    cache_custom_entry_selection(entry_id as i32, kind);
+    dbg_log!(
+        "[csscache] entry={entry_id} record ui {record_ui:#x} was written after the selection writer reported {reported_ui:#x}; the record decides kind {kind:?} site={site}"
+    );
+    Some(kind)
 }
 
 #[cfg(feature = "css_slot")]
@@ -151,6 +195,11 @@ pub(crate) fn validated_entry_custom_kind(
     record: Option<*const u8>,
     site: &'static str,
 ) -> Option<i32> {
+    if let Some(kind) =
+        record.and_then(|source| unsafe { rewritten_record_kind(entry_id, source, site) })
+    {
+        return kind;
+    }
     let Some(custom_kind) = entry_custom_kind(entry_id) else {
         if input_kind != 0 {
             return None;
@@ -167,10 +216,7 @@ pub(crate) fn validated_entry_custom_kind(
         if let Some(source) = record {
             if let Some(definition) = unsafe { record_clone_definition(source) } {
                 let costume = unsafe { core::ptr::read_volatile(source.add(ENTRY_RECORD_COSTUME)) };
-                let in_range = costume >= definition.color_start
-                    && u16::from(costume)
-                        < u16::from(definition.color_start)
-                            + u16::from(definition.css_color_count());
+                let in_range = costume_in_css_colours(definition, costume);
                 if !in_range {
                     let n =
                         ENTRY_RECOVERY_REFUSED_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -516,22 +562,75 @@ pub(crate) unsafe fn css_icon_column_bound_hook(ctx: &mut skyline::hooks::Inline
 }
 
 #[cfg(feature = "css_slot")]
+const FIGHTER_CHANGE_LOOKUP_RETURNS: [usize; 3] = [0x330_57d4, 0x330_5888, 0x249_331c];
+
+#[cfg(feature = "css_slot")]
+const UI_FROM_KIND_SCAN_RETURN: usize = 0x326_398c;
+
+#[cfg(feature = "css_slot")]
+static UI_FROM_KIND_SCAN_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+const FIGHTER_CHANGE_PLAYER_UPDATE_RETURNS: [usize; 3] = [0x330_5500, 0x330_58d0, 0x330_5a44];
+
+#[cfg(feature = "css_slot")]
+const PLAYER_INFO_IN_MATCH_SETTINGS: usize = 0x5b0;
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_UI_FIGHTER_KIND_LOOKUP))]
 pub(crate) unsafe fn ui_fighter_kind_lookup_hook(database: *mut u8, encoded_hash: u64) -> i32 {
+    let lr: usize;
+    core::arch::asm!("mov {}, x30", out(reg) lr, options(nomem, nostack, preserves_flags));
     close_registration("CSS fighter-kind lookup");
-    let kind_hash = encoded_hash & 0x00ff_ffff_ffff;
-    if let Some(definition) = clone_definition_from_fighter_hash(kind_hash) {
-        static LOGGED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-        if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            dbg_log!(
-                "[csskind] resolve {} hash={kind_hash:#x} -> kind {}",
-                definition.fighter_kind_name,
-                definition.kind
-            );
-        }
-        return definition.kind;
+    let kind = call_original!(database, encoded_hash);
+    if kind != -1 {
+        return kind;
     }
-    call_original!(database, encoded_hash)
+    let site = crate::game::offset_of(lr);
+    let fighter_change = FIGHTER_CHANGE_LOOKUP_RETURNS.contains(&site);
+    if !fighter_change && site != UI_FROM_KIND_SCAN_RETURN {
+        return kind;
+    }
+    let Some(definition) = clone_definition_from_ui(encoded_hash & 0x00ff_ffff_ffff) else {
+        return kind;
+    };
+    if fighter_change {
+        dbg_log!(
+            "[csschange] fighter change keeps {} selected as kind {} (lookup return @{:#x})",
+            definition.ui_chara,
+            definition.kind,
+            site
+        );
+    } else if UI_FROM_KIND_SCAN_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+        dbg_log!(
+            "[cssui] the kind->ui row scan reads {} as kind {}, so a clone's kind finds its own row (HUD after a team swap, results)",
+            definition.ui_chara,
+            definition.kind
+        );
+    }
+    definition.kind
+}
+
+#[cfg(feature = "css_slot")]
+static KIND_DISPLAY_UI_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_KIND_DISPLAY_UI))]
+pub(crate) unsafe fn kind_display_ui_hook(kind: i32) -> u64 {
+    if !(-128..=-2).contains(&kind) {
+        return call_original!(kind);
+    }
+    let unwrapped = kind + 256;
+    let Some(definition) = clone_definition(unwrapped) else {
+        return call_original!(kind);
+    };
+    if KIND_DISPLAY_UI_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+        dbg_log!(
+            "[cssui] HUD asked for kind {kind} read from an i8 player kind; answering for {} as kind {unwrapped}",
+            definition.ui_chara
+        );
+    }
+    call_original!(unwrapped)
 }
 
 #[cfg(feature = "css_slot")]
@@ -555,6 +654,10 @@ pub(crate) unsafe fn update_selected_fighter_hook(
             entry_id,
             selection_definition.map(|definition| definition.kind),
         );
+        if (0..8).contains(&entry_id) {
+            CSS_REPORTED_ENTRY_UI[entry_id as usize]
+                .store(selection_ui, core::sync::atomic::Ordering::SeqCst);
+        }
     }
     let selected_mask = custom_entry_mask();
 
@@ -607,27 +710,25 @@ pub(crate) unsafe fn update_selected_fighter_hook(
 }
 
 #[cfg(feature = "css_slot")]
-pub(crate) unsafe fn bridge_custom_entry_expander_input(
-    ctx: &mut skyline::hooks::InlineCtx,
+unsafe fn bridged_entry_kind(
+    source: *const u8,
+    input_kind: i32,
     site: &'static str,
     counter: &core::sync::atomic::AtomicU32,
-) {
-    let source = ctx.registers[20].x() as *const u8;
+) -> Option<i32> {
     if source.is_null() {
-        return;
+        return None;
     }
     let entry_id = core::ptr::read_volatile(source.add(0xa7));
     if entry_id >= 8 {
-        return;
+        return None;
     }
 
-    let input_kind = ctx.registers[0].x() as i32;
     let selected_kind = validated_entry_custom_kind(entry_id, input_kind, Some(source), site);
     let selected_mask = custom_entry_mask();
     let n = counter.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
     if let Some(custom_kind) = selected_kind {
-        ctx.registers[0].set_x(custom_kind as u64);
         dbg_log!(
             "[cssentry] {site} #{n} entry={entry_id} mask={selected_mask:#04x} expander kind {input_kind}->{custom_kind} source={:#x}",
             source as usize
@@ -636,6 +737,20 @@ pub(crate) unsafe fn bridge_custom_entry_expander_input(
         dbg_log!(
             "[cssentry] {site} #{n} entry={entry_id} mask={selected_mask:#04x} expander kind={input_kind} passthrough"
         );
+    }
+    selected_kind
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) unsafe fn bridge_custom_entry_expander_input(
+    ctx: &mut skyline::hooks::InlineCtx,
+    site: &'static str,
+    counter: &core::sync::atomic::AtomicU32,
+) {
+    let source = ctx.registers[20].x() as *const u8;
+    let input_kind = ctx.registers[0].x() as i32;
+    if let Some(custom_kind) = bridged_entry_kind(source, input_kind, site, counter) {
+        ctx.registers[0].set_x(custom_kind as u64);
     }
 }
 
@@ -705,6 +820,75 @@ pub(crate) unsafe fn construction_roster_expand_call_hook(ctx: &mut skyline::hoo
     } else if n < 24 {
         dbg_log!(
             "[cssroster] #{n} entry={entry_id} mask={selected_mask:#04x} expander kind={input_kind} passthrough"
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) static CSS_CHANGE_EXPAND_COUNT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+#[cfg(feature = "css_slot")]
+pub(crate) static CSS_CHANGE_REQUEST_COUNT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_CHANGE_EXPAND_CALL), inline)]
+pub(crate) unsafe fn fighter_change_expand_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let settings = ctx.registers[25].x() as *const u8;
+    let input_kind = ctx.registers[0].x() as i32;
+    if settings.is_null() || input_kind < 0 {
+        return;
+    }
+    let source = settings.add(PLAYER_INFO_IN_MATCH_SETTINGS);
+    if let Some(custom_kind) =
+        bridged_entry_kind(source, input_kind, "change@32ca150", &CSS_CHANGE_EXPAND_COUNT)
+    {
+        ctx.registers[0].set_x(custom_kind as u64);
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_CHANGE_REQUEST_CALL), inline)]
+pub(crate) unsafe fn fighter_change_request_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let input_kind = ctx.registers[2].x() as i32;
+    let frame = ctx.registers[29].x() as *const usize;
+    if input_kind < 0 || frame.is_null() {
+        return;
+    }
+    let caller = crate::game::offset_of(core::ptr::read_volatile(frame.add(1)));
+    if !FIGHTER_CHANGE_PLAYER_UPDATE_RETURNS.contains(&caller) {
+        return;
+    }
+    let source = ctx.registers[19].x() as *const u8;
+    if let Some(custom_kind) =
+        bridged_entry_kind(source, input_kind, "change@178aae0", &CSS_CHANGE_REQUEST_COUNT)
+    {
+        ctx.registers[2].set_x(custom_kind as u64);
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) static TEAM_QUEUE_EXPAND_COUNT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_TEAM_QUEUE_EXPAND_INPUT), inline)]
+pub(crate) unsafe fn team_queue_expand_input_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let settings = ctx.registers[25].x() as *const u8;
+    if settings.is_null() {
+        return;
+    }
+    let source = settings.add(PLAYER_INFO_IN_MATCH_SETTINGS);
+    let Some(custom_kind) = record_clone_kind(source) else {
+        return;
+    };
+    let input_kind = ctx.registers[0].x() as i32;
+    ctx.registers[0].set_x(custom_kind as u64);
+    let n = TEAM_QUEUE_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 24 {
+        dbg_log!(
+            "[cssentry] queue@249376c #{n} next team member kind {input_kind}->{custom_kind} source={:#x}",
+            source as usize
         );
     }
 }
