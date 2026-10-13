@@ -1,4 +1,5 @@
 use crate::article_hurtbox::{Field, Hurtbox, MAX_PER_ARTICLE};
+use crate::article_lvd::{ArticleLvd, LvdVertex};
 use crate::grab_rule::{status_kind, GrabRule};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +35,7 @@ pub struct ArticleDeclaration {
     pub base_article: Option<String>,
     pub kirby: bool,
     pub hurtboxes: Vec<Hurtbox>,
+    pub lvd: Option<ArticleLvd>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -152,6 +154,7 @@ enum Section {
     Fighter,
     Article,
     ArticleHurtbox,
+    ArticleLvdVertex,
     Kirby,
     Motion,
     GlobalMotion,
@@ -250,6 +253,7 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
         ("fighter", false) => Ok(Section::Fighter),
         ("article", true) => Ok(Section::Article),
         ("article.hurtbox", true) => Ok(Section::ArticleHurtbox),
+        ("article.lvd_vertex", true) => Ok(Section::ArticleLvdVertex),
         ("kirby", false) => Ok(Section::Kirby),
         ("kirby.motion", true) => Ok(Section::Motion),
         ("kirby.mesh", true) => Ok(Section::Mesh),
@@ -303,6 +307,19 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                         return Err(error(
                             line_number,
                             "[[article.hurtbox]] must follow the [[article]] it belongs to",
+                        ))
+                    }
+                },
+                Section::ArticleLvdVertex => match declaration.articles.last_mut() {
+                    Some(article) => article
+                        .lvd
+                        .get_or_insert_with(ArticleLvd::default)
+                        .vertices
+                        .push(LvdVertex::new(UNSET_VERTEX, "")),
+                    None => {
+                        return Err(error(
+                            line_number,
+                            "[[article.lvd_vertex]] must follow the [[article]] it belongs to",
                         ))
                     }
                 },
@@ -387,6 +404,10 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     }
                     "base_article" => article.base_article = Some(unquote(value, line_number)?),
                     "kirby" => article.kirby = parse_bool(value, line_number, key)?,
+                    "lvd" => {
+                        article.lvd.get_or_insert_with(ArticleLvd::default).file =
+                            unquote(value, line_number)?
+                    }
                     _ => return Err(error(line_number, format!("unknown article key {key}"))),
                 }
             }
@@ -397,6 +418,21 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     .and_then(|article| article.hurtboxes.last_mut())
                     .expect("pushed at header");
                 hurtbox_key(hurtbox, key, value, line_number)?;
+            }
+            Section::ArticleLvdVertex => {
+                let vertex = declaration
+                    .articles
+                    .last_mut()
+                    .and_then(|article| article.lvd.as_mut())
+                    .and_then(|lvd| lvd.vertices.last_mut())
+                    .expect("pushed at header");
+                match key {
+                    "vertex" => vertex.vertex = parse_int(value, line_number, key)?,
+                    "joint" => vertex.joint = unquote(value, line_number)?,
+                    "offset" => vertex.offset = Some(parse_vector(value, line_number, key)?),
+                    "joint_left" => vertex.joint_left = Some(unquote(value, line_number)?),
+                    _ => return Err(error(line_number, format!("unknown lvd_vertex key {key}"))),
+                }
             }
             Section::Kirby => {
                 let kirby = declaration.kirby.as_mut().expect("inserted at header");
@@ -494,6 +530,9 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
                 format!("article {} has both from and base_article", article.name),
             ));
         }
+        if let Some(lvd) = &article.lvd {
+            check_article_lvd(article, lvd)?;
+        }
         if article.hurtboxes.is_empty() {
             continue;
         }
@@ -556,6 +595,25 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
         }
     }
     Ok(declaration)
+}
+
+const UNSET_VERTEX: u32 = u32::MAX;
+
+fn check_article_lvd(article: &ArticleDeclaration, lvd: &ArticleLvd) -> Result<(), ParseError> {
+    let fail = |message: String| Err(error(0, format!("article {}: {message}", article.name)));
+    if article.from.is_none() {
+        return fail("lvd needs from = \"fighter/weapon\"".to_string());
+    }
+    if lvd.file.trim().is_empty() {
+        return fail("[[article.lvd_vertex]] needs lvd = \"file.lvd\" on its article".to_string());
+    }
+    if lvd.vertices.iter().any(|vertex| vertex.vertex == UNSET_VERTEX) {
+        return fail("every [[article.lvd_vertex]] needs vertex".to_string());
+    }
+    match lvd.check() {
+        Ok(()) => Ok(()),
+        Err(message) => fail(message),
+    }
 }
 
 fn parse_status(value: &str, line: usize, key: &str) -> Result<i32, ParseError> {
@@ -866,6 +924,38 @@ scale = 0.95
         assert!(parse(&sizeless).unwrap_err().message.contains("size"));
         let unknown = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\n[[article.hurtbox]]\nnode = \"hip\"\nsize = 1\nshape = \"cube\"\n");
         assert!(parse(&unknown).unwrap_err().message.contains("sphere, aabb, capsule"));
+    }
+
+    #[test]
+    fn article_lvd_parses_the_file_and_its_vertices() {
+        let text = "name = \"wawa\"\nbase = \"samus\"\n[[article]]\nname = \"plank\"\nfrom = \"koopajr/cannonball\"\nlvd = \"plank.lvd\"\n[[article.lvd_vertex]]\nvertex = 0\njoint = \"plankl\"\noffset = [0, 6, 4]\n[[article.lvd_vertex]]\nvertex = 1\njoint = \"plankr\"\njoint_left = \"plankl\"\n";
+        let fighter = parse(text).unwrap();
+        let lvd = fighter.articles[0].lvd.as_ref().unwrap();
+        assert_eq!(lvd.file, "plank.lvd");
+        assert_eq!(
+            lvd.vertices,
+            vec![
+                LvdVertex::new(0, "plankl").offset(0.0, 6.0, 4.0),
+                LvdVertex::new(1, "plankr").joint_left("plankl"),
+            ]
+        );
+    }
+
+    #[test]
+    fn article_lvd_is_refused_where_the_engine_cannot_place_it() {
+        let head = "name = \"wawa\"\nbase = \"samus\"\n";
+        let orphan = format!("{head}[[article.lvd_vertex]]\nvertex = 0\njoint = \"a\"\n");
+        assert!(parse(&orphan).unwrap_err().message.contains("must follow"));
+        let renamed = format!("{head}[[article]]\nname = \"x\"\nbase_article = \"cshot\"\nlvd = \"x.lvd\"\n[[article.lvd_vertex]]\nvertex = 0\njoint = \"a\"\n");
+        assert!(parse(&renamed).unwrap_err().message.contains("lvd needs from"));
+        let fileless = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\n[[article.lvd_vertex]]\nvertex = 0\njoint = \"a\"\n");
+        assert!(parse(&fileless).unwrap_err().message.contains("needs lvd ="));
+        let vertexless = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\nlvd = \"x.lvd\"\n[[article.lvd_vertex]]\njoint = \"a\"\n");
+        assert!(parse(&vertexless).unwrap_err().message.contains("needs vertex"));
+        let alone = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\nlvd = \"x.lvd\"\n");
+        assert!(parse(&alone).unwrap_err().message.contains("at least one lvd_vertex"));
+        let pathed = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\nlvd = \"c00/x.lvd\"\n[[article.lvd_vertex]]\nvertex = 0\njoint = \"a\"\n");
+        assert!(parse(&pathed).unwrap_err().message.contains("file name"));
     }
 
     #[test]

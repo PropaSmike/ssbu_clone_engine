@@ -128,6 +128,8 @@ mod text_patch;
 mod thread_context;
 mod clone_vtables;
 mod article_hurtboxes;
+mod article_lvds;
+mod weapon_records;
 mod common_vtables;
 
 #[cfg(feature = "css_slot")]

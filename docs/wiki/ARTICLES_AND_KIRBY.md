@@ -50,6 +50,60 @@ A costume folder without its own `.lvd` uses the one from the nearest costume
 that has one. Several articles made from the same base article each use their
 own file.
 
+### Platforms on any article
+
+Any article made with `from` can carry a platform from an `.lvd` file of your own, whatever its
+source. Each vertex you list follows a joint every frame:
+
+```rust
+use clone_engine_api::v2::ArticleLvd;
+
+Manifest::new("my_fighter", "samus")
+    .article("plank", "koopajr/cannonball")
+    .article_lvd(
+        "plank",
+        ArticleLvd::new("plank.lvd")                 // in the article's model folder
+            .vertex_at(0, "top", 0.0, 10.0, -8.0)    // vertex 0: 10 up, 8 behind
+            .vertex_at(1, "top", 0.0, 10.0, 8.0),    // vertex 1: 10 up, 8 ahead
+    )
+```
+
+or in `fighter.toml`:
+
+```toml
+[[article]]
+name = "plank"
+from = "koopajr/cannonball"
+lvd = "plank.lvd"
+
+[[article.lvd_vertex]]
+vertex = 0
+joint = "top"
+offset = [0, 10, -8]
+
+[[article.lvd_vertex]]
+vertex = 1
+joint = "top"
+offset = [0, 10, 8]
+```
+
+The file goes in `fighter/<your fighter>/model/<your article>/cNN/`, under any name, and in your
+pack's config like the article's other files. The article uses the costume of the fighter that
+owns it, or the nearest costume that ships the file.
+
+| Key | Values | Default |
+|---|---|---|
+| `vertex` | a vertex index in the file | required |
+| `joint` | a joint of the article's model, or `top` | required |
+| `offset` | `[x, y, z]` in the joint's own axes (on `top`, y is up and z points the way the article faces) | the joint itself |
+| `joint_left` | the joint this vertex follows while the article faces left | the list's joints in reverse order |
+
+Facing left, the vertices take their joints in reverse order, so a floor drawn left to right
+stays face up. A vertex you do not list stays where the file puts it, in stage coordinates.
+Up to 32 vertices. The platform is on from the moment the article appears; status scripts can
+switch it with `GroundModule::set_gr_collision_mode`. The log names the file, the costume and
+where each vertex landed.
+
 ## Hurtboxes
 
 An article made with `from` can be given hurtboxes, on top of any its source already has.

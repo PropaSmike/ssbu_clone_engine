@@ -385,6 +385,14 @@ const ACQUIRE_HIT_EXPECTED: u32 = 0xB9402E81;
 const MATCH_LOAD_COUNTER: usize = 19;
 const ITEM_KIND_TERM: u64 = 0x1B0;
 
+const ACQUIRE_CACHE_GATE: usize = 0x16090D8;
+const ACQUIRE_CACHE_GATE_WINDOW_START: usize = 0x16090D0;
+const ACQUIRE_CACHE_GATE_WINDOW: [u32; 4] = [0x8B1B1D09, 0x528A2C0A, 0xB86A6929, 0x340000E9];
+const ACQUIRE_CACHE_KIND_REGISTER: usize = 27;
+const ACQUIRE_CACHE_RECORD_REGISTER: usize = 9;
+const ACQUIRE_CACHE_OFFSET_REGISTER: usize = 10;
+const ACQUIRE_CACHE_REPORTS: usize = 8;
+
 const SIBLING_SITES: &[SlotSite] = &[
     SlotSite {
         offset: 0x160AE24,
@@ -517,6 +525,9 @@ unsafe fn preflight() -> Result<(), PreflightError> {
     expect_word(CONTAINER_INSERT, CONTAINER_INSERT_EXPECTED)?;
     expect_word(ACQUIRE_MISS, ACQUIRE_MISS_EXPECTED)?;
     expect_word(ACQUIRE_HIT, ACQUIRE_HIT_EXPECTED)?;
+    for (index, expected) in ACQUIRE_CACHE_GATE_WINDOW.iter().copied().enumerate() {
+        expect_word(ACQUIRE_CACHE_GATE_WINDOW_START + index * 4, expected)?;
+    }
     for site in SLOT_SITES.iter().chain(SIBLING_SITES) {
         expect_word(site.offset, site.expected)?;
         let Some((_, rn, rm, ra)) = madd_operands(site.expected) else {
@@ -1485,6 +1496,24 @@ fn acquire_outcome(what: &str) {
     ));
 }
 
+static ACQUIRE_CACHE_CLOSED: u32 = 1;
+static ACQUIRE_CACHE_SKIPS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn acquire_cache_gate(ctx: &mut skyline::hooks::InlineCtx) {
+    let kind = ctx.registers[ACQUIRE_CACHE_KIND_REGISTER].x() as i64;
+    if kind < NATIVE_ITEM_KIND_COUNT as i64 {
+        return;
+    }
+    ctx.registers[ACQUIRE_CACHE_RECORD_REGISTER]
+        .set_x(&ACQUIRE_CACHE_CLOSED as *const u32 as u64);
+    ctx.registers[ACQUIRE_CACHE_OFFSET_REGISTER].set_x(0);
+    if ACQUIRE_CACHE_SKIPS.fetch_add(1, Ordering::Relaxed) < ACQUIRE_CACHE_REPORTS {
+        crate::dbg_log_public(&format!(
+            "[itemslot] item kind {kind:#x} is past the game's per-kind resource cache ({NATIVE_ITEM_KIND_COUNT} kinds); acquire builds its resources from the file"
+        ));
+    }
+}
+
 unsafe extern "C" fn match_load_tail(ctx: &mut skyline::hooks::InlineCtx) {
     if !HOOKS_INSTALLED.load(Ordering::Acquire) {
         return;
@@ -1620,6 +1649,11 @@ pub(crate) fn install() {
             arm(CONTAINER_INSERT, CONTAINER_INSERT_EXPECTED, container_insert);
             arm(ACQUIRE_MISS, ACQUIRE_MISS_EXPECTED, acquire_miss);
             arm(ACQUIRE_HIT, ACQUIRE_HIT_EXPECTED, acquire_hit);
+            arm(
+                ACQUIRE_CACHE_GATE,
+                ACQUIRE_CACHE_GATE_WINDOW[2],
+                acquire_cache_gate,
+            );
 
             let total = attempted;
             HOOKS_INSTALLED.store(installed > 0, Ordering::Release);

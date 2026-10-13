@@ -25,45 +25,11 @@ static COUNTS: [AtomicUsize; MAX_CUSTOM_ARTICLES] =
     [const { AtomicUsize::new(0) }; MAX_CUSTOM_ARTICLES];
 static INSTALLED: [AtomicBool; MAX_CUSTOM_ARTICLES] =
     [const { AtomicBool::new(false) }; MAX_CUSTOM_ARTICLES];
-static PRIVATE_RECORDS: [AtomicUsize; MAX_CUSTOM_ARTICLES] =
-    [const { AtomicUsize::new(0) }; MAX_CUSTOM_ARTICLES];
 static APPLIED_LOG: AtomicU32 = AtomicU32::new(0);
 static STRAY_LOG: AtomicU32 = AtomicU32::new(0);
 
-const WEAPON_RECORD_SIZE: usize = 0xe8;
-const RECORD_HIT_MODULE_FACTORY: usize = 0x30;
-const NO_HIT_MODULE_FACTORY: usize = 0x33b7d40;
-const HIT_MODULE_FACTORY: usize = 0x33b88e0;
-
-pub(crate) unsafe fn record_with_hit_module(kind: i32, source_record: usize) -> Option<usize> {
-    let row = row(kind)?;
-    if COUNTS[row].load(Ordering::Acquire) == 0 || source_record == 0 {
-        return None;
-    }
-    let held = PRIVATE_RECORDS[row].load(Ordering::Acquire);
-    if held != 0 {
-        return Some(held);
-    }
-    let factory =
-        core::ptr::read_volatile((source_record + RECORD_HIT_MODULE_FACTORY) as *const usize);
-    if factory != crate::game::addr(NO_HIT_MODULE_FACTORY) {
-        return None;
-    }
-    let mut words = vec![0u64; WEAPON_RECORD_SIZE / 8];
-    for (index, word) in words.iter_mut().enumerate() {
-        *word = core::ptr::read_volatile((source_record + index * 8) as *const u64);
-    }
-    words[RECORD_HIT_MODULE_FACTORY / 8] = crate::game::addr(HIT_MODULE_FACTORY) as u64;
-    let copy = Box::leak(words.into_boxed_slice()).as_ptr() as usize;
-    match PRIVATE_RECORDS[row].compare_exchange(0, copy, Ordering::AcqRel, Ordering::Acquire) {
-        Ok(_) => {
-            dbg_log_public(&format!(
-                "[articlehurt] weapon kind {kind}: its source builds no HitModule, so it gets a private weapon record {copy:#x} whose HitModule factory is {HIT_MODULE_FACTORY:#x}"
-            ));
-            Some(copy)
-        }
-        Err(existing) => Some(existing),
-    }
+pub(crate) fn wants_hit_module(kind: i32) -> bool {
+    row(kind).is_some_and(|row| COUNTS[row].load(Ordering::Acquire) != 0)
 }
 
 fn row(kind: i32) -> Option<usize> {

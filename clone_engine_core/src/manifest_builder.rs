@@ -1,4 +1,5 @@
 use crate::article_hurtbox::Hurtbox;
+use crate::article_lvd::ArticleLvd;
 use crate::grab_rule::GrabRule;
 
 fn quoted(text: &str) -> String {
@@ -181,11 +182,22 @@ impl Grab {
     }
 }
 
+fn push_lvd_vertices(out: &mut String, lvd: &ArticleLvd) {
+    for vertex in &lvd.vertices {
+        out.push_str("\n[[article.lvd_vertex]]\n");
+        for line in vertex.lines() {
+            out.push_str(&line);
+            out.push('\n');
+        }
+    }
+}
+
 pub struct Manifest {
     name: String,
     fighter: Vec<String>,
     articles: Vec<Vec<String>>,
     article_hurtboxes: Vec<(String, Hurtbox)>,
+    article_lvds: Vec<(String, ArticleLvd)>,
     kirby: Vec<String>,
     motions: Vec<Motion>,
     meshes: Vec<(String, bool)>,
@@ -205,6 +217,7 @@ impl Manifest {
             ],
             articles: Vec::new(),
             article_hurtboxes: Vec::new(),
+            article_lvds: Vec::new(),
             kirby: Vec::new(),
             motions: Vec::new(),
             meshes: Vec::new(),
@@ -331,6 +344,11 @@ impl Manifest {
         self
     }
 
+    pub fn article_lvd(mut self, article: &str, lvd: ArticleLvd) -> Self {
+        self.article_lvds.push((article.to_string(), lvd));
+        self
+    }
+
     pub fn kirby(mut self, statuses: i32) -> Self {
         self.kirby.push(format!("statuses = {statuses}"));
         self
@@ -433,14 +451,26 @@ impl Manifest {
             out.push('\n');
         }
         let mut placed = vec![false; self.article_hurtboxes.len()];
+        let mut lvd_placed = vec![false; self.article_lvds.len()];
         for article in &self.articles {
             out.push_str("\n[[article]]\n");
             for line in article {
                 out.push_str(line);
                 out.push('\n');
             }
+            let named = |name: &str| article.first() == Some(&format!("name = {}", quoted(name)));
+            let lvd = self
+                .article_lvds
+                .iter()
+                .enumerate()
+                .find(|(index, (name, _))| !lvd_placed[*index] && named(name))
+                .map(|(index, (_, lvd))| (index, lvd));
+            if let Some((index, lvd)) = lvd {
+                lvd_placed[index] = true;
+                out.push_str(&format!("lvd = {}\n", quoted(&lvd.file)));
+            }
             for (index, (name, hurtbox)) in self.article_hurtboxes.iter().enumerate() {
-                if placed[index] || article.first() != Some(&format!("name = {}", quoted(name))) {
+                if placed[index] || !named(name) {
                     continue;
                 }
                 placed[index] = true;
@@ -449,6 +479,9 @@ impl Manifest {
                     out.push_str(&line);
                     out.push('\n');
                 }
+            }
+            if let Some((_, lvd)) = lvd {
+                push_lvd_vertices(&mut out, lvd);
             }
         }
         for (index, (name, hurtbox)) in self.article_hurtboxes.iter().enumerate() {
@@ -460,6 +493,17 @@ impl Manifest {
                 out.push_str(&line);
                 out.push('\n');
             }
+        }
+        for (index, (name, lvd)) in self.article_lvds.iter().enumerate() {
+            if lvd_placed[index] {
+                continue;
+            }
+            out.push_str(&format!(
+                "\n[[article]]\nname = {}\nlvd = {}\n",
+                quoted(name),
+                quoted(&lvd.file)
+            ));
+            push_lvd_vertices(&mut out, lvd);
         }
         if !self.kirby.is_empty() || !self.motions.is_empty() || !self.meshes.is_empty() {
             out.push_str("\n[kirby]\n");
@@ -779,6 +823,32 @@ mod tests {
         assert_eq!(fighter.articles[1].hurtboxes.len(), 2);
         assert_eq!(fighter.articles[1].hurtboxes[0], rock);
         assert_eq!(fighter.articles[1].hurtboxes[1].part, 4);
+    }
+
+    #[test]
+    fn an_article_lvd_renders_under_its_article_and_parses_back() {
+        use crate::article_hurtbox::Hurtbox;
+        let plank = ArticleLvd::new("plank.lvd")
+            .vertex_at(0, "top", 0.0, 6.0, -4.0)
+            .vertex_facing(1, "plankr", "plankl");
+        let text = Manifest::new("wawa", "samus")
+            .article("plank", "koopajr/cannonball")
+            .article_hurtbox("plank", Hurtbox::new("rot", 3.0))
+            .article_lvd("plank", plank.clone())
+            .to_toml();
+        assert!(text.contains("from = \"koopajr/cannonball\"\nlvd = \"plank.lvd\"\n"));
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.articles[0].lvd.as_ref(), Some(&plank));
+        assert_eq!(fighter.articles[0].hurtboxes.len(), 1);
+    }
+
+    #[test]
+    fn an_lvd_for_an_undeclared_article_fails_the_parse() {
+        let text = Manifest::new("wawa", "samus")
+            .article_lvd("ghost", ArticleLvd::new("g.lvd").vertex(0, "a"))
+            .to_toml();
+        let message = crate::fighter_toml::parse_all(&text).unwrap_err().message;
+        assert!(message.contains("ghost"), "{message}");
     }
 
     #[test]

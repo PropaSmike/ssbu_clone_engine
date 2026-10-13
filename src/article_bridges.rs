@@ -354,7 +354,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
     }
 
     let source_record = base.wrapping_add((record as i64 * WEAPON_RECORD_STRIDE) as u64) as usize;
-    let biased = match crate::article_hurtboxes::record_with_hit_module(weapon_kind, source_record) {
+    let biased = match crate::weapon_records::private_record(weapon_kind, source_record) {
         Some(private) => (private as u64)
             .wrapping_sub((weapon_kind as i64 * WEAPON_RECORD_STRIDE) as u64),
         None => base.wrapping_add(bias as u64),
@@ -719,6 +719,7 @@ pub(crate) unsafe fn custom_article_owner_params(ctx: &mut skyline::hooks::Inlin
         None => false,
     };
     request_article_lvd(weapon_kind);
+    crate::article_lvds::keep_resident(weapon_kind);
 
     static SPEC_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
     if SPEC_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 12 {

@@ -393,6 +393,19 @@ mod live {
                     ),
                 }
             }
+            if let Some(lvd) = &article.lvd {
+                match crate::article_lvds::register(minted, lvd) {
+                    Ok(()) => skyline::println!(
+                        "[fighterpack] {directory}: article {} carries platform {}",
+                        article.name,
+                        lvd.describe()
+                    ),
+                    Err(message) => skyline::println!(
+                        "[fighterpack] {directory}: article {} platform REFUSED: {message}",
+                        article.name
+                    ),
+                }
+            }
         }
     }
 
