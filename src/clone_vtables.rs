@@ -376,6 +376,16 @@ unsafe fn vanilla_fighter_class(base: i32) -> usize {
     *((crate::game::addr(FIGHTER_CLASS_TABLE) + base as usize * 8) as *const usize)
 }
 
+pub(crate) unsafe fn vanilla_fighter_entry(kind: i32, index: u32) -> Option<(usize, usize)> {
+    let class = vanilla_fighter_class(kind);
+    let table = table_of(class);
+    if table == 0 || index as usize >= Space::Fighter.slots() {
+        return None;
+    }
+    let entry = *((table + index as usize * 8) as *const usize);
+    (entry != 0).then_some((class, entry))
+}
+
 pub(crate) unsafe fn fighter_class_for(kind: i32, base: i32) -> Option<usize> {
     if !(0..94).contains(&base) {
         return None;

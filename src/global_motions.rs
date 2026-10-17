@@ -28,15 +28,17 @@ pub(crate) fn record(entry: MotionRecord) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub(crate) fn rebuild(
+pub(crate) fn rebuild_with(
     original: &[u8],
     records: &[MotionRecord],
     has_animation: impl Fn(&str) -> bool,
-) -> Option<(Vec<u8>, Outcome)> {
+    graft: impl FnOnce(&mut clone_engine_core::motion_list::MotionList, &dyn Fn(&str) -> bool) -> Option<String>,
+) -> Option<(Vec<u8>, Outcome, Option<String>)> {
     let mut list = parse(original).ok()?;
-    let outcome = apply_global(&mut list, records, has_animation);
+    let outcome = apply_global(&mut list, records, &has_animation);
+    let grafted = graft(&mut list, &has_animation);
     let bytes = serialize(&list).ok()?;
-    Some((bytes, outcome))
+    Some((bytes, outcome, grafted))
 }
 
 pub(crate) fn summary(directory: &str, sharers: &[String], outcome: &Outcome) -> String {
@@ -72,6 +74,16 @@ pub(crate) fn summary(directory: &str, sharers: &[String], outcome: &Outcome) ->
 
 #[cfg(not(test))]
 pub(crate) use live::clone_engine_global_motion_v1;
+
+#[cfg(not(test))]
+pub(crate) fn arc_file_size(path: &str) -> Option<usize> {
+    live::arc_size(path)
+}
+
+#[cfg(test)]
+pub(crate) fn arc_file_size(_path: &str) -> Option<usize> {
+    None
+}
 
 #[cfg(not(test))]
 mod live {
@@ -115,7 +127,7 @@ mod live {
         (address != 0).then(|| unsafe { core::mem::transmute::<usize, DecompressedSizeFn>(address) })
     }
 
-    fn arc_size(path: &str) -> Option<usize> {
+    pub(super) fn arc_size(path: &str) -> Option<usize> {
         let hash = hash40(path)?;
         let function = decompressed_size()?;
         let mut size = 0usize;
@@ -180,7 +192,8 @@ mod live {
             return false;
         };
         let entries = registered();
-        if entries.is_empty() {
+        let grafted = crate::final_grafts::donor_for_motion_directory(&directory).is_some();
+        if entries.is_empty() && !grafted {
             return false;
         }
         let mut original = vec![0u8; length];
@@ -195,7 +208,9 @@ mod live {
                 .iter()
                 .all(|sharer| arc_size(&format!("{sharer}/{file}")).is_some())
         };
-        let Some((rebuilt, outcome)) = rebuild(&original, &entries, has_animation) else {
+        let Some((rebuilt, outcome, final_smash)) = rebuild_with(&original, &entries, has_animation, |list, has| {
+            crate::final_grafts::graft_motion_list(&directory, list, has)
+        }) else {
             skyline::println!("[globalmotion] {directory}: the motion list did not parse; leaving it alone");
             return false;
         };
@@ -208,7 +223,12 @@ mod live {
         }
         unsafe { core::ptr::copy_nonoverlapping(rebuilt.as_ptr(), buffer, rebuilt.len()) };
         *out_size = rebuilt.len();
-        skyline::println!("{}", summary(&directory, &sharers, &outcome));
+        if !entries.is_empty() {
+            skyline::println!("{}", summary(&directory, &sharers, &outcome));
+        }
+        if let Some(final_smash) = final_smash {
+            crate::dbg_log_public(&format!("[finalsmash] {directory}: {final_smash}"));
+        }
         true
     }
 
@@ -242,6 +262,9 @@ mod live {
     }
 
     fn owners() -> Vec<String> {
+        if registered().is_empty() {
+            return crate::final_grafts::motion_owners();
+        }
         let mut owners: Vec<String> = VANILLA_BODY_MOTION_OWNERS
             .iter()
             .map(|owner| owner.to_string())
@@ -259,7 +282,7 @@ mod live {
 
     pub(crate) fn install() {
         let count = registered().len();
-        if count == 0 {
+        if count == 0 && crate::final_grafts::motion_owners().is_empty() {
             return;
         }
         if decompressed_size().is_none() {

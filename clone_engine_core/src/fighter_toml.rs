@@ -93,10 +93,21 @@ pub struct FighterDeclaration {
     pub kirby: Option<KirbyDeclaration>,
     pub global_motions: Vec<MotionDeclaration>,
     pub grabs: Vec<GrabRule>,
+    pub hud: Option<String>,
+    pub hud_layout: Option<String>,
+    pub final_smash: Option<String>,
+    pub tether: Option<crate::tether::Tether>,
+    pub partner: Option<bool>,
+    pub partner_with: Option<String>,
+    pub partner_params: Vec<crate::partner_params::PartnerParam>,
+    pub switch_with: Vec<String>,
     pub params: Vec<ParamDeclaration>,
+    pub command_settings: crate::command_input::Settings,
+    pub commands: Vec<crate::command_input::Command>,
 }
 
 pub const DEFAULT_COLOR_COUNT: u32 = 8;
+pub const PARTNER_BASE: &str = "popo";
 
 impl FighterDeclaration {
     pub fn ui_chara(&self) -> String {
@@ -123,6 +134,10 @@ impl FighterDeclaration {
 
     pub fn display_name(&self) -> String {
         self.display_name.clone().unwrap_or_else(|| self.name.clone())
+    }
+
+    pub fn has_partner(&self) -> bool {
+        self.partner.unwrap_or(self.base == PARTNER_BASE && self.switch_with.is_empty())
     }
 
     pub fn series(&self) -> String {
@@ -160,6 +175,13 @@ enum Section {
     GlobalMotion,
     Grab,
     Mesh,
+    Hud,
+    Final,
+    Tether,
+    TetherBox,
+    PartnerParams,
+    Commands,
+    Command,
     Params { slot: Option<i32>, op: ParamOp },
 }
 
@@ -211,7 +233,16 @@ fn parse_int<T: core::str::FromStr>(value: &str, line: usize, key: &str) -> Resu
     } else {
         value.parse::<T>().ok()
     };
-    parsed.ok_or_else(|| error(line, format!("{key} must be a whole number")))
+    parsed.ok_or_else(|| {
+        let whole = match value.strip_prefix("0x") {
+            Some(hex) => i64::from_str_radix(hex, 16).is_ok(),
+            None => value.parse::<i64>().is_ok(),
+        };
+        match whole {
+            true => error(line, format!("{key} {value} is out of range")),
+            false => error(line, format!("{key} must be a whole number")),
+        }
+    })
 }
 
 fn parse_list(value: &str, line: usize, key: &str) -> Result<Vec<String>, ParseError> {
@@ -259,6 +290,13 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
         ("kirby.mesh", true) => Ok(Section::Mesh),
         ("global_motion", true) => Ok(Section::GlobalMotion),
         ("grab", true) => Ok(Section::Grab),
+        ("hud", false) => Ok(Section::Hud),
+        ("final", false) => Ok(Section::Final),
+        ("tether", false) => Ok(Section::Tether),
+        ("tether.box", true) => Ok(Section::TetherBox),
+        ("partner_params", false) => Ok(Section::PartnerParams),
+        ("commands", false) => Ok(Section::Commands),
+        ("command", true) => Ok(Section::Command),
         ("params", false) => Ok(Section::Params {
             slot: None,
             op: ParamOp::Set,
@@ -335,6 +373,15 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     .global_motions
                     .push(MotionDeclaration::default()),
                 Section::Grab => declaration.grabs.push(GrabRule::new(-1)),
+                Section::Command => declaration.commands.push(crate::command_input::Command::new("", "")),
+                Section::Tether => {
+                    declaration.tether.get_or_insert_with(Default::default);
+                }
+                Section::TetherBox => declaration
+                    .tether
+                    .get_or_insert_with(Default::default)
+                    .boxes
+                    .push(crate::tether::TetherBox::new([0.0; 2], [0.0; 2])),
                 Section::Mesh => declaration
                     .kirby
                     .get_or_insert_with(KirbyDeclaration::default)
@@ -375,6 +422,12 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                 }
                 "narration" => declaration.narration = Some(unquote(value, line_number)?),
                 "staffroll" => declaration.staffroll = parse_bool(value, line_number, key)?,
+                "partner" if value.starts_with('"') => {
+                    declaration.partner_with = Some(unquote(value, line_number)?);
+                    declaration.partner = Some(true);
+                }
+                "partner" => declaration.partner = Some(parse_bool(value, line_number, key)?),
+                "switch" => declaration.switch_with = parse_list(value, line_number, key)?,
                 "css" => declaration.own_css = !parse_bool(value, line_number, key)?,
                 "jingle" => declaration.jingle = Some(unquote(value, line_number)?),
                 "owns_param_resources" => {
@@ -475,6 +528,57 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                     _ => return Err(error(line_number, format!("unknown mesh key {key}"))),
                 }
             }
+            Section::Hud => match key {
+                "from" => {
+                    let donor = unquote(value, line_number)?;
+                    crate::hud::check(&donor).map_err(|message| error(line_number, message))?;
+                    declaration.hud = Some(donor);
+                }
+                "layout" => {
+                    let path = unquote(value, line_number)?;
+                    crate::hud::check_layout(&path).map_err(|message| error(line_number, message))?;
+                    declaration.hud_layout = Some(path);
+                }
+                _ => return Err(error(line_number, format!("unknown hud key {key}"))),
+            },
+            Section::Final => match key {
+                "from" => {
+                    let donor = unquote(value, line_number)?;
+                    crate::final_smash::check(&donor).map_err(|message| error(line_number, message))?;
+                    declaration.final_smash = Some(donor);
+                }
+                _ => return Err(error(line_number, format!("unknown final key {key}"))),
+            },
+            Section::Tether => match key {
+                "from" => {
+                    let donor = unquote(value, line_number)?;
+                    crate::tether::check(&donor).map_err(|message| error(line_number, message))?;
+                    declaration.tether.as_mut().expect("inserted at header").from = Some(donor);
+                }
+                _ => return Err(error(line_number, format!("unknown tether key {key}"))),
+            },
+            Section::TetherBox => {
+                let shape = declaration
+                    .tether
+                    .as_mut()
+                    .and_then(|tether| tether.boxes.last_mut())
+                    .expect("pushed at header");
+                match key {
+                    "p1" => shape.p1 = parse_pair(value, line_number, key)?,
+                    "p2" => shape.p2 = parse_pair(value, line_number, key)?,
+                    _ => return Err(error(line_number, format!("unknown tether.box key {key}"))),
+                }
+            }
+            Section::Commands => commands_key(&mut declaration.command_settings, key, value, line_number)?,
+            Section::Command => command_key(
+                declaration.commands.last_mut().expect("pushed at header"),
+                key,
+                value,
+                line_number,
+            )?,
+            Section::PartnerParams => declaration.partner_params.push(
+                crate::partner_params::resolve(key, value).map_err(|message| error(line_number, message))?,
+            ),
             Section::Params { slot, op } => {
                 let value = value.trim();
                 let parsed = if value.contains('.') || value.contains('e') {
@@ -594,6 +698,37 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
             return Err(error(0, "a grab needs status, the grabber status its CATCH box belongs to"));
         }
     }
+    if let Some(tether) = &declaration.tether {
+        tether.check().map_err(|message| error(0, message))?;
+    }
+    check_commands(&declaration)?;
+    if declaration.switch_with.len() > 2 {
+        return Err(error(
+            0,
+            format!("{} switches with at most two other fighters", declaration.name),
+        ));
+    }
+    if !declaration.switch_with.is_empty() && matches!(declaration.base.as_str(), "popo" | "nana") {
+        return Err(error(0, format!("{} is on the Ice Climbers, who cannot switch", declaration.name)));
+    }
+    if declaration.switch_with.iter().any(|member| *member == declaration.name) {
+        return Err(error(0, format!("{} cannot switch with itself", declaration.name)));
+    }
+    if declaration.partner_with.as_deref() == Some(declaration.name.as_str()) {
+        return Err(error(
+            0,
+            format!("{} cannot name itself as its partner; partner = true gives it a copy of itself", declaration.name),
+        ));
+    }
+    if declaration.partner == Some(true) && !declaration.switch_with.is_empty() {
+        return Err(error(
+            0,
+            format!("{} has both a partner and a switch group; a player slot holds one or the other", declaration.name),
+        ));
+    }
+    if !declaration.partner_params.is_empty() && !declaration.has_partner() {
+        return Err(error(0, format!("{} has partner_params but no partner", declaration.name)));
+    }
     Ok(declaration)
 }
 
@@ -653,6 +788,120 @@ fn grab_key(grab: &mut GrabRule, key: &str, value: &str, line_number: usize) -> 
         _ => return Err(error(line_number, format!("unknown grab key {key}"))),
     }
     Ok(())
+}
+
+fn commands_key(
+    settings: &mut crate::command_input::Settings,
+    key: &str,
+    value: &str,
+    line: usize,
+) -> Result<(), ParseError> {
+    let frames = |value: &str| -> Result<u8, ParseError> {
+        let frames: u8 = parse_int(value, line, key)?;
+        if frames == 0 {
+            return Err(error(line, format!("{key} must be at least 1")));
+        }
+        Ok(frames)
+    };
+    match key {
+        "vanilla" => settings.vanilla = parse_bool(value, line, key)?,
+        "special_command_life_max" => settings.life = Some(frames(value)?),
+        "super_special_command_life_max" => settings.super_life = Some(frames(value)?),
+        "special_command_ab_button_life" => settings.button_life = Some(frames(value)?),
+        "special_command_neutral_threshold" => {
+            let threshold = value
+                .parse::<f32>()
+                .ok()
+                .filter(|threshold| (0.0..1.0).contains(threshold))
+                .ok_or_else(|| error(line, format!("{key} must be a number from 0 to below 1")))?;
+            settings.neutral_threshold = Some(threshold);
+        }
+        "special_command_stick_range" => settings.stick_range = Some(parse_stick_range(value, line, key)?),
+        _ => return Err(error(line, format!("unknown commands key {key}"))),
+    }
+    Ok(())
+}
+
+fn command_key(
+    command: &mut crate::command_input::Command,
+    key: &str,
+    value: &str,
+    line: usize,
+) -> Result<(), ParseError> {
+    match key {
+        "name" => command.name = unquote(value, line)?,
+        "input" => {
+            command.input = if value.starts_with('"') { unquote(value, line)? } else { value.to_string() }
+        }
+        "button" => {
+            command.button = crate::command_input::Button::parse(&unquote(value, line)?)
+                .map_err(|message| error(line, message))?
+        }
+        "super" => command.super_command = parse_bool(value, line, key)?,
+        "life" => command.life = Some(parse_int(value, line, key)?),
+        "neutral_resets" => command.neutral_resets = parse_bool(value, line, key)?,
+        "reverse" => command.reverse = parse_bool(value, line, key)?,
+        "cpu" => {
+            command.cpu = value
+                .parse::<f32>()
+                .ok()
+                .filter(|chance| (0.0..=1.0).contains(chance))
+                .ok_or_else(|| error(line, format!("{key} must be a chance from 0 to 1")))?
+        }
+        _ => return Err(error(line, format!("unknown command key {key}"))),
+    }
+    Ok(())
+}
+
+fn parse_stick_range(value: &str, line: usize, key: &str) -> Result<crate::command_input::StickRange, ParseError> {
+    let value = value.trim();
+    let Some(inner) = value.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+        return Err(error(line, format!("{key} must be a list of 7 [min, max] pairs")));
+    };
+    let mut pairs = Vec::new();
+    let mut rest = inner.trim();
+    while let Some(open) = rest.find('[') {
+        let Some(close) = rest[open..].find(']') else {
+            return Err(error(line, format!("{key}: a pair is missing its ]")));
+        };
+        pairs.push(parse_pair(&rest[open..open + close + 1], line, key)?);
+        rest = &rest[open + close + 1..];
+    }
+    let range: crate::command_input::StickRange = pairs
+        .try_into()
+        .map_err(|_| error(line, format!("{key} must have exactly {} [min, max] pairs", crate::command_input::SECTORS)))?;
+    crate::command_input::check_stick_range(&range).map_err(|message| error(line, message))?;
+    Ok(range)
+}
+
+fn check_commands(declaration: &FighterDeclaration) -> Result<(), ParseError> {
+    if declaration.commands.len() > crate::command_input::MAX_COMMANDS {
+        return Err(error(0, format!("at most {} commands", crate::command_input::MAX_COMMANDS)));
+    }
+    for (index, command) in declaration.commands.iter().enumerate() {
+        command.check().map_err(|message| error(0, message))?;
+        if !valid_name(&command.name) {
+            return Err(error(0, format!("command {}: name must be lowercase letters, digits and underscores", command.name)));
+        }
+        if declaration.commands[..index].iter().any(|other| other.name == command.name) {
+            return Err(error(0, format!("command {} is declared twice", command.name)));
+        }
+    }
+    Ok(())
+}
+
+fn parse_pair(value: &str, line: usize, key: &str) -> Result<[f32; 2], ParseError> {
+    let parts = parse_list(value, line, key)?;
+    if parts.len() != 2 {
+        return Err(error(line, format!("{key} must be [x, y]")));
+    }
+    let mut out = [0.0f32; 2];
+    for (slot, part) in out.iter_mut().zip(&parts) {
+        *slot = part
+            .parse::<f32>()
+            .map_err(|_| error(line, format!("{key} must be [x, y] numbers")))?;
+    }
+    Ok(out)
 }
 
 fn parse_vector(value: &str, line: usize, key: &str) -> Result<[f32; 3], ParseError> {
@@ -894,6 +1143,15 @@ scale = 0.95
     }
 
     #[test]
+    fn a_number_past_its_range_says_so() {
+        let failure = parse("name = \"wawa\"\nbase = \"samus\"\ndisp_order = 128\n").unwrap_err();
+        assert_eq!(failure.line, 3);
+        assert_eq!(failure.message, "disp_order 128 is out of range");
+        let failure = parse("name = \"wawa\"\nbase = \"samus\"\ndisp_order = forty\n").unwrap_err();
+        assert_eq!(failure.message, "disp_order must be a whole number");
+    }
+
+    #[test]
     fn an_unknown_table_is_refused() {
         let failure = parse("name = \"wawa\"\nbase = \"samus\"\n[sound]\nbank = 1\n").unwrap_err();
         assert_eq!(failure.line, 3);
@@ -956,6 +1214,165 @@ scale = 0.95
         assert!(parse(&alone).unwrap_err().message.contains("at least one lvd_vertex"));
         let pathed = format!("{head}[[article]]\nname = \"x\"\nfrom = \"mario/fireball\"\nlvd = \"c00/x.lvd\"\n[[article.lvd_vertex]]\nvertex = 0\njoint = \"a\"\n");
         assert!(parse(&pathed).unwrap_err().message.contains("file name"));
+    }
+
+    #[test]
+    fn a_hud_names_a_donor_the_engine_drives() {
+        let head = "name = \"wawa\"\nbase = \"samus\"\n";
+        let fighter = parse(&format!("{head}[hud]\nfrom = \"pickel\"\n")).unwrap();
+        assert_eq!(fighter.hud.as_deref(), Some("pickel"));
+        assert_eq!(parse(head).unwrap().hud, None);
+        let unknown = parse(&format!("{head}[hud]\nfrom = \"murabito\"\n")).unwrap_err();
+        assert_eq!(unknown.line, 4);
+        assert!(unknown.message.contains("\"murabito\""), "{}", unknown.message);
+        let stray = parse(&format!("{head}[hud]\nmeter = \"jack\"\n")).unwrap_err();
+        assert!(stray.message.contains("unknown hud key meter"), "{}", stray.message);
+    }
+
+    #[test]
+    fn a_hud_layout_is_an_arc_path_beside_or_without_a_donor() {
+        let head = "name = \"wawa\"\nbase = \"samus\"\n";
+        let own = parse(&format!("{head}[hud]\nlayout = \"ui/layout/hud/wawa/layout.arc\"\n")).unwrap();
+        assert_eq!(own.hud_layout.as_deref(), Some("ui/layout/hud/wawa/layout.arc"));
+        assert_eq!(own.hud, None);
+        let both = parse(&format!(
+            "{head}[hud]\nfrom = \"jack\"\nlayout = \"ui/layout/hud/wawa/layout.arc\"\n"
+        ))
+        .unwrap();
+        assert_eq!((both.hud.as_deref(), both.hud_layout.is_some()), (Some("jack"), true));
+        let bad = parse(&format!("{head}[hud]\nlayout = \"Wawa.bflyt\"\n")).unwrap_err();
+        assert_eq!(bad.line, 4);
+        assert!(bad.message.contains("ending in .arc"), "{}", bad.message);
+    }
+
+    #[test]
+    fn a_switch_lists_one_or_two_other_members_on_any_base_but_the_ice_climbers() {
+        let pyra = "[fighter]\nname = \"wawa\"\nbase = \"eflame\"\n";
+        let fighter = parse(&format!("{pyra}switch = [\"wawab\"]\n")).unwrap();
+        assert_eq!(fighter.switch_with, vec!["wawab".to_string()]);
+        assert!(parse(pyra).unwrap().switch_with.is_empty());
+        let donkey = "[fighter]\nname = \"wawa\"\nbase = \"donkey\"\n";
+        let free = parse(&format!("{donkey}switch = [\"wawab\", \"wawac\"]\n")).unwrap();
+        assert_eq!(free.switch_with.len(), 2);
+        let message = parse(&format!("{donkey}switch = [\"b\", \"c\", \"d\"]\n")).unwrap_err().message;
+        assert!(message.contains("at most two other fighters"), "{message}");
+        let popo = "[fighter]\nname = \"wawa\"\nbase = \"popo\"\npartner = false\n";
+        let message = parse(&format!("{popo}switch = [\"wawab\"]\n")).unwrap_err().message;
+        assert!(message.contains("Ice Climbers"), "{message}");
+        assert!(parse(&format!("{pyra}switch = [\"wawa\"]\n")).is_err());
+    }
+
+    #[test]
+    fn an_ice_climbers_clone_has_a_partner_unless_it_opts_out() {
+        let popo = "[fighter]
+name = \"wawa\"
+base = \"popo\"
+";
+        assert!(parse(popo).unwrap().has_partner());
+        assert!(!parse(&format!("{popo}partner = false
+")).unwrap().has_partner());
+        let donkey = "[fighter]
+name = \"wawa\"
+base = \"donkey\"
+";
+        assert!(!parse(donkey).unwrap().has_partner());
+        let copy = parse(&format!("{donkey}partner = true
+")).unwrap();
+        assert!(copy.has_partner() && copy.partner_with.is_none());
+        let other = parse(&format!("{donkey}partner = \"wawab\"
+")).unwrap();
+        assert!(other.has_partner());
+        assert_eq!(other.partner_with.as_deref(), Some("wawab"));
+        let message = parse(&format!("{donkey}partner = \"wawa\"
+")).unwrap_err().message;
+        assert!(message.contains("cannot name itself"), "{message}");
+        let pyra = "[fighter]
+name = \"wawa\"
+base = \"eflame\"
+switch = [\"wawab\"]
+";
+        let message = parse(&format!("{pyra}partner = true
+")).unwrap_err().message;
+        assert!(message.contains("both a partner and a switch group"), "{message}");
+    }
+
+    #[test]
+    fn partner_params_name_the_ice_climbers_words() {
+        let head = "[fighter]\nname = \"wawa\"\nbase = \"donkey\"\npartner = true\n";
+        let fighter = parse(&format!("{head}\n[partner_params]\nnana_delay = 20\njostle_data_nana.speed_z = 0.5\n")).unwrap();
+        assert_eq!(fighter.partner_params.len(), 2);
+        assert_eq!(fighter.partner_params[0].offset, 0x140);
+        assert_eq!(fighter.partner_params[0].bits, 20);
+        assert_eq!(fighter.partner_params[1].offset, 0x108);
+        let failure = parse(&format!("{head}\n[partner_params]\nnana_speed = 2.0\n")).unwrap_err();
+        assert_eq!(failure.line, 7);
+        assert!(failure.message.contains("not one of the Ice Climbers' partner params"), "{}", failure.message);
+        let alone = "[fighter]\nname = \"wawa\"\nbase = \"donkey\"\n\n[partner_params]\nnana_delay = 20\n";
+        assert_eq!(parse(alone).unwrap_err().message, "wawa has partner_params but no partner");
+    }
+
+    #[test]
+    fn commands_take_the_vanilla_tuning_names_and_their_own_inputs() {
+        let head = "[fighter]\nname = \"wawa\"\nbase = \"mario\"\n";
+        let range = "[[-20.0, 20.0], [20.0, 70.0], [70.0, 110.0], [110.0, 160.0], [20.0, 70.0], [70.0, 110.0], [110.0, 160.0]]";
+        let text = format!(
+            "{head}\n[commands]\nvanilla = true\nspecial_command_life_max = 12\n\
+             special_command_neutral_threshold = 0.25\nspecial_command_stick_range = {range}\n\
+             \n[[command]]\nname = \"geyser\"\ninput = \"21416\"\nbutton = \"special\"\nsuper = true\nreverse = true\ncpu = 0.3\n\
+             \n[[command]]\nname = \"dash\"\ninput = 656\nbutton = \"none\"\nlife = 8\n"
+        );
+        let fighter = parse(&text).unwrap();
+        let settings = fighter.command_settings;
+        assert!(settings.vanilla);
+        assert_eq!(settings.life, Some(12));
+        assert_eq!(settings.neutral_threshold, Some(0.25));
+        assert_eq!(settings.stick_range.unwrap()[3], [110.0, 160.0]);
+        assert_eq!(fighter.commands.len(), 2);
+        assert_eq!(fighter.commands[0].input, "21416");
+        assert!(fighter.commands[0].super_command && fighter.commands[0].reverse);
+        assert_eq!(fighter.commands[0].cpu, 0.3);
+        assert_eq!(fighter.commands[1].button, crate::command_input::Button::None);
+        assert_eq!(fighter.commands[1].life, Some(8));
+        let no_button = format!("{head}\n[[command]]\nname = \"a\"\ninput = \"656\"\nbutton = \"none\"\ncpu = 0.5\n");
+        assert!(parse(&no_button).unwrap_err().message.contains("cpu needs a button"));
+        let odds = format!("{head}\n[[command]]\nname = \"a\"\ninput = \"236\"\ncpu = 2\n");
+        assert!(parse(&odds).unwrap_err().message.contains("chance from 0 to 1"));
+        let twice = format!("{head}\n[[command]]\nname = \"a\"\ninput = \"236\"\n\n[[command]]\nname = \"a\"\ninput = \"214\"\n");
+        assert_eq!(parse(&twice).unwrap_err().message, "command a is declared twice");
+        let bad = format!("{head}\n[[command]]\nname = \"a\"\ninput = \"2236\"\n");
+        assert!(parse(&bad).unwrap_err().message.contains("repeats 2"));
+        let short = format!("{head}\n[commands]\nspecial_command_stick_range = [[-20.0, 20.0]]\n");
+        assert!(parse(&short).unwrap_err().message.contains("exactly 7"));
+        let zero = format!("{head}\n[commands]\nspecial_command_life_max = 0\n");
+        assert!(parse(&zero).unwrap_err().message.contains("at least 1"));
+        let unknown = format!("{head}\n[[command]]\nname = \"a\"\ninput = \"236\"\nstrength = 3\n");
+        assert_eq!(parse(&unknown).unwrap_err().message, "unknown command key strength");
+    }
+
+    #[test]
+    fn a_tether_names_a_donor_and_its_own_ledge_boxes() {
+        let head = "[fighter]\nname = \"wawa\"\nbase = \"donkey\"\n";
+        let text = format!("{head}\n[tether]\nfrom = \"lucas\"\n\n[[tether.box]]\np1 = [50.0, 40.0]\np2 = [0, -30]\n");
+        let tether = parse(&text).unwrap().tether.unwrap();
+        assert_eq!(tether.from.as_deref(), Some("lucas"));
+        assert_eq!(tether.boxes[0].words(), [50.0, 40.0, 0.0, -30.0]);
+        assert!(parse(&format!("{head}\n[tether]\n")).unwrap().tether.unwrap().from.is_none());
+        assert!(parse(&format!("{head}\n[tether]\nfrom = \"mario\"\n")).is_err());
+        assert!(parse(&format!("{head}\n[[tether.box]]\np1 = [1.0]\n")).is_err());
+        assert_eq!(parse(head).unwrap().tether, None);
+    }
+
+    #[test]
+    fn a_final_smash_names_a_donor_with_nothing_left_to_build() {
+        let head = "name = \"wawa\"\nbase = \"donkey\"\n";
+        let marth = parse(&format!("{head}[final]\nfrom = \"marth\"\n")).unwrap();
+        assert_eq!(marth.final_smash.as_deref(), Some("marth"));
+        assert_eq!(parse(head).unwrap().final_smash, None);
+        let joker = parse(&format!("{head}[final]\nfrom = \"jack\"\n")).unwrap_err();
+        assert_eq!(joker.line, 4);
+        assert!(joker.message.contains("cannot borrow yet"), "{}", joker.message);
+        let stray = parse(&format!("{head}[final]\ndonor = \"marth\"\n")).unwrap_err();
+        assert!(stray.message.contains("unknown final key donor"), "{}", stray.message);
     }
 
     #[test]

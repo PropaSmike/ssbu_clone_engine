@@ -16,6 +16,7 @@ const OFF_BINDER_ETC: usize = 0x7741f0;
 const OFF_BINDER_POWER_UP: usize = 0x798540;
 const OFF_BINDER_EFFECT: usize = 0x761f70;
 const OFF_PARAM_BIND_KIND: usize = 0x77d100;
+const OFF_PARAM_REFRESH: usize = 0x77e2c0;
 const WRAPPER_PARAM_OBJECT: usize = 0x8;
 const POWER_UP_SIZE: usize = 0x2f0;
 const ENTRIES: usize = 8;
@@ -255,6 +256,27 @@ unsafe fn param_bind_kind_bridge(wrapper: u64, kind: i32) -> u64 {
     result
 }
 
+#[skyline::hook(offset = crate::game::rel(OFF_PARAM_REFRESH))]
+unsafe fn param_refresh_bridge(param_object: u64) -> u64 {
+    let result = call_original!(param_object);
+    let param_object = param_object as usize;
+    if plausible(param_object) {
+        if let Some(registration) = REGISTRY
+            .iter()
+            .find(|registration| registration.param_object.load(Ordering::Acquire) == param_object)
+        {
+            let common = &COPIES[0];
+            apply(registration, common.base, common.end(), "after the param refresh");
+            let detached =
+                core::ptr::read_volatile((param_object + PARAM_OBJECT_POWER_UP_CLONE) as *const usize);
+            if detached != registration.power_up_clone.load(Ordering::Acquire) {
+                apply_power_up_clone(registration, "after the param refresh");
+            }
+        }
+    }
+    result
+}
+
 unsafe fn after_bind(object: usize, copy: &Copy) {
     if !plausible(object) || object < copy.base {
         return;
@@ -301,6 +323,7 @@ pub(crate) fn install_hooks() {
         etc_binder_bridge,
         power_up_binder_bridge,
         effect_binder_bridge,
-        param_bind_kind_bridge
+        param_bind_kind_bridge,
+        param_refresh_bridge
     );
 }

@@ -56,6 +56,10 @@ be installed either way.
 ## Your own parameter files
 
 Ship `fighter/<your name>/param/vl.prc` and it is used instead of the
-base's. The camera and CPU parameter trees are all or nothing: set
+base's, also with the base fighter in the same match: each reads its own.
+The camera and CPU parameter trees are all or nothing: set
 `owns_param_resources` only once the whole tree is in your folder; a partial
 tree crashes or loads forever.
+
+A computer player plays your fighter with its base's AI, whether or not the
+base is in the match.

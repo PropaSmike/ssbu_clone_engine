@@ -1,6 +1,17 @@
 use core::sync::atomic::Ordering;
 
 const OFF_FINALSMASH_LOAD_GATE: usize = 0x60d490;
+const OFF_FINALSMASH_PATH_READY: usize = 0x60d39c;
+const OFF_SCENE_GATE_AHEAD: usize = 0x60d25c;
+const SCENE_GATE_RETURN: usize = 0x60d28c;
+const PATH_BUFFER: usize = 0x20;
+const PATH_BUFFER_BYTES: usize = 0x800;
+const OBJECT_REGISTER: usize = 19;
+const KIND_REGISTER: usize = 21;
+const FIRST_BYTE_REGISTER: usize = 11;
+const OFF_START_FINALBG: usize = 0x21414d0;
+const START_FINALBG_WORD: u32 = 0xD100_C3FF;
+const REGISTERED_SLOTS: usize = 8;
 const OFF_LOAD_DIRECTORY: usize = 0x35407a0;
 const OFF_PRELOAD_FINALSMASH_LOOKUP: usize = 0x17e760c;
 const PRELOAD_LOOKUP_RETURN: usize = 0x17e7680;
@@ -31,6 +42,38 @@ static SUBSTITUTE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::Atomi
 const SUBSTITUTE_LOG_BUDGET: u32 = 4;
 static GATE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 const GATE_LOG_BUDGET: u32 = 8;
+static REDIRECTED_OBJECT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static CONSTRUCTING_OBJECT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static CONSTRUCTING_KIND: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
+static REDIRECT_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+const REDIRECT_LOG_BUDGET: u32 = 16;
+static REGISTERED: [core::sync::atomic::AtomicU64; REGISTERED_SLOTS] =
+    [const { core::sync::atomic::AtomicU64::new(u64::MAX) }; REGISTERED_SLOTS];
+
+fn remember_registration(clone_kind: i32, registered: i32) {
+    let packed = ((clone_kind as u32 as u64) << 32) | registered as u32 as u64;
+    for slot in REGISTERED.iter() {
+        let held = slot.load(Ordering::Acquire);
+        if held == u64::MAX || (held >> 32) as u32 as i32 == clone_kind {
+            slot.store(packed, Ordering::Release);
+            return;
+        }
+    }
+}
+
+fn registered_kind(clone_kind: i32) -> Option<i32> {
+    REGISTERED
+        .iter()
+        .map(|slot| slot.load(Ordering::Acquire))
+        .find(|held| *held != u64::MAX && (held >> 32) as u32 as i32 == clone_kind)
+        .map(|held| held as u32 as i32)
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_START_FINALBG))]
+unsafe fn start_finalbg_hook(manager: u64, kind: i32, rate: f32) -> u64 {
+    let kind = registered_kind(kind).unwrap_or(kind);
+    call_original!(manager, kind, rate)
+}
 
 static FINALSMASH_OWNER_KINDS: [i32; 27] = [
     5, 7, 11, 20, 33, 42, 47, 49, 57, 59, 63, 64, 66, 67, 68, 69, 71, 82, 83, 84, 85, 86, 87, 88,
@@ -364,8 +407,101 @@ unsafe fn finalsmash_ready() -> Option<u64> {
     Some(first)
 }
 
+fn tree_path(name: &str) -> String {
+    format!("fighter/{name}/finalsmash/shared")
+}
+
+unsafe fn tree_exists(service: usize, name: &str) -> bool {
+    service >= LOWEST_PLAUSIBLE_POINTER
+        && directory_index_for(service, crate::hash40::hash40(&tree_path(name))).is_some()
+}
+
+unsafe fn redirected_tree(clone_kind: i32) -> Option<(String, Option<i32>, &'static str)> {
+    let definition = crate::clone_definition(clone_kind)?;
+    let service = resource_service();
+    let donor = crate::final_grafts::donor_of(clone_kind);
+    if tree_exists(service, definition.resource_name) {
+        return Some((
+            tree_path(definition.resource_name),
+            donor.filter(|donor| owner_has_finalsmash(donor.kind)).map(|donor| donor.kind),
+            "its own",
+        ));
+    }
+    let donor = donor.filter(|donor| owner_has_finalsmash(donor.kind) && tree_exists(service, donor.name))?;
+    Some((tree_path(donor.name), Some(donor.kind), donor.name))
+}
+
+pub(crate) unsafe fn scene_gate_answer(kind: i32, return_address: usize) -> Option<bool> {
+    let clone_kind = if return_address == crate::game::addr(SCENE_GATE_RETURN) {
+        let object = CONSTRUCTING_OBJECT.swap(0, Ordering::SeqCst);
+        if CONSTRUCTING_KIND.swap(-1, Ordering::SeqCst) != kind {
+            return None;
+        }
+        crate::clone_kind_of_object(object as u64)?
+    } else {
+        crate::clone_definition(kind)?;
+        kind
+    };
+    redirected_tree(clone_kind).map(|_| true)
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_SCENE_GATE_AHEAD), inline)]
+unsafe fn scene_gate_ahead(ctx: &mut skyline::hooks::InlineCtx) {
+    CONSTRUCTING_OBJECT.store(ctx.registers[OBJECT_REGISTER].x() as usize, Ordering::SeqCst);
+    CONSTRUCTING_KIND.store(ctx.registers[KIND_REGISTER].x() as i32, Ordering::SeqCst);
+}
+
+pub(crate) fn forget_constructing_object() {
+    CONSTRUCTING_OBJECT.store(0, Ordering::SeqCst);
+    CONSTRUCTING_KIND.store(-1, Ordering::SeqCst);
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_FINALSMASH_PATH_READY), inline)]
+unsafe fn finalsmash_path_ready(ctx: &mut skyline::hooks::InlineCtx) {
+    let object = ctx.registers[OBJECT_REGISTER].x();
+    let Some(clone_kind) = crate::clone_kind_of_object(object) else {
+        return;
+    };
+    let Some((path, kind, whose)) = redirected_tree(clone_kind) else {
+        return;
+    };
+    let buffer = (ctx.sp.x() as usize + PATH_BUFFER) as *mut u8;
+    let prefix = b"fighter/";
+    if (0..prefix.len()).any(|at| core::ptr::read_volatile(buffer.add(at)) != prefix[at])
+        || path.len() + 1 >= PATH_BUFFER_BYTES
+    {
+        if REDIRECT_LOG.fetch_add(1, Ordering::Relaxed) < REDIRECT_LOG_BUDGET {
+            crate::dbg_log_public(&format!(
+                "[fsload] clone kind {clone_kind}: the finalsmash path buffer did not read as fighter/..; {path} left unused"
+            ));
+        }
+        return;
+    }
+    for (at, byte) in path.bytes().chain(core::iter::once(0)).enumerate() {
+        core::ptr::write_volatile(buffer.add(at), byte);
+    }
+    ctx.registers[FIRST_BYTE_REGISTER].set_x(path.as_bytes()[0] as u64);
+    let registered = match kind {
+        Some(kind) => {
+            ctx.registers[KIND_REGISTER].set_x(kind as u32 as u64);
+            kind
+        }
+        None => ctx.registers[KIND_REGISTER].x() as u32 as i32,
+    };
+    REDIRECTED_OBJECT.store(object as usize, Ordering::SeqCst);
+    remember_registration(clone_kind, registered);
+    if REDIRECT_LOG.fetch_add(1, Ordering::Relaxed) < REDIRECT_LOG_BUDGET {
+        crate::dbg_log_public(&format!(
+            "[fsload] clone kind {clone_kind} builds {whose} Final Smash background from {path}, started by start_finalbg with kind {registered}"
+        ));
+    }
+}
+
 #[skyline::hook(offset = crate::game::rel(OFF_FINALSMASH_LOAD_GATE), inline)]
 unsafe fn finalsmash_load_gate(ctx: &mut skyline::hooks::InlineCtx) {
+    if REDIRECTED_OBJECT.swap(0, Ordering::SeqCst) != 0 {
+        return;
+    }
     let owner = ctx.registers[21].x() as u32 as i32;
     if SUPPRESSED_OWNER.load(Ordering::Relaxed) != owner {
         return;
@@ -427,28 +563,31 @@ unsafe fn substitute_directory_for_preload() -> Option<u32> {
     let Some(definition) = crate::clone_definition(kind) else {
         return None;
     };
-    if !owner_has_finalsmash(definition.base_kind) {
-        return None;
-    }
+    let donor = crate::final_grafts::donor_of(kind).filter(|donor| owner_has_finalsmash(donor.kind));
+    let (owner, owner_name) = match donor {
+        Some(donor) => (donor.kind, donor.name),
+        None if owner_has_finalsmash(definition.base_kind) => {
+            let bytes = definition.base_resource_name_cstr;
+            let Ok(name) = core::str::from_utf8(bytes.split(|byte| *byte == 0).next().unwrap_or(&[])) else {
+                return None;
+            };
+            (definition.base_kind, name)
+        }
+        None => return None,
+    };
 
     let service = resource_service();
-    let bytes = definition.base_resource_name_cstr;
-    let resolved = core::str::from_utf8(bytes.split(|byte| *byte == 0).next().unwrap_or(&[]))
-        .ok()
-        .filter(|_| service >= LOWEST_PLAUSIBLE_POINTER)
-        .and_then(|name| {
-            let path = format!("fighter/{name}/finalsmash/shared");
-            directory_index_for(service, crate::hash40::hash40(&path))
-        });
+    let resolved = (service >= LOWEST_PLAUSIBLE_POINTER)
+        .then(|| directory_index_for(service, crate::hash40::hash40(&tree_path(owner_name))))
+        .flatten();
 
     match resolved {
         Some(directory) => {
             SUBSTITUTE_DIRECTORY.store(directory as i32, Ordering::Relaxed);
             crate::dbg_log_public(&format!(
                 "[fsload] clone kind {kind} asked the loading screen preload for its own \
-                 finalsmash tree and the arc has none, so its base kind {} directory \
-                 {directory:#x} is loaded instead, in the phase where the async read still lands",
-                definition.base_kind
+                 finalsmash tree and the arc has none, so kind {owner} ({owner_name}) directory \
+                 {directory:#x} is loaded instead, in the phase where the async read still lands"
             ));
             Some(directory)
         }
@@ -491,10 +630,15 @@ unsafe fn load_directory_hook(service: u64, directory: u32) -> usize {
 
 pub(crate) fn install() {
     skyline::install_hooks!(
+        scene_gate_ahead,
+        finalsmash_path_ready,
         finalsmash_load_gate,
         finalsmash_preload_kind,
         load_directory_hook
     );
+    if unsafe { crate::game::text_word(OFF_START_FINALBG) } == START_FINALBG_WORD {
+        skyline::install_hooks!(start_finalbg_hook);
+    }
     crate::dbg_log_public(
         "[fsload] armed. The loading screen preload at 0x17e74a4 indexes LOWERCASE_FIGHTER_NAMES \
          under a 0x75 bound, so a minted clone kind falls through to the literal name none and \

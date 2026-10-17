@@ -10,6 +10,11 @@ const OFF_LOAD_DIRECTORY: usize = 0x35407a0;
 const OFF_LOAD_CONTEXT_REGISTER: usize = 0x17e2e30;
 const OFF_LOAD_CONTEXT_RELEASE: usize = 0x17e3020;
 const OFF_RELEASE_KIND_GROUPS: usize = 0x17e8650;
+const OFF_ENTRY_LOADER_PICK: usize = 0x6506f4;
+const ENTRY_COUNT: usize = 8;
+const LOADER_GROUP_COUNT: usize = 0x18;
+const LOADER_MODULE_COUNT: usize = 0x4c0;
+const LOADER_RESET: usize = 0x20;
 const APPEND_OWNER_KIND: i32 = 82;
 const CTX_MII_ENEMY_MODE: usize = 0x48;
 const CTX_KIND: usize = 0x58;
@@ -129,9 +134,66 @@ unsafe fn release_clone_groups(context: usize, kind: i32) {
 #[skyline::hook(offset = crate::game::rel(OFF_RELEASE_KIND_GROUPS))]
 unsafe fn release_kind_groups(context: usize, kind: i32) {
     if context >= LOWEST_PLAUSIBLE_POINTER {
-        release_clone_groups(context, kind);
+        match crate::entry_groups::release(context, kind) {
+            crate::entry_groups::Release::Deferred => {
+                fiber_note(b"[partner] first of the pair loaded; its files stay held for the other", &[(b"kind", kind as u32 as u64)]);
+                return;
+            }
+            crate::entry_groups::Release::EarlierFirst(earlier) => {
+                fiber_note(b"[partner] second of the pair loaded; releasing both", &[(b"kind", kind as u32 as u64)]);
+                release_engine_groups(context, earlier);
+                call_original!(context, earlier);
+            }
+            crate::entry_groups::Release::Normal => {}
+        }
+        release_engine_groups(context, kind);
     }
     call_original!(context, kind);
+}
+
+unsafe fn release_engine_groups(context: usize, kind: i32) {
+    if let Some(member) = crate::entry_groups::member_for_release(context, kind) {
+        let first = member as u64 * KIND_KEY_STRIDE;
+        for offset in KIND_KEYS_RELEASED {
+            release_directory(context as u64, first + offset);
+        }
+        fiber_note(b"[switch] member loaded; its groups released", &[(b"kind", member as u32 as u64)]);
+    }
+    release_clone_groups(context, kind)
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_ENTRY_LOADER_PICK), inline)]
+unsafe fn entry_loader_pick(ctx: &mut skyline::hooks::InlineCtx) {
+    let manager = ctx.registers[26].x() as usize;
+    let entry = ctx.registers[22].x() as usize;
+    if manager < LOWEST_PLAUSIBLE_POINTER || entry >= ENTRY_COUNT {
+        return;
+    }
+    let loader = core::ptr::read_volatile((manager + entry * 8) as *const usize);
+    if loader < LOWEST_PLAUSIBLE_POINTER
+        || core::ptr::read_volatile((loader + LOADER_MODULE_COUNT) as *const u64) != 0
+        || core::ptr::read_volatile((loader + LOADER_GROUP_COUNT) as *const u64) == 0
+    {
+        return;
+    }
+    let own = core::ptr::read_volatile((loader + CTX_KIND) as *const i32);
+    let Some(owner) = crate::entry_groups::loader_owner(own) else {
+        return;
+    };
+    let first = owner as u64 * KIND_KEY_STRIDE;
+    for offset in KIND_KEYS_RELEASED {
+        release_directory(loader as u64, first + offset);
+    }
+    let emptied = core::ptr::read_volatile((loader + LOADER_GROUP_COUNT) as *const u64) == 0;
+    if emptied {
+        let vtable = core::ptr::read_volatile(loader as *const usize);
+        let reset: extern "C" fn(usize) = core::mem::transmute(core::ptr::read_volatile((vtable + LOADER_RESET) as *const usize));
+        reset(loader);
+    }
+    fiber_note(
+        b"[switch] the group's fighter is gone; its shared owner's groups released so the loader is free again",
+        &[(b"kind", own as u32 as u64), (b"owner", owner as u32 as u64), (b"reset", emptied as u64)],
+    );
 }
 
 pub(crate) unsafe fn request_append_group(context: usize, kind: i32) {
@@ -148,28 +210,55 @@ pub(crate) unsafe fn request_append_group(context: usize, kind: i32) {
         return;
     }
     let color = core::ptr::read_volatile((context + CTX_COLOR) as *const u32);
+    let own_movie = directory_at(
+        service,
+        &format!("fighter/{}/movie/c{color:02}", definition.resource_name),
+    );
+    let own_movie_flags = request(service, context, own_movie);
     let movie = directory_at(
         service,
         &format!("fighter/{}/movie/c{color:02}", definition.base_resource_name),
     );
     let movie_flags = request(service, context, movie);
+    let donor_movie = crate::final_grafts::donor_of(kind)
+        .and_then(|donor| directory_at(service, &format!("fighter/{}/movie/c{color:02}", donor.name)));
+    let donor_movie_flags = request(service, context, donor_movie);
+    let own = directory_named(service, definition.resource_name, color);
+    let own_flags = request(service, context, own);
     if definition.base_kind != APPEND_OWNER_KIND {
-        if movie.is_some() && LOG.fetch_add(1, Ordering::Relaxed) < LOG_BUDGET {
+        if let Some((index, _)) = own {
+            if LOG.fetch_add(1, Ordering::Relaxed) < LOG_BUDGET {
+                fiber_note(
+                    b"[append]",
+                    &[
+                        (b"kind", kind as u32 as u64),
+                        (b"color", color as u64),
+                        (b"own", u64::from(index)),
+                        (b"own_flags", own_flags),
+                    ],
+                );
+            }
+        }
+        if (own_movie.is_some() || movie.is_some() || donor_movie.is_some())
+            && LOG.fetch_add(1, Ordering::Relaxed) < LOG_BUDGET
+        {
             fiber_note(
                 b"[movie]",
                 &[
                     (b"kind", kind as u32 as u64),
                     (b"color", color as u64),
+                    (b"own", own_movie.map(|(index, _)| u64::from(index)).unwrap_or(u64::MAX)),
+                    (b"own_flags", own_movie_flags),
                     (b"group", movie.map(|(index, _)| u64::from(index)).unwrap_or(u64::MAX)),
                     (b"group_flags", movie_flags),
+                    (b"donor", donor_movie.map(|(index, _)| u64::from(index)).unwrap_or(u64::MAX)),
+                    (b"donor_flags", donor_movie_flags),
                 ],
             );
         }
         return;
     }
-    let own = directory_named(service, definition.resource_name, color);
     let base = directory_named(service, definition.base_resource_name, color);
-    let own_flags = request(service, context, own);
     let base_flags = request(service, context, base);
     let prebuilt = directory_at(
         service,
@@ -196,6 +285,6 @@ pub(crate) unsafe fn request_append_group(context: usize, kind: i32) {
 }
 
 pub(crate) fn install() {
-    skyline::install_hooks!(release_kind_groups);
-    crate::dbg_log_public("[append] armed: a clone's base movie group, and a Joker clone's append groups, are requested from the load pass; they and the groups loaded under the clone's own kind are released when the game releases the fighter under its base kind");
+    skyline::install_hooks!(release_kind_groups, entry_loader_pick);
+    crate::dbg_log_public("[append] armed: every clone's own append and movie groups, its base's movie group and a Joker clone's base append group are requested from the load pass; they and the groups loaded under the clone's own kind are released when the game releases the fighter under its base kind");
 }

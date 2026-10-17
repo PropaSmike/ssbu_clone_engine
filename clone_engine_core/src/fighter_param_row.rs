@@ -72,6 +72,7 @@ impl Table {
 pub enum FieldType {
     F32,
     U32,
+    U8,
     Bool,
     Hash40,
 }
@@ -149,8 +150,8 @@ pub fn check(field: &Field, op: Op) -> Result<RowOverride, Reject> {
         }
         (FieldType::Hash40, _) => return Err(Reject::Unsupported),
         (FieldType::F32, _) => {}
-        (FieldType::U32 | FieldType::Bool, Op::Mul(_)) => return Err(Reject::Unsupported),
-        (FieldType::U32 | FieldType::Bool, _) => {}
+        (FieldType::U32 | FieldType::U8 | FieldType::Bool, Op::Mul(_)) => return Err(Reject::Unsupported),
+        (FieldType::U32 | FieldType::U8 | FieldType::Bool, _) => {}
     }
     Ok(RowOverride {
         offset: field.offset,
@@ -162,7 +163,7 @@ pub fn check(field: &Field, op: Op) -> Result<RowOverride, Reject> {
 pub fn width(kind: FieldType) -> usize {
     match kind {
         FieldType::F32 | FieldType::U32 => 4,
-        FieldType::Bool => 1,
+        FieldType::U8 | FieldType::Bool => 1,
         FieldType::Hash40 => 8,
     }
 }
@@ -202,6 +203,16 @@ pub fn apply(row: &mut [u8], item: &RowOverride) {
                 Op::Mul(_) => return,
             };
             bytes.copy_from_slice(&next.to_le_bytes());
+        }
+        FieldType::U8 => {
+            let Some(byte) = row.get_mut(at) else {
+                return;
+            };
+            *byte = match item.op {
+                Op::Set(value) => value.round().clamp(0.0, 255.0) as u8,
+                Op::SetInt(value) => value.clamp(0, 255) as u8,
+                Op::Mul(_) => return,
+            };
         }
         FieldType::Bool => {
             let Some(byte) = row.get_mut(at) else {
@@ -315,7 +326,7 @@ mod tests {
             for field in fields.iter() {
                 let width = match field.kind {
                     FieldType::F32 | FieldType::U32 => 4,
-                    FieldType::Bool => 1,
+                    FieldType::U8 | FieldType::Bool => 1,
                     FieldType::Hash40 => 8,
                 };
                 assert!(usize::from(field.offset) + width <= table.row_size(), "{}", field.name);

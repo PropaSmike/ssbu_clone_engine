@@ -150,6 +150,24 @@ mod tests {
     }
 
     #[test]
+    fn the_command_input_lifetimes_are_whole_bytes_where_the_control_module_reads_them() {
+        let at = |name: &str| usize::from(field(hash40(name)).unwrap().offset);
+        assert_eq!(at("special_command_life_max"), 0x50 + 0x334);
+        assert_eq!(at("special_command_ab_button_life"), 0x50 + 0x335);
+        assert_eq!(at("special_command_neutral_threshold"), 0x50 + 0x338);
+        assert_eq!(at("super_special_command_life_max"), 0x50 + 0x33c);
+        let mut object = vec![0u8; PARAM_OBJECT_SIZE];
+        let vanilla = object.clone();
+        let (item, ..) = resolve(hash40("special_command_life_max"), Op::Set(12.0)).unwrap();
+        apply_from(&mut object, &vanilla, &item);
+        assert_eq!(object[at("special_command_life_max")], 12);
+        let (item, ..) = resolve(hash40("super_special_command_life_max"), Op::SetInt(300)).unwrap();
+        apply_from(&mut object, &vanilla, &item);
+        assert_eq!(object[at("super_special_command_life_max")], 255);
+        assert_eq!(resolve(hash40("special_command_ab_button_life"), Op::Mul(2.0)).err(), Some(Reject::Unsupported));
+    }
+
+    #[test]
     fn resolve_refuses_what_the_row_refuses() {
         assert_eq!(resolve(hash40("no_such_field"), Op::Set(1.0)).err(), Some(Reject::UnknownField));
         assert_eq!(resolve(hash40("precede"), Op::Mul(2.0)).err(), Some(Reject::Unsupported));

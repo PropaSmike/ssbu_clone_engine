@@ -515,6 +515,12 @@ pub(crate) unsafe fn generate_article_probe(boma: *mut u8, id: u32, x2: u64, x3:
     } else {
         *((boma as usize + 0x8) as *const u32)
     };
+    #[cfg(feature = "css_slot")]
+    let ret = {
+        let owner = article_owner_kind_by_entry(boma as u64).unwrap_or(GENERATOR_NOT_A_CLONE);
+        ARTICLE_GENERATOR_OWNER.scope(current_thread_key(), owner, || call_original!(boma, id, x2, x3))
+    };
+    #[cfg(not(feature = "css_slot"))]
     let ret = call_original!(boma, id, x2, x3);
 
     #[cfg(feature = "css_slot")]

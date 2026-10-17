@@ -203,7 +203,14 @@ pub struct Manifest {
     meshes: Vec<(String, bool)>,
     global_motions: Vec<Motion>,
     grabs: Vec<Grab>,
+    hud: Option<String>,
+    hud_layout: Option<String>,
+    final_smash: Option<String>,
+    tether: Option<crate::tether::Tether>,
     params: Vec<(Option<u32>, bool, String, String)>,
+    partner_params: Vec<(String, String)>,
+    command_settings: crate::command_input::Settings,
+    commands: Vec<crate::command_input::Command>,
     raw: Vec<String>,
 }
 
@@ -223,7 +230,14 @@ impl Manifest {
             meshes: Vec::new(),
             global_motions: Vec::new(),
             grabs: Vec::new(),
+            hud: None,
+            hud_layout: None,
+            final_smash: None,
+            tether: None,
             params: Vec::new(),
+            partner_params: Vec::new(),
+            command_settings: crate::command_input::Settings::default(),
+            commands: Vec::new(),
             raw: Vec::new(),
         }
     }
@@ -276,6 +290,19 @@ impl Manifest {
 
     pub fn staffroll(self) -> Self {
         self.number("staffroll", true)
+    }
+
+    pub fn partner(self, enabled: bool) -> Self {
+        self.number("partner", enabled)
+    }
+
+    pub fn partner_with(self, fighter: &str) -> Self {
+        self.text("partner", fighter)
+    }
+
+    pub fn switch_with(self, members: &[&str]) -> Self {
+        let list = members.iter().map(|member| format!("\"{member}\"")).collect::<Vec<_>>().join(", ");
+        self.number("switch", format!("[{list}]"))
     }
 
     pub fn own_css(self) -> Self {
@@ -389,6 +416,34 @@ impl Manifest {
         self
     }
 
+    pub fn hud(mut self, donor: &str) -> Self {
+        self.hud = Some(donor.to_string());
+        self
+    }
+
+    pub fn hud_layout(mut self, path: &str) -> Self {
+        self.hud_layout = Some(path.to_string());
+        self
+    }
+
+    pub fn final_smash(mut self, donor: &str) -> Self {
+        self.final_smash = Some(donor.to_string());
+        self
+    }
+
+    pub fn tether(mut self, donor: &str) -> Self {
+        self.tether.get_or_insert_with(Default::default).from = Some(donor.to_string());
+        self
+    }
+
+    pub fn tether_box(mut self, p1: [f32; 2], p2: [f32; 2]) -> Self {
+        self.tether
+            .get_or_insert_with(Default::default)
+            .boxes
+            .push(crate::tether::TetherBox::new(p1, p2));
+        self
+    }
+
     fn push_param(mut self, costume: Option<u32>, mul: bool, name: &str, value: String) -> Self {
         self.params.push((costume, mul, name.to_string(), value));
         self
@@ -436,6 +491,51 @@ impl Manifest {
         for (name, value) in values {
             self = self.param_mul(name, *value);
         }
+        self
+    }
+
+    pub fn partner_param(mut self, name: &str, value: f64) -> Self {
+        self.partner_params.push((name.to_string(), float(value)));
+        self
+    }
+
+    pub fn partner_param_int(mut self, name: &str, value: i32) -> Self {
+        self.partner_params.push((name.to_string(), value.to_string()));
+        self
+    }
+
+    pub fn vanilla_commands(mut self, on: bool) -> Self {
+        self.command_settings.vanilla = on;
+        self
+    }
+
+    pub fn special_command_life_max(mut self, frames: u8) -> Self {
+        self.command_settings.life = Some(frames);
+        self
+    }
+
+    pub fn super_special_command_life_max(mut self, frames: u8) -> Self {
+        self.command_settings.super_life = Some(frames);
+        self
+    }
+
+    pub fn special_command_ab_button_life(mut self, frames: u8) -> Self {
+        self.command_settings.button_life = Some(frames);
+        self
+    }
+
+    pub fn special_command_neutral_threshold(mut self, threshold: f32) -> Self {
+        self.command_settings.neutral_threshold = Some(threshold);
+        self
+    }
+
+    pub fn special_command_stick_range(mut self, range: crate::command_input::StickRange) -> Self {
+        self.command_settings.stick_range = Some(range);
+        self
+    }
+
+    pub fn command(mut self, command: crate::command_input::Command) -> Self {
+        self.commands.push(command);
         self
     }
 
@@ -536,6 +636,33 @@ impl Manifest {
                 out.push('\n');
             }
         }
+        if self.hud.is_some() || self.hud_layout.is_some() {
+            out.push_str("\n[hud]\n");
+        }
+        if let Some(donor) = &self.hud {
+            out.push_str(&format!("from = {}\n", quoted(donor)));
+        }
+        if let Some(path) = &self.hud_layout {
+            out.push_str(&format!("layout = {}\n", quoted(path)));
+        }
+        if let Some(donor) = &self.final_smash {
+            out.push_str(&format!("\n[final]\nfrom = {}\n", quoted(donor)));
+        }
+        if let Some(tether) = &self.tether {
+            out.push_str("\n[tether]\n");
+            if let Some(donor) = &tether.from {
+                out.push_str(&format!("from = {}\n", quoted(donor)));
+            }
+            for shape in &tether.boxes {
+                out.push_str(&format!(
+                    "\n[[tether.box]]\np1 = [{}, {}]\np2 = [{}, {}]\n",
+                    float(shape.p1[0] as f64),
+                    float(shape.p1[1] as f64),
+                    float(shape.p2[0] as f64),
+                    float(shape.p2[1] as f64)
+                ));
+            }
+        }
         let mut tables: Vec<(Option<u32>, bool)> = Vec::new();
         for (costume, mul, _, _) in &self.params {
             if !tables.contains(&(*costume, *mul)) {
@@ -556,6 +683,26 @@ impl Manifest {
                 if *param_costume == costume && *param_mul == mul {
                     out.push_str(&format!("{name} = {value}\n"));
                 }
+            }
+        }
+        if !self.partner_params.is_empty() {
+            out.push_str("\n[partner_params]\n");
+            for (name, value) in &self.partner_params {
+                out.push_str(&format!("{name} = {value}\n"));
+            }
+        }
+        if !self.command_settings.is_empty() {
+            out.push_str("\n[commands]\n");
+            for line in self.command_settings.toml_lines() {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
+        for command in &self.commands {
+            out.push_str("\n[[command]]\n");
+            for line in command.toml_lines() {
+                out.push_str(&line);
+                out.push('\n');
             }
         }
         for raw in &self.raw {
@@ -789,6 +936,29 @@ mod tests {
     }
 
     #[test]
+    fn commands_render_and_parse_back() {
+        use crate::command_input::{Button, Command};
+        let kazuya = [[-20.0, 20.0], [20.0, 70.0], [70.0, 110.0], [110.0, 160.0], [20.0, 70.0], [70.0, 110.0], [110.0, 160.0]];
+        let text = Manifest::new("wawa", "mario")
+            .vanilla_commands(true)
+            .special_command_life_max(12)
+            .special_command_neutral_threshold(0.2)
+            .special_command_stick_range(kazuya)
+            .command(Command::new("geyser", "21416").button(Button::Special).super_command().reverse().cpu(0.3))
+            .command(Command::new("dash", "656").button(Button::None).life(8).neutral_resets(false))
+            .to_toml();
+        assert!(text.contains("\n[commands]\nvanilla = true\nspecial_command_life_max = 12\nspecial_command_neutral_threshold = 0.2\n"), "{text}");
+        assert!(text.contains("\n[[command]]\nname = \"geyser\"\ninput = \"21416\"\nbutton = \"special\"\nsuper = true\nreverse = true\ncpu = 0.3\n"), "{text}");
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert!(fighter.command_settings.vanilla);
+        assert_eq!(fighter.command_settings.life, Some(12));
+        assert_eq!(fighter.command_settings.neutral_threshold, Some(0.2));
+        assert_eq!(fighter.command_settings.stick_range, Some(kazuya));
+        assert_eq!(fighter.commands[0], Command::new("geyser", "21416").button(Button::Special).super_command().reverse().cpu(0.3));
+        assert_eq!(fighter.commands[1], Command::new("dash", "656").button(Button::None).life(8).neutral_resets(false));
+    }
+
+    #[test]
     fn grabs_render_and_parse_back() {
         let text = Manifest::new("bluster", "donkey")
             .grab(Grab::new(0x1dd).victim(0xbe).then(0x1e2))
@@ -840,6 +1010,89 @@ mod tests {
         let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
         assert_eq!(fighter.articles[0].lvd.as_ref(), Some(&plank));
         assert_eq!(fighter.articles[0].hurtboxes.len(), 1);
+    }
+
+    #[test]
+    fn a_hud_renders_its_own_table_and_parses_back() {
+        let text = Manifest::new("wawa", "samus")
+            .hud("cloud")
+            .param("walk_speed_max", 1.5)
+            .to_toml();
+        assert!(text.contains("\n[hud]\nfrom = \"cloud\"\n"), "{text}");
+        let fighters = crate::fighter_toml::parse_all(&text).unwrap();
+        assert_eq!(fighters[0].hud.as_deref(), Some("cloud"));
+        assert_eq!(fighters[0].params.len(), 1);
+        let both = Manifest::new("wawa", "samus")
+            .hud("jack")
+            .hud_layout("ui/layout/hud/wawa/layout.arc")
+            .to_toml();
+        assert!(
+            both.contains("\n[hud]\nfrom = \"jack\"\nlayout = \"ui/layout/hud/wawa/layout.arc\"\n"),
+            "{both}"
+        );
+        let own = &crate::fighter_toml::parse_all(&both).unwrap()[0];
+        assert_eq!(own.hud_layout.as_deref(), Some("ui/layout/hud/wawa/layout.arc"));
+    }
+
+    #[test]
+    fn a_tether_renders_its_donor_and_boxes_and_parses_back() {
+        let text = Manifest::new("wawa", "donkey")
+            .tether("lucas")
+            .tether_box([50.0, 40.0], [0.0, -30.0])
+            .to_toml();
+        assert!(text.contains("\n[tether]\nfrom = \"lucas\"\n"), "{text}");
+        let fighters = crate::fighter_toml::parse_all(&text).unwrap();
+        let tether = fighters[0].tether.clone().unwrap();
+        assert_eq!(tether.from.as_deref(), Some("lucas"));
+        assert_eq!(tether.boxes[0].words(), [50.0, 40.0, 0.0, -30.0]);
+    }
+
+    #[test]
+    fn a_switch_group_renders_and_parses_back() {
+        let text = Manifest::new("wawa", "pzenigame").switch_with(&["wawab", "wawac"]).to_toml();
+        assert!(text.contains("switch = [\"wawab\", \"wawac\"]"), "{text}");
+        let fighters = crate::fighter_toml::parse_all(&text).unwrap();
+        assert_eq!(fighters[0].switch_with, vec!["wawab".to_string(), "wawac".to_string()]);
+    }
+
+    #[test]
+    fn a_partner_switch_renders_and_parses_back() {
+        let text = Manifest::new("wawa", "popo").partner(false).to_toml();
+        assert!(text.contains("partner = false"), "{text}");
+        assert!(!crate::fighter_toml::parse_all(&text).unwrap()[0].has_partner());
+        let text = Manifest::new("wawa", "popo").to_toml();
+        assert!(crate::fighter_toml::parse_all(&text).unwrap()[0].has_partner());
+        let text = Manifest::new("wawa", "donkey").partner_with("wawab").to_toml();
+        assert!(text.contains("partner = \"wawab\""), "{text}");
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.partner_with.as_deref(), Some("wawab"));
+        let text = Manifest::new("wawa", "donkey").partner(true).to_toml();
+        assert!(crate::fighter_toml::parse_all(&text).unwrap()[0].has_partner());
+    }
+
+    #[test]
+    fn partner_params_render_their_own_table_and_parse_back() {
+        let text = Manifest::new("wawa", "donkey")
+            .partner(true)
+            .partner_param_int("nana_delay", 20)
+            .partner_param("nana_opt_dst", 40.0)
+            .to_toml();
+        assert!(text.contains("\n[partner_params]\nnana_delay = 20\nnana_opt_dst = 40.0\n"), "{text}");
+        let fighter = &crate::fighter_toml::parse_all(&text).unwrap()[0];
+        assert_eq!(fighter.partner_params[1].offset, 0x13c);
+        assert_eq!(fighter.partner_params[1].bits, 40.0f32.to_bits());
+    }
+
+    #[test]
+    fn a_final_smash_renders_its_own_table_and_parses_back() {
+        let text = Manifest::new("wawa", "donkey")
+            .hud("cloud")
+            .final_smash("marth")
+            .to_toml();
+        assert!(text.contains("\n[final]\nfrom = \"marth\"\n"), "{text}");
+        let fighters = crate::fighter_toml::parse_all(&text).unwrap();
+        assert_eq!(fighters[0].final_smash.as_deref(), Some("marth"));
+        assert_eq!(fighters[0].hud.as_deref(), Some("cloud"));
     }
 
     #[test]

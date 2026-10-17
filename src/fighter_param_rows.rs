@@ -66,6 +66,7 @@ impl<const N: usize> CloneSlot<N> {
 struct TableState<const N: usize> {
     vanilla: [RowCell<N>; PARAM_NATIVE_KINDS as usize],
     clones: [CloneSlot<N>; CLONE_SLOTS],
+    partners: [CloneSlot<N>; CLONE_SLOTS],
     installs: AtomicU32,
 }
 
@@ -74,6 +75,7 @@ impl<const N: usize> TableState<N> {
         Self {
             vanilla: [const { RowCell::new() }; PARAM_NATIVE_KINDS as usize],
             clones: [const { CloneSlot::new() }; CLONE_SLOTS],
+            partners: [const { CloneSlot::new() }; CLONE_SLOTS],
             installs: AtomicU32::new(0),
         }
     }
@@ -148,16 +150,26 @@ impl<const N: usize> TableState<N> {
         cell.built_from.store(source, Ordering::Release);
     }
 
+    fn slot_for(&self, clone_kind: i32, index: usize, base: usize) -> &CloneSlot<N> {
+        if crate::entry_groups::partner_of(clone_kind) == Some(base as i32) {
+            &self.partners[index]
+        } else {
+            &self.clones[index]
+        }
+    }
+
     unsafe fn source_for(&self, clone_kind: i32, base: usize) -> *const u8 {
         match clone_row(clone_kind) {
-            Some(index) if self.has_overrides(index) => self.clones[index].row.ptr() as *const u8,
+            Some(index) if self.has_overrides(index) => {
+                self.slot_for(clone_kind, index, base).row.ptr() as *const u8
+            }
             _ => self.vanilla[base].ptr() as *const u8,
         }
     }
 
     unsafe fn ensure_clone_row(&self, clone_kind: i32, index: usize, base: usize, row_at: usize) {
-        let slot = &self.clones[index];
-        let generation = slot.generation.load(Ordering::Acquire);
+        let slot = self.slot_for(clone_kind, index, base);
+        let generation = self.clones[index].generation.load(Ordering::Acquire);
         if slot.row.built_from.load(Ordering::Acquire) == row_at
             && slot.row.generation.load(Ordering::Acquire) == generation
         {
@@ -170,7 +182,9 @@ impl<const N: usize> TableState<N> {
         row::build(vanilla, overrides, out);
         slot.row.built_from.store(row_at, Ordering::Release);
         slot.row.generation.store(generation, Ordering::Release);
-        push_deferred_accessor_sets(self.table(), clone_kind, out);
+        if core::ptr::eq(slot, &self.clones[index]) {
+            push_deferred_accessor_sets(self.table(), clone_kind, out);
+        }
     }
 
     unsafe fn enter(&self, clone_kind: i32, base_kind: i32, base: usize, index: usize) -> usize {
@@ -378,16 +392,22 @@ unsafe fn push_deferred_accessor_sets(table: Table, kind: i32, built: &[u8]) {
 pub(crate) struct RowGuard {
     base_kind: i32,
     rows: [usize; TABLES],
+    params: fighter_params::FrameGuard,
 }
 
 impl RowGuard {
     pub(crate) const IDLE: Self = Self {
         base_kind: -1,
         rows: [0; TABLES],
+        params: fighter_params::FrameGuard::IDLE,
     };
 
     pub(crate) fn active(&self) -> bool {
         self.rows.iter().any(|row| *row != 0)
+    }
+
+    pub(crate) fn own_params(&self) -> usize {
+        self.params.installed()
     }
 }
 
@@ -408,10 +428,20 @@ pub(crate) unsafe fn enter(clone_kind: i32, base_kind: i32) -> RowGuard {
         MOTION.enter(clone_kind, base_kind, base, index),
     ];
     fighter_params::swap_unlock(owned);
-    RowGuard { base_kind, rows }
+    RowGuard {
+        base_kind,
+        rows,
+        params: fighter_params::FrameGuard::IDLE,
+    }
 }
 
 pub(crate) unsafe fn leave(guard: RowGuard) {
+    let params = guard.params;
+    leave_rows(guard);
+    fighter_params::leave_object_frame(params);
+}
+
+unsafe fn leave_rows(guard: RowGuard) {
     if !guard.active() {
         return;
     }
@@ -440,7 +470,18 @@ pub(crate) unsafe fn enter_for_object(object: usize) -> RowGuard {
         return RowGuard::IDLE;
     }
     match clone_kind_of_object(object as u64) {
-        Some(clone_kind) => enter_for_clone(clone_kind),
+        Some(clone_kind) => {
+            let mut guard = enter_for_clone(clone_kind);
+            guard.params = fighter_params::enter_object_frame(clone_kind);
+            guard
+        }
+        None => enter_for_partner(crate::entry_groups::leader_of_object(object as u64)),
+    }
+}
+
+pub(crate) unsafe fn enter_for_partner(leader: Option<i32>) -> RowGuard {
+    match leader.filter(|leader| crate::entry_groups::nana_partner(*leader)).map(|leader| (leader, crate::entry_groups::NANA)) {
+        Some((leader, base)) => enter(leader, base),
         None => RowGuard::IDLE,
     }
 }
@@ -454,10 +495,26 @@ unsafe fn entry_struct_clone(entry_struct: u64) -> Option<(i32, i32)> {
 #[skyline::hook(offset = crate::game::rel(OFF_MODULE_ACCESSOR_INIT))]
 unsafe fn module_accessor_init_row_bridge(accessor: u64, entry_struct: u64) -> u64 {
     let found = entry_struct_clone(entry_struct);
-    let guard = match found {
-        Some((_, clone_kind)) => enter_for_clone(clone_kind),
+    if let Some((_, clone_kind)) = found {
+        crate::entry_groups::prepare_partner(clone_kind);
+    }
+    let same_base = found.and_then(|(_, clone_kind)| crate::entry_groups::same_base_partner(clone_kind));
+    let own = found.map(|(_, clone_kind)| match same_base {
+        Some(partner) if active_construction_kind_public() == Some(partner) => partner,
+        _ => clone_kind,
+    });
+    let guard = match own {
+        Some(kind) => enter_for_clone(kind),
         None => RowGuard::IDLE,
     };
+    let partner_guard = enter_for_partner(found.map(|(_, clone_kind)| clone_kind));
+    let member_guards: Vec<RowGuard> = found
+        .map(|(_, clone_kind)| crate::entry_groups::members(clone_kind))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|member| Some(*member) != same_base)
+        .map(|member| enter_for_clone(member))
+        .collect();
     if let Some((entry_id, clone_kind)) = found {
         let n = ORDER_LOG.fetch_add(1, Ordering::Relaxed);
         if n < 8 {
@@ -469,9 +526,13 @@ unsafe fn module_accessor_init_row_bridge(accessor: u64, entry_struct: u64) -> u
         }
     }
     let result = call_original!(accessor, entry_struct);
+    for guard in member_guards.into_iter().rev() {
+        leave(guard);
+    }
+    leave(partner_guard);
     leave(guard);
     if let Some(entry_id) = entry_struct_entry(entry_struct) {
-        fighter_common_copies::on_accessor_init(accessor, entry_id, found.map(|(_, kind)| kind));
+        fighter_common_copies::on_accessor_init(accessor, entry_id, own);
     }
     result
 }
@@ -488,7 +549,7 @@ unsafe fn entry_struct_entry(entry_struct: u64) -> Option<i32> {
 #[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_SECOND))]
 unsafe fn fighter_init_second_row_bridge(object: u64) -> u64 {
     let guard = enter_for_object(object as usize);
-    let result = call_original!(object);
+    let result = crate::entry_groups::as_same_base_partner(object, || call_original!(object));
     leave(guard);
     result
 }
@@ -498,7 +559,9 @@ macro_rules! phase_bracket {
         #[skyline::hook(offset = crate::game::rel($offset))]
         unsafe fn $name(object: u64) -> u64 {
             let guard = enter_for_object(object as usize);
+            let frame = crate::entry_groups::enter_partner_frame(object);
             let result = call_original!(object);
+            crate::entry_groups::leave_partner_frame(frame);
             leave(guard);
             result
         }

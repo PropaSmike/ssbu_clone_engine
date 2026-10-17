@@ -320,7 +320,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
     }
 
     if let Some(owner) = custom_articles::source_weapon_owner_kind(weapon_kind) {
-        fighter_modules::ensure_loaded(owner, 3000);
+        fighter_modules::ensure_loaded(owner, 20000);
     }
 
     let record = match weapon_record_kind(source) {
@@ -829,6 +829,10 @@ macro_rules! custom_article_source_kind_sites {
 custom_article_source_kind_sites! {
     install_custom_article_source_kind_sites;
     custom_article_kind_table_452a(0, 0x33aa1e0, "per-kind table 0x452abd8");
+    custom_article_gbeam_owner_row(8, 0x34ed348, "gbeam param row: samusd's gbeam reads kind 4, any other kind 3");
+    custom_article_hookshot_owner_row(8, 0x3522938, "hookshot param row: younglink's reads kind 23, any other kind 46");
+    custom_article_whip_owner_row(12, 0x34f87c8, "whip param row: one of simon/richter by weapon kind");
+    custom_article_whipwire_owner_row(10, 0x34fc6f0, "whipwire param row: one of simon/richter by weapon kind");
 }
 
 #[cfg(feature = "css_slot")]
@@ -1347,25 +1351,37 @@ const ARTICLE_MODULE_OWNER: usize = 0x8;
 static ARTICLE_SETUP_SCOPE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+static ARTICLE_SETUP_VANILLA_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(0x3d3f30))]
 pub(crate) unsafe fn article_module_setup_scope(module: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let owner_kind = if module == 0
+    if module == 0
         || crate::active_construction_kind_public().is_some()
         || crate::kirby_copy::active_kirby_copy_kind().is_some()
     {
-        None
-    } else {
-        let owner = core::ptr::read_volatile((module as usize + ARTICLE_MODULE_OWNER) as *const u64);
-        crate::article_owner_kind_by_entry(owner)
-    };
-    let Some(kind) = owner_kind else {
         return call_original!(module, a1, a2, a3);
+    }
+    let owner = core::ptr::read_volatile((module as usize + ARTICLE_MODULE_OWNER) as *const u64);
+    let thread = current_thread_key();
+    let Some(kind) = crate::article_owner_kind_by_entry(owner) else {
+        let n = ARTICLE_SETUP_VANILLA_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 16 && owner != 0 {
+            let owner_kind =
+                smash::app::utility::get_kind(&mut *(owner as *mut smash::app::BattleObjectModuleAccessor));
+            dbg_log!("[articlesetup] vanilla #{n} ArticleModule setup (module={module:#x}) of kind {owner_kind}: articles built here are not a clone's");
+        }
+        return crate::ARTICLE_GENERATOR_OWNER.scope(thread, crate::GENERATOR_NOT_A_CLONE, || {
+            call_original!(module, a1, a2, a3)
+        });
     };
     let n = ARTICLE_SETUP_SCOPE_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 16 {
         dbg_log!("[articlesetup] #{n} ArticleModule setup outside construction (module={module:#x}) names clone {kind} as the owner for hard-coded article paths");
     }
-    crate::ARTICLE_SETUP_OWNER.scope(current_thread_key(), kind, || call_original!(module, a1, a2, a3))
+    crate::ARTICLE_SETUP_OWNER.scope(thread, kind, || {
+        crate::ARTICLE_GENERATOR_OWNER.scope(thread, kind, || call_original!(module, a1, a2, a3))
+    })
 }
 
 #[cfg(feature = "css_slot")]
@@ -1506,6 +1522,10 @@ static SHARED_ARTICLE_FALLBACK_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+static SHARED_ARTICLE_KEPT_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
 const SHARED_ARTICLE_FALLBACK_REPORTS: u32 = 32;
 
 #[cfg(feature = "css_slot")]
@@ -1632,11 +1652,20 @@ pub(crate) unsafe fn custom_article_path_probe(
         crate::ARTICLE_OWNER_OVERRIDE.scope(current_thread_key(), definition.kind, || {
             call_original!(&mut retry as *mut u32, weapon_kind, resource_type, variant, color, flags);
         });
-        if retry != u32::MAX || resource_type == 0 {
+        let found = retry != u32::MAX && retry != LITERAL_NOT_FOUND;
+        if found || resource_type == 0 {
             core::ptr::write_volatile(out, retry);
+        } else {
+            let n = SHARED_ARTICLE_KEPT_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < SHARED_ARTICLE_FALLBACK_REPORTS {
+                dbg_log!(
+                    "[articleshare] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: the clone has no path of its own; keeping base path {index:#x}",
+                    definition.kind
+                );
+            }
         }
         let n = SHARED_ARTICLE_FALLBACK_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if n < SHARED_ARTICLE_FALLBACK_REPORTS {
+        if (found || resource_type == 0) && n < SHARED_ARTICLE_FALLBACK_REPORTS {
             dbg_log!(
                 "[articleshare] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: base path {index:#x} (file {file_path:#x}) not loaded ({stop}); clone path {retry:#x}",
                 definition.kind
@@ -1707,8 +1736,34 @@ pub(crate) fn is_custom_article_data_key(definition: &CloneDefinition, key: u64)
 }
 
 #[cfg(feature = "css_slot")]
+unsafe fn article_context_kind() -> Option<i32> {
+    active_construction_kind().or_else(|| crate::ARTICLE_SETUP_OWNER.active(current_thread_key()))
+}
+
+#[cfg(feature = "css_slot")]
+const ARTICLE_DATA_NODE_KEY: usize = 0x20;
+
+#[cfg(feature = "css_slot")]
+unsafe fn article_data_cached(tree: *mut u8, key: u64) -> bool {
+    if tree.is_null() {
+        return false;
+    }
+    let header = tree as usize + 8;
+    let mut node = core::ptr::read_volatile(header as *const usize);
+    let mut found = header;
+    while node != 0 {
+        let node_key = core::ptr::read_volatile((node + ARTICLE_DATA_NODE_KEY) as *const u64);
+        if node_key >= key {
+            found = node;
+        }
+        node = core::ptr::read_volatile((node + if node_key < key { 8 } else { 0 }) as *const usize);
+    }
+    found != header && core::ptr::read_volatile((found + ARTICLE_DATA_NODE_KEY) as *const u64) <= key
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) unsafe fn tag_custom_article_cache_key(key: u64, site: &str) -> u64 {
-    let Some(definition) = active_construction_kind().and_then(clone_definition) else {
+    let Some(definition) = article_context_kind().and_then(clone_definition) else {
         return key;
     };
     if definition.articles.is_empty() || definition.article_namespace == 0 {
@@ -1773,7 +1828,7 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
     variant: u32,
     mode: u32,
 ) -> u32 {
-    let definition = active_construction_kind().and_then(clone_definition);
+    let definition = article_context_kind().and_then(clone_definition);
     let is_custom = definition
         .map(|definition| is_custom_article_data_key(definition, key))
         .unwrap_or(false);
@@ -1791,7 +1846,7 @@ pub(crate) unsafe fn custom_article_data_cache_insert(
     let minted = key < BARE_WEAPON_KIND_CEILING
         && crate::custom_articles::custom_weapon_name(key as i32).is_some();
     let guarded = minted || (key < BARE_WEAPON_KIND_CEILING && definition.is_some());
-    if guarded && index != u32::MAX {
+    if guarded && index != u32::MAX && !article_data_cached(tree, effective_key) {
         let (loads, stop, file_path) = crate::copy_model_probe::model_residency(index);
         if !loads {
             let n = ARTICLE_DATA_EMPTY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1841,7 +1896,7 @@ pub(crate) unsafe fn tag_custom_article_data_lookup(
     site: &str,
 ) {
     let key = ctx.registers[2].x();
-    let Some(definition) = active_construction_kind().and_then(clone_definition) else {
+    let Some(definition) = article_context_kind().and_then(clone_definition) else {
         if key < BARE_WEAPON_KIND_CEILING {
             let n = ARTICLE_DATA_VANILLA_LOOKUP_LOG
                 .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1922,6 +1977,9 @@ pub(crate) unsafe fn handle_custom_base_module_name(
     if let Some(definition) = clone_definition(raw_kind) {
         ctx.registers[destination].set_x(definition.base_resource_name_cstr.as_ptr() as u64);
     } else if let Some(kind) = active_resource_kind() {
+        if crate::final_grafts::donor_of(kind).map(|donor| donor.kind) == Some(raw_kind) {
+            return;
+        }
         if let Some(definition) = clone_definition(kind) {
             ctx.registers[destination].set_x(definition.base_resource_name_cstr.as_ptr() as u64);
         }
@@ -2073,7 +2131,8 @@ pub(crate) fn install_custom_resource_name_hooks() {
         custom_article_data_lookup_variant,
         custom_article_data_result_primary,
         custom_article_data_result_variant,
-        custom_effect_bank_load
+        custom_effect_bank_load,
+        custom_effect_bank_release
     );
 }
 

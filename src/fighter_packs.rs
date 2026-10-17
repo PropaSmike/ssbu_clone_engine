@@ -1,4 +1,5 @@
-use clone_engine_core::fighter_toml::{FighterDeclaration, ParamDeclaration};
+use clone_engine_core::fighter_toml::{FighterDeclaration, ParamDeclaration, ParamOp, ParamValue};
+use clone_engine_core::tether::Lasso;
 use std::sync::{Mutex, OnceLock};
 
 pub(crate) const MOD_ROOT: &str = "sd:/ultimate/mods";
@@ -30,9 +31,31 @@ pub(crate) fn params_for_kind(kind: i32) -> Vec<ParamDeclaration> {
             packs
                 .iter()
                 .find(|pack| pack.kind == kind)
-                .map(|pack| pack.declaration.params.clone())
+                .map(|pack| with_tether_params(&pack.declaration))
         })
         .unwrap_or_default()
+}
+
+fn with_tether_params(declaration: &FighterDeclaration) -> Vec<ParamDeclaration> {
+    let mut params = declaration.params.clone();
+    let Some(tether) = &declaration.tether else {
+        return params;
+    };
+    for (name, value) in tether.params() {
+        if params.iter().any(|param| param.name == name) {
+            continue;
+        }
+        params.push(ParamDeclaration {
+            name,
+            slot: None,
+            op: ParamOp::Set,
+            value: match value {
+                Lasso::Int(value) => ParamValue::Int(value),
+                Lasso::Float(value) => ParamValue::Float(value as f64),
+            },
+        });
+    }
+    params
 }
 
 pub(crate) fn loaded_kinds() -> Vec<i32> {
@@ -291,7 +314,60 @@ mod live {
             register_kirby(directory, kind, kirby);
         }
         register_global_motions(directory, kind, &declaration.global_motions);
+        if declaration.has_partner() {
+            crate::entry_groups::register_partner(kind, declaration.partner_with.clone(), declaration.partner_params.clone());
+        } else if declaration.partner == Some(false) {
+            crate::entry_groups::decline_partner(kind);
+        }
+        crate::entry_groups::register_switch(kind, declaration.switch_with.clone());
         register_grabs(directory, kind, &declaration.grabs);
+        match crate::fight_commands::register(kind, &declaration.command_settings, &declaration.commands) {
+            Ok(Some(summary)) => skyline::println!("[fighterpack] {directory}: {name} commands: {summary}"),
+            Ok(None) => {}
+            Err(message) => skyline::println!("[fighterpack] {directory}: {name} commands REFUSED: {message}"),
+        }
+        if let Some(donor) = &declaration.hud {
+            match crate::hud_grafts::register(kind, &declaration.ui_chara(), donor) {
+                Ok(()) => skyline::println!(
+                    "[fighterpack] {directory}: {name} borrows the {donor} HUD"
+                ),
+                Err(message) => skyline::println!(
+                    "[fighterpack] {directory}: {name} hud REFUSED: {message}"
+                ),
+            }
+        }
+        if let Some(donor) = &declaration.final_smash {
+            match crate::final_grafts::register(kind, donor) {
+                Ok(_) => {
+                    skyline::println!("[fighterpack] {directory}: {name} borrows {donor}'s Final Smash");
+                    if crate::mount_events::mounted() {
+                        crate::global_motions::install();
+                    }
+                }
+                Err(message) => skyline::println!(
+                    "[fighterpack] {directory}: {name} final smash REFUSED: {message}"
+                ),
+            }
+        }
+        if let Some(tether) = &declaration.tether {
+            match crate::tether::register(kind, tether) {
+                Ok(boxes) => skyline::println!(
+                    "[fighterpack] {directory}: {name} tethers like {}: air grab on, {boxes} ledge box(es)",
+                    tether.from.as_deref().unwrap_or("its own [params]")
+                ),
+                Err(message) => skyline::println!(
+                    "[fighterpack] {directory}: {name} tether REFUSED: {message}"
+                ),
+            }
+        }
+        if let Some(path) = &declaration.hud_layout {
+            match crate::hud_layouts::register(kind, path) {
+                Ok(()) => skyline::println!("[fighterpack] {directory}: {name} draws its own HUD layout {path}"),
+                Err(message) => skyline::println!(
+                    "[fighterpack] {directory}: {name} hud layout REFUSED: {message}"
+                ),
+            }
+        }
         if declaration.jingle.is_some() {
             skyline::println!(
                 "[fighterpack] {directory}: jingle is accepted but not served by this engine yet"

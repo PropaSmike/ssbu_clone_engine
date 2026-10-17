@@ -30,6 +30,23 @@ pub(crate) unsafe fn entry_kind_array(entry_id: i32) -> (u32, i32, i32, i32) {
 }
 
 #[cfg(feature = "clone_runtime")]
+pub(crate) unsafe fn entry_object(entry_id: i32) -> Option<usize> {
+    if !(0..8).contains(&entry_id) {
+        return None;
+    }
+    let t1 = *((crate::game::addr(0x52b84f8)) as *const usize);
+    if t1 == 0 {
+        return None;
+    }
+    let t2 = *(t1 as *const usize);
+    if t2 == 0 {
+        return None;
+    }
+    let per = *((t2 + entry_id as usize * 8 + 0x20) as *const usize);
+    (per != 0).then_some(per)
+}
+
+#[cfg(feature = "clone_runtime")]
 pub(crate) static INIT_PROBE_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 #[cfg(feature = "clone_runtime")]
@@ -135,6 +152,13 @@ pub(crate) unsafe fn entry_for_resource_record(record: usize) -> Option<usize> {
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 pub(crate) static SCOPED_RESOURCE_PATH_LOG: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) static KIRBY_COPY_SOUND_LOG: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+pub(crate) const KIRBY_COPY_SOUND_PATH_TYPES: [i32; 3] = [32, 33, 34];
 
 #[cfg(all(
     feature = "clone_runtime",
@@ -531,6 +555,9 @@ pub(crate) unsafe fn camera_animation_base_fallback(ctx: &mut skyline::hooks::In
 }
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+static CLONE_KIND_PATH_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 #[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_RESOURCE_PATH_RESOLVE))]
 pub(crate) unsafe fn fighter_scoped_resource_path_hook(
     out: *mut i32,
@@ -538,11 +565,60 @@ pub(crate) unsafe fn fighter_scoped_resource_path_hook(
     kind: i32,
     path_type: i32,
 ) {
+    if KIRBY_COPY_SOUND_PATH_TYPES.contains(&path_type) {
+        if let Some(definition) = crate::kirby_copy::active_kirby_copy_kind()
+            .and_then(clone_definition)
+            .filter(|definition| kind == definition.base_kind)
+        {
+            call_original!(out, record, definition.kind, path_type);
+            let index = if out.is_null() {
+                RESOURCE_INDEX_NOT_FOUND
+            } else {
+                core::ptr::read_volatile(out)
+            };
+            let own = index != RESOURCE_INDEX_NOT_FOUND && index >= 0;
+            let n = KIRBY_COPY_SOUND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if n < 24 {
+                if own {
+                    dbg_log!(
+                        "[kirbycopy] Kirby's copy of {} binds its own vc_kirby_copy_{} (type {path_type}, index {index:#x})",
+                        definition.resource_name,
+                        definition.resource_name
+                    );
+                } else {
+                    dbg_log!(
+                        "[kirbycopy] {} ships no vc_kirby_copy_{} (type {path_type}); Kirby's copy binds the base fighter's",
+                        definition.resource_name,
+                        definition.resource_name
+                    );
+                }
+            }
+            if own {
+                return;
+            }
+        }
+    }
     let entry = entry_for_resource_record(record as usize);
-    let definition = entry
-        .and_then(|entry| entry_custom_kind(entry as u8))
-        .and_then(clone_definition)
-        .filter(|definition| kind == definition.base_kind);
+    let kind = match clone_definition(kind).filter(|definition| definition.kind == kind) {
+        Some(definition) => {
+            if CLONE_KIND_PATH_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                dbg_log_public(&format!(
+                    "[clonepath] kind {kind} asked for a type {path_type} path by its own kind; resolved as its base {}",
+                    definition.base_kind
+                ));
+            }
+            definition.base_kind
+        }
+        None => kind,
+    };
+    let kind = crate::entry_groups::resource_kind(entry, kind);
+    let definition = crate::entry_groups::scoped_same_base_partner(entry, kind).or_else(|| {
+        entry
+            .and_then(|entry| entry_custom_kind(entry as u8))
+            .and_then(clone_definition)
+            .filter(|definition| kind == definition.base_kind)
+            .or_else(|| crate::entry_groups::member_definition(entry, kind))
+    });
 
     if let Some(definition) =
         definition.filter(|definition| is_clone_scoped_path_type(path_type, definition))
@@ -644,10 +720,14 @@ pub(crate) unsafe fn model_path_namespace_hook(
     mode: i32,
 ) {
     let entry = entry_for_resource_record(record as usize);
+    let kind = crate::entry_groups::resource_kind(entry, kind);
     let selected_kind = entry.and_then(|entry| entry_custom_kind(entry as u8));
-    let definition = selected_kind
-        .and_then(clone_definition)
-        .filter(|definition| kind == definition.base_kind || kind == definition.kind);
+    let definition = crate::entry_groups::scoped_same_base_partner(entry, kind).or_else(|| {
+        selected_kind
+            .and_then(clone_definition)
+            .filter(|definition| kind == definition.base_kind || kind == definition.kind)
+            .or_else(|| crate::entry_groups::member_definition(entry, kind))
+    });
     let is_custom_entry = definition.is_some();
     let effective_kind = match definition {
         Some(definition) if kind == definition.base_kind => definition.kind,
@@ -685,6 +765,42 @@ pub(crate) unsafe fn model_path_namespace_hook(
 }
 
 #[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+const OFF_FIGHTER_INIT_MEMBER_INDEX: usize = 0x607aa0;
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+const FIGHTER_MEMBER_INDEX: usize = 0xf816;
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+const NO_MEMBER_INDEX: u8 = 0xff;
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+static MEMBER_INDEX_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+std::thread_local! {
+    static INIT_MEMBER_INDEX: core::cell::Cell<Option<u8>> = const { core::cell::Cell::new(None) };
+}
+
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
+#[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_MEMBER_INDEX), inline)]
+pub(crate) unsafe fn fighter_init_member_index(ctx: &mut skyline::hooks::InlineCtx) {
+    let Some(index) = INIT_MEMBER_INDEX.try_with(|cell| cell.get()).ok().flatten() else {
+        return;
+    };
+    let object = ctx.registers[19].x() as usize;
+    if object == 0 {
+        return;
+    }
+    let slot = (object + FIGHTER_MEMBER_INDEX) as *mut u8;
+    if core::ptr::read_volatile(slot) != NO_MEMBER_INDEX {
+        return;
+    }
+    core::ptr::write_volatile(slot, index);
+    if MEMBER_INDEX_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+        dbg_log_public(&format!(
+            "[initbridge] object {object:#x}: the entry's kind list changed under the member search; member index set to {index}"
+        ));
+    }
+}
+
+#[cfg(all(feature = "clone_runtime", not(feature = "diag_article_initspoof")))]
 #[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_INIT_OBJ))]
 pub(crate) unsafe fn fighter_init_kind_bridge(
     object: *mut u8,
@@ -705,6 +821,7 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
         );
     }
     if let Some(base) = clone_base(kind) {
+        crate::entry_groups::note_member_object(entry_id, id, kind);
         let spoof_hash = base_name_hash(base).unwrap_or(name_hash);
         let guard = init_bridge_acquire(entry_id);
         let patched = match guard {
@@ -724,11 +841,17 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
             );
         }
 
+        let member_index = patched
+            .map(|(_, idx, _)| idx)
+            .or_else(|| entry_kind_slot(entry_id, base).map(|(_, idx, _)| idx))
+            .and_then(|idx| u8::try_from(idx).ok());
+        let outer_index = INIT_MEMBER_INDEX.try_with(|cell| cell.replace(member_index)).ok().flatten();
         let row = crate::fighter_param_rows::enter(kind, base);
         let params = crate::fighter_params::enter_clone_window(kind, base, entry_id);
         with_construction_context(kind, || {
             call_original!(object, id, base, entry_id, spoof_hash)
         });
+        let _ = INIT_MEMBER_INDEX.try_with(|cell| cell.set(outer_index));
         crate::clone_vtables::report_fighter_construction(kind, object as usize);
         crate::fighter_params::leave_window(params);
         crate::fighter_param_rows::leave(row);
@@ -739,10 +862,17 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
         dbg_log!("[initbridge] #{n} EXIT restored entry={entry_id} kind={kind}");
     } else {
         let params = crate::fighter_params::enter_vanilla_window(kind, entry_id);
+        let partner_row = match (kind, u8::try_from(entry_id)) {
+            (crate::entry_groups::NANA, Ok(entry)) => {
+                crate::fighter_param_rows::enter_for_partner(crate::entry_groups::leader_of_entry(entry))
+            }
+            _ => crate::fighter_param_rows::RowGuard::IDLE,
+        };
         crate::with_vanilla_construction_context(kind, || {
             call_original!(object, id, kind, entry_id, name_hash)
         });
         crate::clone_vtables::report_vanilla_fighter_construction(kind, object as usize);
+        crate::fighter_param_rows::leave(partner_row);
         crate::fighter_params::leave_window(params);
     }
 }
@@ -1027,6 +1157,8 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
         lr = 0;
     }
     close_registration("match roster expansion");
+    #[cfg(feature = "css_slot")]
+    crate::finalsmash_residency::forget_constructing_object();
     let caller_off = crate::game::offset_of(return_into_main(lr));
 
     let n = ENTRY118_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1082,6 +1214,8 @@ pub(crate) unsafe fn kind_expander_hook(kind: i32, out: *mut i32) -> i32 {
         dbg_log!("[entry118] expand #{n} kind={kind} passthrough (caller @{caller_off:#x})");
     }
     let count = call_original!(k, out);
+    #[cfg(feature = "css_slot")]
+    let count = crate::entry_groups::expand(kind, out, count);
     if n < 24 {
         dbg_log!(
             "[entry118] expand #{n} kind={kind}->{k} count={count} out=[{},{},{}]",
@@ -1150,7 +1284,18 @@ pub(crate) unsafe extern "C" fn kind_validity_gate_hook(
     a6: u64,
     a7: u64,
 ) -> u64 {
+    let return_address: usize;
+    #[cfg(target_arch = "aarch64")]
+    core::arch::asm!("mov {}, x30", out(reg) return_address);
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        return_address = 0;
+    }
     let kind = a0 as u32;
+    #[cfg(feature = "css_slot")]
+    if let Some(answer) = crate::finalsmash_residency::scene_gate_answer(kind as i32, return_address) {
+        return answer as u64;
+    }
     if let Some(base) = clone_base(kind as i32) {
         let n = GATE118_118_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < 8 {
@@ -1460,6 +1605,7 @@ pub(crate) unsafe fn load_final_register_call_hook(ctx: &mut skyline::hooks::Inl
                 );
             }
             crate::append_group::request_append_group(load_obj as usize, kind as i32);
+            crate::final_grafts::request_donor(load_obj as usize, kind as i32);
         }
 
         #[cfg(not(feature = "css_slot"))]
@@ -1782,9 +1928,13 @@ pub(crate) unsafe extern "C" fn load_dispatch_kind_hook(
             );
         }
         #[cfg(feature = "css_slot")]
-        return with_resource_context(definition.kind, || {
-            call_original!(a0, a1, a2, a3, a4, a5, a6, a7)
-        });
+        {
+            let result = with_resource_context(definition.kind, || {
+                call_original!(a0, a1, a2, a3, a4, a5, a6, a7)
+            });
+            crate::entry_groups::load_members(a0 as usize, definition.kind);
+            return result;
+        }
         #[cfg(not(feature = "css_slot"))]
         return call_original!(a0, a1, a2, a3, a4, a5, a6, a7);
     }

@@ -11,6 +11,8 @@ pub(crate) const OFF_SOUND_SHARE: usize = 0x64eec0;
 
 pub(crate) const OFF_AI_PROFILE_KIND_BOUND: usize = 0x2c9934;
 pub(crate) const OFF_AI_AGENT_KIND_BOUND: usize = 0x2c9b68;
+pub(crate) const OFF_AI_SETUP: usize = 0x2c9900;
+pub(crate) const AI_KIND: usize = 0xc04;
 
 pub(crate) const OFF_AI_ATTACK_LIST_KIND_BOUND: usize = 0x33ba50;
 pub(crate) const OFF_AI_ATTACK_DATA_KIND_BOUND: usize = 0x33c510;

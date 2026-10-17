@@ -2,6 +2,18 @@ use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub use clone_engine_core::hud::{HudAction, MenuCommand};
+
+#[cfg(feature = "smash")]
+pub mod fight;
+#[cfg(feature = "smash")]
+pub mod float;
+#[cfg(feature = "smash")]
+pub mod glide;
+#[cfg(feature = "smash")]
+pub mod partner;
+#[cfg(feature = "smash")]
+pub mod switch;
 pub mod manifest;
 pub mod slot;
 pub mod v2;
@@ -103,6 +115,13 @@ pub const CAP_STAGE_SELECT_EXTENDED: u64 = 1 << 14;
 pub const CAP_STAGE_CSK: u64 = 1 << 15;
 pub const CAP_GLOBAL_MOTIONS: u64 = 1 << 16;
 pub const CAP_GRAB_RULES: u64 = 1 << 17;
+pub const CAP_HUD: u64 = 1 << 18;
+pub const CAP_FINAL_SMASH: u64 = 1 << 19;
+pub const CAP_TETHER: u64 = 1 << 20;
+pub const CAP_ENTRY_GROUPS: u64 = 1 << 21;
+pub const CAP_ANY_BASE_GROUPS: u64 = 1 << 22;
+pub const CAP_PARTNER_SWAP: u64 = 1 << 23;
+pub const CAP_COMMAND_INPUTS: u64 = 1 << 24;
 pub const CAP_RESEARCH_ITEM_FAMILIES: u64 = 1 << 32;
 pub const CAP_RESEARCH_ITEM_MULTIBASE_STATUS_RESERVED: u64 = 1 << 33;
 
@@ -550,6 +569,7 @@ static NATIVE_BACKEND_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static BASE_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static ENTRY_KIND_FN: AtomicUsize = AtomicUsize::new(0);
+static FIGHTER_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static IDENTITY_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static CAPACITY_COMMITTED_FN: AtomicUsize = AtomicUsize::new(0);
 static ARM_KIRBY_FAMILY_FN: AtomicUsize = AtomicUsize::new(0);
@@ -607,6 +627,7 @@ static STAGE_BEHAVIOUR_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_MUSIC_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_ID_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_REGISTER_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_FN: AtomicUsize = AtomicUsize::new(0);
 
 fn resolve(slot: &AtomicUsize, symbol: &'static [u8]) -> Option<usize> {
     let cached = slot.load(Ordering::Acquire);
@@ -932,6 +953,145 @@ pub unsafe fn item_kind_from_boma(module_accessor: *const c_void) -> i32 {
     };
     let function: ItemObjectKindFn = std::mem::transmute(address);
     function(module_accessor)
+}
+
+pub const HUD_GAUGE: u32 = 1;
+pub const HUD_STATE: u32 = 2;
+pub const HUD_SELECT: u32 = 3;
+pub const HUD_SLOT: u32 = 4;
+pub const HUD_MENU_OPEN: u32 = 5;
+pub const HUD_MENU_CURSOR: u32 = 6;
+pub const HUD_MENU_DECIDE: u32 = 7;
+pub const HUD_MENU_CLOSE: u32 = 8;
+pub const HUD_PLAY: u32 = 9;
+pub const HUD_FRAME: u32 = 10;
+pub const HUD_SHOW: u32 = 11;
+pub const HUD_TEXT: u32 = 12;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CloneHudCommandV1 {
+    pub command: u32,
+    pub cost: f32,
+    pub usable: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CloneHudV1 {
+    pub api_version: u32,
+    pub struct_size: u32,
+    pub action: u32,
+    pub index: i32,
+    pub value: f32,
+    pub reserved0: u32,
+    pub commands: [CloneHudCommandV1; 4],
+    pub part: *const u8,
+    pub part_len: usize,
+    pub text: *const u8,
+    pub text_len: usize,
+}
+
+impl CloneHudV1 {
+    pub fn new(action: &HudAction) -> Self {
+        let mut request = Self {
+            api_version: API_VERSION_V1,
+            struct_size: std::mem::size_of::<Self>() as u32,
+            action: 0,
+            index: 0,
+            value: 0.0,
+            reserved0: 0,
+            commands: [CloneHudCommandV1::default(); 4],
+            part: std::ptr::null(),
+            part_len: 0,
+            text: std::ptr::null(),
+            text_len: 0,
+        };
+        if let Some(part) = action.part() {
+            request.part = part.as_ptr();
+            request.part_len = part.len();
+        }
+        match *action {
+            HudAction::Gauge(value) => {
+                request.action = HUD_GAUGE;
+                request.value = value;
+            }
+            HudAction::State(on) => {
+                request.action = HUD_STATE;
+                request.index = i32::from(on);
+            }
+            HudAction::Select(index) => {
+                request.action = HUD_SELECT;
+                request.index = index;
+            }
+            HudAction::Slot(index, value) => {
+                request.action = HUD_SLOT;
+                request.index = index;
+                request.value = value;
+            }
+            HudAction::MenuOpen(commands) => {
+                request.action = HUD_MENU_OPEN;
+                for (slot, command) in request.commands.iter_mut().zip(commands.iter()) {
+                    *slot = CloneHudCommandV1 {
+                        command: command.command,
+                        cost: command.cost,
+                        usable: u32::from(command.usable),
+                    };
+                }
+            }
+            HudAction::MenuCursor(row) => {
+                request.action = HUD_MENU_CURSOR;
+                request.index = row;
+            }
+            HudAction::MenuDecide(row) => {
+                request.action = HUD_MENU_DECIDE;
+                request.index = row;
+            }
+            HudAction::MenuClose => request.action = HUD_MENU_CLOSE,
+            HudAction::Play(_) => request.action = HUD_PLAY,
+            HudAction::Frame(_, frame) => {
+                request.action = HUD_FRAME;
+                request.value = frame;
+            }
+            HudAction::Show(_, on) => {
+                request.action = HUD_SHOW;
+                request.index = i32::from(on);
+            }
+            HudAction::Text(_, text) => {
+                request.action = HUD_TEXT;
+                request.text = text.as_ptr();
+                request.text_len = text.len();
+            }
+        }
+        request
+    }
+
+    pub unsafe fn part(&self) -> Option<&str> {
+        string_at(self.part, self.part_len)
+    }
+
+    pub unsafe fn text(&self) -> Option<&str> {
+        string_at(self.text, self.text_len)
+    }
+}
+
+unsafe fn string_at<'a>(pointer: *const u8, length: usize) -> Option<&'a str> {
+    if pointer.is_null() {
+        return None;
+    }
+    std::str::from_utf8(std::slice::from_raw_parts(pointer, length)).ok()
+}
+
+pub unsafe fn hud(module_accessor: *const c_void, action: &HudAction) -> Result<(), Error> {
+    let address = resolve(&HUD_FN, b"clone_engine_hud_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(*const c_void, *const CloneHudV1) -> i32 =
+        std::mem::transmute(address);
+    let request = CloneHudV1::new(action);
+    let result = function(module_accessor, &request);
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
 }
 
 pub unsafe fn item_kind_held(module_accessor: *const c_void, index: i32) -> i32 {
@@ -1380,6 +1540,14 @@ pub fn base_kind(custom_kind: i32) -> i32 {
     };
     let function: KindQueryFn = unsafe { std::mem::transmute(address) };
     unsafe { function(custom_kind) }
+}
+
+pub fn fighter_kind(module_accessor: u64) -> i32 {
+    let Some(address) = resolve(&FIGHTER_KIND_FN, b"clone_engine_fighter_kind_v1\0") else {
+        return -1;
+    };
+    let function: ArticleOwnerKindFn = unsafe { std::mem::transmute(address) };
+    unsafe { function(module_accessor) }
 }
 
 pub fn entry_kind(entry_id: i32) -> i32 {
@@ -2279,6 +2447,10 @@ pub unsafe fn true_kind<T>(module_accessor: *mut T) -> i32 {
         return -1;
     }
     let module_accessor = module_accessor.cast::<smash::app::BattleObjectModuleAccessor>();
+    let own = fighter_kind(module_accessor as u64);
+    if own >= FIRST_CUSTOM_KIND {
+        return own;
+    }
     let entry = smash::app::lua_bind::WorkModule::get_int(
         module_accessor,
         *smash::lib::lua_const::FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID,

@@ -84,6 +84,10 @@ mod item_work_probe;
 mod finalsmash_residency;
 #[cfg(feature = "css_slot")]
 mod append_group;
+#[cfg(feature = "css_slot")]
+mod entry_groups;
+#[cfg(feature = "css_slot")]
+mod fight_commands;
 
 #[cfg(all(feature = "diag_item_kind", feature = "item_clone_backend"))]
 compile_error!("diag_item_kind and item_clone_backend hook the same item lifecycle seams");
@@ -325,6 +329,14 @@ const OFF_FIGHTER_CHANGE_REQUEST_CALL: usize = 0x178_aae0;
 #[cfg(feature = "css_slot")]
 const OFF_TEAM_QUEUE_EXPAND_INPUT: usize = 0x249_376c;
 #[cfg(feature = "css_slot")]
+const OFF_RETRY_EXPAND_INPUT: usize = 0x150_4280;
+#[cfg(feature = "css_slot")]
+const OFF_TAG_TEAM_EXPAND_INPUT: usize = 0x157_0374;
+#[cfg(feature = "css_slot")]
+const OFF_CLASSIC_ROUTE_PATH: usize = 0x323_ad60;
+#[cfg(feature = "css_slot")]
+const OFF_CLASSIC_ROUTE_TITLE: usize = 0x1a1_9554;
+#[cfg(feature = "css_slot")]
 const OFF_CSS_ICON_COLUMN_BOUND: usize = 0x19f_1dec;
 #[cfg(feature = "css_slot")]
 const OFF_PLAYER_INFO_COSTUME_STORED: usize = 0x178_8380;
@@ -445,7 +457,15 @@ fn compiled_capabilities() -> u64 {
     }
     #[cfg(feature = "css_slot")]
     {
-        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS | clone_engine_api::CAP_GRAB_RULES;
+        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS
+            | clone_engine_api::CAP_GRAB_RULES
+            | clone_engine_api::CAP_HUD
+            | clone_engine_api::CAP_FINAL_SMASH
+            | clone_engine_api::CAP_TETHER
+            | clone_engine_api::CAP_ENTRY_GROUPS
+            | clone_engine_api::CAP_ANY_BASE_GROUPS
+            | clone_engine_api::CAP_PARTNER_SWAP
+            | clone_engine_api::CAP_COMMAND_INPUTS;
     }
     #[cfg(feature = "research_item_families")]
     {
@@ -1063,18 +1083,33 @@ pub(crate) unsafe fn register_v1_with(
         return if automatic { existing.kind } else { RESULT_OK };
     }
 
-    let effect_namespace = if registration.effect_namespace == 0 {
-        match (1..=0x1000).find(|namespace| {
-            !definitions.iter().any(|definition| {
-                definition.base_kind == registration.base_kind
-                    && definition.effect_namespace == *namespace
+    let effect_namespace_holder = |namespace: u32| {
+        definitions
+            .iter()
+            .find(|definition| {
+                definition.base_kind == registration.base_kind && definition.effect_namespace == namespace
             })
-        }) {
-            Some(namespace) => namespace,
-            None => return ERROR_NAMESPACE,
+            .map(|definition| definition.resource_name)
+    };
+    let effect_namespace = {
+        let asked = registration.effect_namespace;
+        let holder = if asked == 0 { None } else { effect_namespace_holder(asked) };
+        if asked != 0 && holder.is_none() {
+            asked
+        } else {
+            match (1..=0x1000).find(|namespace| effect_namespace_holder(*namespace).is_none()) {
+                Some(namespace) => {
+                    if let Some(holder) = holder {
+                        skyline::println!(
+                            "[clone_engine] {resource_name} asked for effect namespace {asked}, which {holder} holds on base {}; it gets {namespace} instead (a runtime tag, nothing in the pack refers to it)",
+                            registration.base_kind
+                        );
+                    }
+                    namespace
+                }
+                None => return ERROR_NAMESPACE,
+            }
         }
-    } else {
-        registration.effect_namespace
     };
     let article_namespace_holder = |namespace: u32| {
         definitions
@@ -1446,6 +1481,25 @@ pub extern "C" fn clone_engine_entry_is_kind(entry_id: i32, expected_kind: i32) 
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn clone_engine_fighter_kind_v1(module_accessor: u64) -> i32 {
+    #[cfg(feature = "css_slot")]
+    {
+        if module_accessor != 0
+            && smash::app::utility::get_category(
+                &mut *(module_accessor as *mut smash::app::BattleObjectModuleAccessor),
+            ) == *smash::lib::lua_const::BATTLE_OBJECT_CATEGORY_FIGHTER
+        {
+            if let Some(kind) = entry_groups::clone_of_boma(
+                module_accessor as *mut smash::app::BattleObjectModuleAccessor,
+            ) {
+                return kind;
+            }
+        }
+    }
+    -1
+}
+
+#[no_mangle]
 pub extern "C" fn clone_engine_get_entry_kind(entry_id: i32) -> i32 {
     #[cfg(feature = "css_slot")]
     {
@@ -1640,6 +1694,8 @@ macro_rules! nonshare_hook {
                 *kind_ptr = kind;
                 return agent;
             }
+            #[cfg(feature = "css_slot")]
+            let _partner_name = entry_groups::hold_partner_agent_name(object as u64);
             call_original!(object, x1, x2)
         }
     };
@@ -1753,22 +1809,35 @@ pub(crate) unsafe fn clone_kind_of_object(object: u64) -> Option<i32> {
     if !(0..8).contains(&entry_id) {
         return None;
     }
+    let object_id = core::ptr::read_volatile((object + 0x8) as *const u32);
+    if let Some(member) = entry_groups::same_base_member(entry_id, object_id) {
+        return Some(member);
+    }
     let clone_kind = entry_custom_kind(entry_id as u8)?;
     let definition = clone_definition(clone_kind)?;
-    (definition.base_kind == kind).then_some(clone_kind)
+    if definition.base_kind == kind {
+        return Some(clone_kind);
+    }
+    entry_groups::member_of(clone_kind, kind)
 }
 
 macro_rules! clone_fighter_acmd_hooks {
-    ($($name:ident($offset:expr);)*) => {
+    ($($name:ident($offset:expr, $category:expr);)*) => {
         $(
             #[cfg(feature = "css_slot")]
             #[skyline::hook(offset = crate::game::rel($offset))]
             unsafe fn $name(object: u64, boma: u64, lua_state: u64) -> u64 {
                 let clone_kind = clone_kind_of_object(object);
-                let _pending =
-                    clone_kind.map(|kind| PENDING_AGENT_KIND.enter(current_thread_key(), kind));
-                let _agent_name = smashline_names::hold_clone_fighter_name(clone_kind);
-                call_original!(object, boma, lua_state)
+                let agent = {
+                    let _pending =
+                        clone_kind.map(|kind| PENDING_AGENT_KIND.enter(current_thread_key(), kind));
+                    let _agent_name = smashline_names::hold_clone_fighter_name(clone_kind);
+                    call_original!(object, boma, lua_state)
+                };
+                if let Some(kind) = clone_kind {
+                    final_grafts::on_acmd_agent($category, object, boma, lua_state, agent, kind);
+                }
+                agent
             }
         )*
 
@@ -1781,10 +1850,10 @@ macro_rules! clone_fighter_acmd_hooks {
 
 #[cfg(feature = "css_slot")]
 clone_fighter_acmd_hooks! {
-    clone_fighter_acmd_game(0x64c310);
-    clone_fighter_acmd_effect(0x64c930);
-    clone_fighter_acmd_expression(0x64cf50);
-    clone_fighter_acmd_sound(0x64d570);
+    clone_fighter_acmd_game(0x64c310, 0);
+    clone_fighter_acmd_effect(0x64c930, 1);
+    clone_fighter_acmd_expression(0x64cf50, 2);
+    clone_fighter_acmd_sound(0x64d570, 3);
 }
 
 #[cfg(all(feature = "css_slot", feature = "diag_pocket"))]
@@ -1955,6 +2024,8 @@ unsafe fn clone_fighter_status_create(object: u64, boma: u64, lua_state: u64) ->
         core::ptr::write_volatile(kind_field, kind);
     }
     common_vtables::on_fighter_agent(object, result);
+    final_grafts::on_status_agent(object, boma, lua_state, result, status_clone_kind);
+    tether::on_status_agent(boma, status_clone_kind);
     result
 }
 
@@ -2157,6 +2228,41 @@ static PARAM_BRACKETS_INSTALLED: core::sync::atomic::AtomicBool =
 static PARAM_KIND_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(feature = "css_slot")]
+static PARAM_CONFIG_TEXT: [core::sync::atomic::AtomicUsize; 2] =
+    [core::sync::atomic::AtomicUsize::new(0), core::sync::atomic::AtomicUsize::new(0)];
+
+#[cfg(feature = "css_slot")]
+fn record_param_config_text() {
+    let mut address = 0usize;
+    let found = unsafe {
+        skyline::nn::ro::LookupSymbol(&mut address as *mut usize, b"FighterParamModule__has_kind\0".as_ptr())
+    } == 0
+        && address != 0;
+    if !found {
+        dbg_log_public(&String::from(
+            "[parambridge] ParamConfig is not loaded; clone-kind ParamConfig values have no reader",
+        ));
+        return;
+    }
+    let (start, end) = unsafe { final_grafts::module_range(address) };
+    if start == 0 {
+        return;
+    }
+    PARAM_CONFIG_TEXT[0].store(start, core::sync::atomic::Ordering::Release);
+    PARAM_CONFIG_TEXT[1].store(end, core::sync::atomic::Ordering::Release);
+    dbg_log_public(&format!(
+        "[parambridge] ParamConfig's code is {start:#x}..{end:#x}: get_kind answers a clone's kind to callers there, bracket or not"
+    ));
+}
+
+#[cfg(feature = "css_slot")]
+fn caller_is_param_config(lr: usize) -> bool {
+    let start = PARAM_CONFIG_TEXT[0].load(core::sync::atomic::Ordering::Acquire);
+    let end = PARAM_CONFIG_TEXT[1].load(core::sync::atomic::Ordering::Acquire);
+    start != 0 && lr >= start && lr < end
+}
+
+#[cfg(feature = "css_slot")]
 static PARAM_REGISTER_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 const PARAM_REGISTER_LOG_LIMIT: u32 = 160;
 
@@ -2278,6 +2384,7 @@ pub(crate) fn ensure_param_getter_brackets_installed() {
         .is_ok()
     {
         install_param_getter_brackets();
+        record_param_config_text();
         dbg_log_public(&String::from(
             "[parambridge] param getter brackets installed at the first fighter construction, outside every ParamConfig instance's hooks: a pack's own ParamConfig calls with its clone kind apply to the clone",
         ));
@@ -2327,7 +2434,7 @@ unsafe fn param_override_kind(module: u64) -> Option<i32> {
     if !(0..8).contains(&entry_id) {
         return None;
     }
-    entry_custom_kind(entry_id as u8)
+    entry_groups::clone_of_boma(boma as *mut smash::app::BattleObjectModuleAccessor)
 }
 
 #[cfg(feature = "css_slot")]
@@ -2354,7 +2461,7 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     }
 
     let thread = current_thread_key();
-    if !PARAM_CONTEXT.is_active(thread) {
+    if !PARAM_CONTEXT.is_active(thread) && !caller_is_param_config(lr) {
         return kind;
     }
     if !caller_is_outside_main_text(lr) {
@@ -2379,19 +2486,20 @@ unsafe fn utility_get_kind_hook(boma: u64) -> i32 {
     let Some(true_kind) = entry_custom_kind(entry_id as u8) else {
         return kind;
     };
+    let object_id = core::ptr::read_volatile((boma as usize + BOMA_BATTLE_OBJECT_ID) as *const u32);
+    let true_kind = entry_groups::same_base_member(entry_id, object_id).unwrap_or(true_kind);
     let Some(definition) = clone_definition(true_kind) else {
         return kind;
     };
-    if definition.base_kind != kind {
-        return kind;
+    if definition.base_kind != kind && entry_groups::partner_of(true_kind) != Some(kind) {
+        return entry_groups::member_of(true_kind, kind).unwrap_or(kind);
     }
     let n = PARAM_KIND_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 12 {
         let object_id =
             core::ptr::read_volatile((boma as usize + BOMA_BATTLE_OBJECT_ID) as *const u32);
         dbg_log!(
-            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} object={object_id:#x} csk={:?} caller={lr:#x}",
-            css_registration::csk_entry_custom_kind(entry_id as u8)
+            "[paramkind] #{n} param-context get_kind {kind}->{true_kind} entry={entry_id} object={object_id:#x} caller={lr:#x}"
         );
     }
     true_kind
@@ -2989,17 +3097,7 @@ pub extern "C" fn clone_engine_pocket_holder_kind_v1(module_accessor: u64) -> i3
 
 #[cfg(feature = "css_slot")]
 unsafe fn fighter_clone_kind(boma: *mut smash::app::BattleObjectModuleAccessor) -> Option<i32> {
-    if boma.is_null() {
-        return None;
-    }
-    let entry_id = smash::app::lua_bind::WorkModule::get_int(
-        boma,
-        *smash::lib::lua_const::FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID,
-    ) as i32;
-    if !(0..8).contains(&entry_id) {
-        return None;
-    }
-    entry_custom_kind(entry_id as u8)
+    entry_groups::clone_of_boma(boma)
 }
 
 #[cfg(feature = "css_slot")]
@@ -3028,7 +3126,7 @@ unsafe fn weapon_owner_clone_kind(
     }
     if css_registration::owner_object_table_is_populated() {
         if let Some(entry) = css_registration::entry_of_owner_object(owner_id) {
-            return entry_custom_kind(entry);
+            return entry_groups::clone_for_object(entry, smash::app::utility::get_kind(&mut *owner), owner_id);
         }
     }
     if let Some(kind) = fighter_clone_kind(owner) {
@@ -3042,6 +3140,16 @@ unsafe fn weapon_owner_clone_kind(
 
 #[cfg(feature = "css_slot")]
 static OWNER_RESOLVE_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+static GENERATOR_OWNER_LOG: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+pub(crate) static ARTICLE_GENERATOR_OWNER: crate::thread_context::ThreadScopedKind =
+    crate::thread_context::ThreadScopedKind::new("article_generator_owner");
+
+#[cfg(feature = "css_slot")]
+pub(crate) const GENERATOR_NOT_A_CLONE: i32 = i32::MAX;
 
 #[cfg(feature = "css_slot")]
 pub(crate) static ENTRY_FIGHTER_BOMA: [core::sync::atomic::AtomicUsize; 8] =
@@ -3169,6 +3277,16 @@ pub(crate) unsafe fn article_owner_kind_by_entry(module_accessor: u64) -> Option
     }
     if category != *smash::lib::lua_const::BATTLE_OBJECT_CATEGORY_WEAPON {
         return None;
+    }
+    if let Some(generator) = ARTICLE_GENERATOR_OWNER.active(current_thread_key()) {
+        let resolved = clone_definition(generator).map(|_| generator);
+        let n = GENERATOR_OWNER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if n < 16 {
+            dbg_log!(
+                "[ownerresolve] generated article boma={module_accessor:#x} takes its generator's owner {resolved:?} (its own link is not set yet)"
+            );
+        }
+        return resolved;
     }
     let resolved = weapon_owner_clone_kind(
         boma,
@@ -3786,6 +3904,25 @@ unsafe fn remap_fighter_ai_kind(ctx: &mut skyline::hooks::InlineCtx, phase: &str
     }
 }
 
+static AI_SETUP_LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[skyline::hook(offset = crate::game::rel(OFF_AI_SETUP))]
+unsafe fn fighter_ai_setup_hook(ai: *mut u8, path: *const u8) -> u64 {
+    if !ai.is_null() {
+        let field = ai.add(AI_KIND) as *mut i32;
+        let kind = core::ptr::read_volatile(field);
+        if let Some(base) = clone_base(kind) {
+            core::ptr::write_volatile(field, base);
+            if AI_SETUP_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 16 {
+                skyline::println!(
+                    "[clone_engine] kind {kind}'s computer player loads and reads the AI data of its base {base}"
+                );
+            }
+        }
+    }
+    call_original!(ai, path)
+}
+
 #[skyline::hook(offset = crate::game::rel(OFF_AI_PROFILE_KIND_BOUND), inline)]
 unsafe fn fighter_ai_profile_kind_hook(ctx: &mut skyline::hooks::InlineCtx) {
     remap_fighter_ai_kind(ctx, "profile");
@@ -4004,6 +4141,7 @@ unsafe fn handle_custom_resource_name_w8(ctx: &mut skyline::hooks::InlineCtx, de
     };
     let resolved_kind = clone_definition(raw_kind)
         .map(|_| raw_kind)
+        .or_else(|| clone_kind_of_object(object as u64))
         .or(recovered_kind)
         .or_else(|| active_resource_kind());
 
@@ -4180,12 +4318,26 @@ unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: 
     const FIGHTER_EFFECT_HANDLE_BASE: u32 = 0x300;
     const TRANSPLANT_HANDLE_STRIDE: u32 = 2000;
     let base_handle = FIGHTER_EFFECT_HANDLE_BASE + definition.base_kind as u32;
-    let mapped_handle =
-        if handle >= base_handle && (handle - base_handle) % TRANSPLANT_HANDLE_STRIDE == 0 {
-            handle + TRANSPLANT_HANDLE_STRIDE * definition.effect_namespace
-        } else {
-            handle
+    let transplanted = handle >= base_handle && (handle - base_handle) % TRANSPLANT_HANDLE_STRIDE == 0;
+    let bank_owner = if transplanted { effect_bank_owner(definition) } else { None };
+    if transplanted && bank_owner.is_none() {
+        return match vanilla_index {
+            Some(index) => {
+                let index = index as u32;
+                call_original!(manager, handle, &index as *const u32)
+            }
+            None => call_original!(manager, handle, search_index),
         };
+    }
+    let mapped_handle = match bank_owner {
+        Some(owner) => {
+            FIGHTER_EFFECT_HANDLE_BASE
+                + owner.base_kind as u32
+                + (handle - base_handle)
+                + TRANSPLANT_HANDLE_STRIDE * owner.effect_namespace
+        }
+        None => handle,
+    };
 
     let n = CUSTOM_EFFECT_BANK_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 24 {
@@ -4208,6 +4360,9 @@ unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: 
     if n < 24 {
         dbg_log!("[effectbank] #{n} load-result={result} mapped_handle={mapped_handle:#x}");
     }
+    if mapped_handle != handle && effect_bank_refcount(manager as usize, mapped_handle) > 0 {
+        note_mapped_effect_bank(manager as usize, handle, mapped_handle);
+    }
     if mapped_handle != handle {
         match vanilla_index {
             Some(index) => {
@@ -4227,6 +4382,218 @@ unsafe fn custom_effect_bank_load(manager: *mut u64, handle: u32, search_index: 
         }
     }
     result
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn effect_bank_refcount(manager: usize, handle: u32) -> u32 {
+    const BANK_MUTEX: usize = 0x19498;
+    const SLOTS: usize = 0x18000;
+    const SLOT_SIZE: usize = 0xa8;
+    const SLOT_REFCOUNT: usize = 0x98;
+    if manager == 0 {
+        return 0;
+    }
+    let mutex_lock: extern "C" fn(u64) = core::mem::transmute(crate::game::addr(OFF_STD_MUTEX_LOCK));
+    let mutex_unlock: extern "C" fn(u64) = core::mem::transmute(crate::game::addr(OFF_STD_MUTEX_UNLOCK));
+    mutex_lock((manager + BANK_MUTEX) as u64);
+    let refcount = effect_bank_find(manager, handle)
+        .map(|slot| core::ptr::read_volatile((manager + SLOTS + slot as usize * SLOT_SIZE + SLOT_REFCOUNT) as *const u32))
+        .unwrap_or(0);
+    mutex_unlock((manager + BANK_MUTEX) as u64);
+    refcount
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn effect_bank_find(manager: usize, handle: u32) -> Option<u32> {
+    const BUCKETS: usize = 0x193b0;
+    const BUCKET_COUNT: usize = 0x193b8;
+    let count = core::ptr::read_volatile((manager + BUCKET_COUNT) as *const usize);
+    let buckets = core::ptr::read_volatile((manager + BUCKETS) as *const usize);
+    if count == 0 || buckets == 0 {
+        return None;
+    }
+    let key = handle as usize;
+    let bucket_of = |hash: usize| if count & (count - 1) == 0 { hash & (count - 1) } else { hash % count };
+    let index = bucket_of(key);
+    let before = core::ptr::read_volatile((buckets + index * 8) as *const usize);
+    if before == 0 {
+        return None;
+    }
+    let mut node = core::ptr::read_volatile(before as *const usize);
+    let mut steps = 0;
+    while node != 0 && steps < 4096 {
+        let hash = core::ptr::read_volatile((node + 8) as *const usize);
+        if hash == key {
+            if core::ptr::read_volatile((node + 0x10) as *const u32) == handle {
+                return Some(core::ptr::read_volatile((node + 0x14) as *const u32));
+            }
+        } else if bucket_of(hash) != index {
+            return None;
+        }
+        node = core::ptr::read_volatile(node as *const usize);
+        steps += 1;
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn arc_file_info_indice(hash: u64) -> Option<u32> {
+    const ARC_SERVICE: usize = 0x5331f20;
+    const SERVICE_ARC: usize = 0x78;
+    const ARC_FILE_BUCKETS: usize = 0x50;
+    const ARC_HASH_TO_PATH: usize = 0x58;
+    const ARC_FILE_PATHS: usize = 0x60;
+    const FILE_PATH_STRIDE: usize = 0x20;
+    let service = core::ptr::read_volatile(crate::game::addr(ARC_SERVICE) as *const usize);
+    if service == 0 {
+        return None;
+    }
+    let holder = core::ptr::read_volatile((service + SERVICE_ARC) as *const usize);
+    if holder == 0 {
+        return None;
+    }
+    let arc = core::ptr::read_volatile(holder as *const usize);
+    if arc == 0 {
+        return None;
+    }
+    let buckets = core::ptr::read_volatile((arc + ARC_FILE_BUCKETS) as *const usize);
+    let lookup = core::ptr::read_volatile((arc + ARC_HASH_TO_PATH) as *const usize);
+    let paths = core::ptr::read_volatile((arc + ARC_FILE_PATHS) as *const usize);
+    if buckets == 0 || lookup == 0 || paths == 0 {
+        return None;
+    }
+    let bucket_count = core::ptr::read_volatile((buckets + 4) as *const u32) as u64;
+    if bucket_count == 0 {
+        return None;
+    }
+    let bucket = buckets + 8 + (hash % bucket_count) as usize * 8;
+    let start = core::ptr::read_volatile(bucket as *const u32) as usize;
+    let count = core::ptr::read_volatile((bucket + 4) as *const u32) as usize;
+    let (mut low, mut high) = (0, count);
+    while low < high {
+        let middle = (low + high) / 2;
+        let entry = core::ptr::read_volatile((lookup + (start + middle) * 8) as *const u64);
+        let key = entry & 0xff_ffff_ffff;
+        if key == hash {
+            let path = core::ptr::read_volatile(
+                (paths + (entry >> 40) as usize * FILE_PATH_STRIDE) as *const u64,
+            );
+            return Some((path >> 40) as u32);
+        }
+        if key < hash {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    None
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn own_effect_file(definition: &CloneDefinition) -> Option<u32> {
+    static KNOWN: OnceLock<Mutex<Vec<(i32, Option<u32>)>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(|| Mutex::new(Vec::new()));
+    if let Some(&(_, file)) = known.lock().unwrap().iter().find(|entry| entry.0 == definition.kind) {
+        return file;
+    }
+    let path = |name: &str| hash40(&format!("effect/fighter/{name}/ef_{name}.eff"));
+    let own_file = arc_file_info_indice(path(definition.resource_name));
+    let base_file = arc_file_info_indice(path(definition.base_resource_name));
+    let file = own_file.filter(|file| Some(*file) != base_file);
+    known.lock().unwrap().push((definition.kind, file));
+    file
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn effect_bank_owner(definition: &'static CloneDefinition) -> Option<&'static CloneDefinition> {
+    let Some(file) = own_effect_file(definition) else {
+        tell_effect_bank(definition, "shares the base's effect file; only the base bank loads");
+        return None;
+    };
+    let candidates: Vec<&'static CloneDefinition> = clone_definitions().read().unwrap().clone();
+    let sharing: Vec<&'static CloneDefinition> = candidates
+        .into_iter()
+        .filter(|candidate| own_effect_file(candidate) == Some(file))
+        .collect();
+    let owner = sharing.iter().copied().min_by_key(|candidate| candidate.kind).unwrap_or(definition);
+    let others: Vec<&str> = sharing
+        .iter()
+        .filter(|candidate| candidate.kind != definition.kind)
+        .map(|candidate| candidate.resource_name)
+        .collect();
+    if others.is_empty() {
+        tell_effect_bank(definition, "ships its own effect file; it loads beside the base's");
+    } else {
+        tell_effect_bank(
+            definition,
+            &format!("shares one effect file with {}; one bank serves them", others.join(", ")),
+        );
+    }
+    Some(owner)
+}
+
+#[cfg(feature = "css_slot")]
+fn tell_effect_bank(definition: &CloneDefinition, message: &str) {
+    static TOLD: OnceLock<Mutex<Vec<i32>>> = OnceLock::new();
+    let mut told = TOLD.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+    if !told.contains(&definition.kind) {
+        told.push(definition.kind);
+        dbg_log_public(&format!("[effectbank] {} {message}", definition.resource_name));
+    }
+}
+
+#[cfg(feature = "css_slot")]
+fn mapped_effect_banks() -> &'static Mutex<Vec<(usize, u32, u32, u32)>> {
+    static BANKS: OnceLock<Mutex<Vec<(usize, u32, u32, u32)>>> = OnceLock::new();
+    BANKS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "css_slot")]
+fn note_mapped_effect_bank(manager: usize, base: u32, mapped: u32) {
+    let mut banks = mapped_effect_banks().lock().unwrap();
+    match banks.iter_mut().find(|bank| bank.0 == manager && bank.1 == base && bank.2 == mapped) {
+        Some(bank) => bank.3 += 1,
+        None => banks.push((manager, base, mapped, 1)),
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(0x3563720))]
+unsafe fn custom_effect_bank_release(manager: *mut u64, handle: i32) {
+    call_original!(manager, handle);
+    let address = manager as usize;
+    let released = handle as u32;
+    {
+        let mut banks = mapped_effect_banks().lock().unwrap();
+        if let Some(bank) = banks.iter_mut().find(|bank| bank.0 == address && bank.2 == released) {
+            bank.3 = bank.3.saturating_sub(1);
+        }
+        banks.retain(|bank| bank.3 > 0);
+        if !banks.iter().any(|bank| bank.0 == address && bank.1 == released) {
+            return;
+        }
+    }
+    if effect_bank_refcount(address, released) > 0 {
+        return;
+    }
+    let owed: Vec<(u32, u32)> = {
+        let mut banks = mapped_effect_banks().lock().unwrap();
+        let owed = banks
+            .iter()
+            .filter(|bank| bank.0 == address && bank.1 == released)
+            .map(|bank| (bank.2, bank.3))
+            .collect();
+        banks.retain(|bank| !(bank.0 == address && bank.1 == released));
+        owed
+    };
+    for (mapped, count) in owed {
+        let mut freed = 0;
+        while freed < count && effect_bank_refcount(address, mapped) > 0 {
+            call_original!(manager, mapped as i32);
+            freed += 1;
+        }
+        dbg_log!("[effectbank] base {released:#x} released, mapped {mapped:#x} released {freed} of {count}");
+    }
 }
 
 #[cfg(feature = "css_slot")]
@@ -4334,6 +4701,14 @@ mod kirby_motions;
 mod global_motions;
 #[cfg(feature = "css_slot")]
 mod grab_rules;
+#[cfg(feature = "css_slot")]
+mod hud_grafts;
+#[cfg(feature = "css_slot")]
+mod hud_layouts;
+#[cfg(feature = "css_slot")]
+mod final_grafts;
+#[cfg(feature = "css_slot")]
+mod tether;
 
 #[cfg(feature = "css_slot")]
 mod css_registration;
@@ -4347,6 +4722,8 @@ mod fighter_params;
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 mod fighter_common_copies;
 mod fighter_param_rows;
+#[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
+mod fighter_param_ai;
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 mod fighter_param_thrown;
 #[cfg(feature = "true_kind")]
@@ -4433,7 +4810,19 @@ pub fn main() {
     #[cfg(feature = "css_slot")]
     append_group::install();
     #[cfg(feature = "css_slot")]
+    entry_groups::install();
+    #[cfg(feature = "css_slot")]
+    fight_commands::install();
+    #[cfg(feature = "css_slot")]
     copy_model_probe::install();
+    #[cfg(feature = "css_slot")]
+    hud_grafts::install();
+    #[cfg(feature = "css_slot")]
+    hud_layouts::install();
+    #[cfg(feature = "css_slot")]
+    final_grafts::install_hooks();
+    #[cfg(feature = "css_slot")]
+    tether::install();
     #[cfg(feature = "item_clone_backend")]
     if item_slots::ready() {
         item_clones::mark_resource_router_ready();
@@ -4611,6 +5000,7 @@ pub fn main() {
         static_fighter_data_hook,
         fighter_aux_data_init_hook,
         fighter_boundary_params_hook,
+        fighter_ai_setup_hook,
         fighter_ai_profile_kind_hook,
         fighter_ai_agent_kind_hook,
         fighter_ai_attack_list_kind_hook,
@@ -4620,7 +5010,7 @@ pub fn main() {
     );
 
     skyline::println!(
-        "[clone_engine] installed 19 kind-spoof hooks (9 create_agent dispatchers + fighter-class resolver + static fighter data + auxiliary record + boundary parameters + CPU profile/action/mode gates + four AI data selectors)"
+        "[clone_engine] installed 20 kind-spoof hooks (9 create_agent dispatchers + fighter-class resolver + static fighter data + auxiliary record + boundary parameters + CPU setup/profile/action/mode gates + four AI data selectors)"
     );
 
     #[cfg(any(feature = "diag_article", feature = "css_slot"))]
@@ -4706,6 +5096,10 @@ pub fn main() {
             skyline::install_hook!(fighter_change_expand_call_hook);
             skyline::install_hook!(fighter_change_request_hook);
             skyline::install_hook!(team_queue_expand_input_hook);
+            skyline::install_hook!(retry_expand_input_hook);
+            skyline::install_hook!(tag_team_expand_input_hook);
+            skyline::install_hook!(classic_route_path_hook);
+            skyline::install_hook!(classic_route_title_hook);
             unsafe { csk_row_bridge::install() };
             #[cfg(feature = "diag_load_barrier")]
             {
@@ -4803,9 +5197,11 @@ pub fn main() {
             "[clone_engine] v46: retained custom-object-only readiness probes at group 0x17eb180, entry 0x17e4790, and base 0x17e28c0 with startup-only sampling. Observation only; tag [ready118]."
         );
         #[cfg(not(feature = "diag_article_initspoof"))]
-        skyline::install_hook!(fighter_init_kind_bridge);
+        skyline::install_hooks!(fighter_init_kind_bridge, load_pipeline::fighter_init_member_index);
         #[cfg(feature = "css_slot")]
         fighter_param_rows::install_hooks();
+        #[cfg(feature = "css_slot")]
+        fighter_param_ai::install_hooks();
         fighter_common_copies::install_hooks();
         fighter_param_thrown::install_hooks();
         #[cfg(feature = "css_slot")]
@@ -4860,6 +5256,7 @@ fn report_clone_runtime_hooks() {
             "fighter_params(0x70c580) per-instance vl.prc payload for clone/base coexistence",
             "fighter_param_rows(0x6867e0, 0x60b6b0, per-frame 0x3a84e0 + Fighter phases 107/109/110/111-115 at 0x614630 0x6164a0 0x616580 0x619810 0x619850 0x619890 0x61a0a0 0x3a8bc0; aux record under 0x34af10) fighter_param + fighter_param_motion row swap for direct readers",
             "fighter_common_copies(accessor+0x2758 param object; binders 0x736a90 common 0x782c00 item 0x7741f0 etc 0x798540 power_up 0x761f70 effect) per-fighter copies of the six shared param files patched for clones; kind bind 0x77d100 re-patches the detached power_up object at param object+0x1b10",
+            "fighter_param_ai(AI fighter update 0x34b310 for rosetta inkling brave) the AI's per-fighter pass reads a clone's own vl.prc outside the fighter's phases",
             "fighter_param_thrown(thunk 0x20a8000 + lua call 0x20a81b4 for thrown_offset 0x720f90; entry hooks 0x7210e0 donkey 0x7211a0 ridley 0x721380 gaogaen 0x721240 diddy 0x7212e0 mii 0x721430 demon_command 0x7214d0 demon_special_lw) hold offsets adjusted for clones at the accessor",
             "model_path_namespace_hook(0x17e9a00) MODEL namespace",
             "path_builder_remap_hook(0x17df460) path namespace",

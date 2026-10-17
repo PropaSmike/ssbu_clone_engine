@@ -238,7 +238,9 @@ pub(crate) unsafe fn kirby_copy_work_snapshot(boma: u64) -> Option<(u64, i32, i3
     let copy_kind = get_int(work, 0x1000_00FC) as u32 as i32;
     let target_entry = get_int(work, 0x1000_00FD) as u32 as i32;
     let target_kind = if (0..8).contains(&target_entry) {
-        entry_custom_kind(target_entry as u8)
+        entry_custom_kind(target_entry as u8).map(|leader| {
+            crate::entry_groups::member_of(leader, copy_kind).unwrap_or(leader)
+        })
     } else {
         None
     };
@@ -1560,10 +1562,12 @@ pub(crate) unsafe fn kirby_copy_setup_probe(
     let base_kind = x2 as i32;
     let target_entry = x1 as i32;
     let target_clone_kind = if (0..8).contains(&target_entry) {
-        validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-setup").filter(|kind| {
-            clone_definition(*kind)
-                .map(|definition| definition.base_kind == base_kind)
-                .unwrap_or(false)
+        validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-setup").and_then(|kind| {
+            match clone_definition(kind) {
+                Some(definition) if definition.base_kind == base_kind => Some(kind),
+                Some(_) => crate::entry_groups::member_of(kind, base_kind),
+                None => None,
+            }
         })
     } else {
         None
@@ -1875,6 +1879,7 @@ pub(crate) unsafe fn kirby_per_fighter_frame_probe(x0: u64, x1: u64, x2: u64, x3
                 let target_entry = get_int(work, 0x1000_00FD) as u32 as i32;
                 let target_kind = if (0..8).contains(&target_entry) {
                     validated_entry_custom_kind(target_entry as u8, 0, None, "kirby-copy-poll")
+                        .map(|leader| crate::entry_groups::member_of(leader, kind as i32).unwrap_or(leader))
                 } else {
                     None
                 };

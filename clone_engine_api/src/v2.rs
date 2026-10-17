@@ -13,6 +13,7 @@ pub use crate::manifest::{
     LvdVertex, Manifest, Motion,
 };
 pub use crate::slot;
+pub use crate::{HudAction as Hud, MenuCommand};
 pub use crate::ArticleStatusLine as Line;
 pub use crate::{fighter, install_hooks, item};
 
@@ -267,6 +268,29 @@ impl Fighter {
         !self.entries().is_empty()
     }
 
+    pub fn hud<T: AsBoma>(&self, object: T, action: Hud) -> bool {
+        if self.kind().get().is_none() {
+            return false;
+        }
+        let boma = object.as_boma();
+        if boma.is_null() {
+            return false;
+        }
+        match unsafe { crate::hud(boma, &action) } {
+            Ok(()) => true,
+            Err(error) => {
+                if HUD_FAILURES.fetch_add(1, Ordering::Relaxed) == 0 {
+                    elog!(
+                        "[clone_engine] {}: hud {} failed: {error:?} (later failures are not logged)",
+                        self.identity,
+                        action.name()
+                    );
+                }
+                false
+            }
+        }
+    }
+
     pub fn article(&'static self, name: &str) -> Article {
         Article::new(self, name, false)
     }
@@ -324,6 +348,7 @@ impl Fighter {
 
 type KirbyFamilyFn = unsafe extern "C" fn(i32, *mut i32, *mut i32) -> i32;
 static KIRBY_FAMILY_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_FAILURES: AtomicUsize = AtomicUsize::new(0);
 
 type ArticleKindByNameFn = unsafe extern "C" fn(i32, *const std::os::raw::c_char, u32) -> i32;
 static ARTICLE_KIND_BY_NAME_FN: AtomicUsize = AtomicUsize::new(0);

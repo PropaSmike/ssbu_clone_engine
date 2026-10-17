@@ -585,10 +585,12 @@ pub(crate) unsafe fn enter_clone_window(
     revalidate(base_kind, record);
     state.saw_clone.store(true, Ordering::Relaxed);
 
-    let current = read_instance(record);
+    let current = window_resident(base_kind, record);
     let instance = ensure_clone(clone_kind, base_kind, entry_id);
     let guard = match instance {
-        Some(instance) if instance.payload != current.payload => {
+        Some(instance)
+            if instance.payload != current.payload || instance.payload != read_pair(record).0 =>
+        {
             write_instance(record, instance);
             SwapGuard {
                 record,
@@ -720,6 +722,145 @@ pub(crate) unsafe fn leave_window(guard: SwapGuard) {
             unlock_swaps(swap_owned);
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct FrameGuard {
+    record: usize,
+    base_kind: i32,
+    installed: usize,
+    previous: Instance,
+}
+
+impl FrameGuard {
+    pub(crate) const IDLE: Self = Self {
+        record: 0,
+        base_kind: -1,
+        installed: 0,
+        previous: EMPTY_INSTANCE,
+    };
+
+    pub(crate) fn installed(&self) -> usize {
+        self.installed
+    }
+}
+
+struct FrameHome {
+    depth: AtomicU32,
+    payload: AtomicUsize,
+    owner: AtomicUsize,
+    payload_b: AtomicUsize,
+    owner_b: AtomicUsize,
+}
+
+impl FrameHome {
+    const fn new() -> Self {
+        Self {
+            depth: AtomicU32::new(0),
+            payload: AtomicUsize::new(0),
+            owner: AtomicUsize::new(0),
+            payload_b: AtomicUsize::new(0),
+            owner_b: AtomicUsize::new(0),
+        }
+    }
+
+    fn store(&self, instance: Instance) {
+        self.payload.store(instance.payload, Ordering::Relaxed);
+        self.owner.store(instance.owner, Ordering::Relaxed);
+        self.payload_b.store(instance.payload_b, Ordering::Relaxed);
+        self.owner_b.store(instance.owner_b, Ordering::Relaxed);
+    }
+
+    fn load(&self) -> Instance {
+        Instance {
+            payload: self.payload.load(Ordering::Relaxed),
+            owner: self.owner.load(Ordering::Relaxed),
+            payload_b: self.payload_b.load(Ordering::Relaxed),
+            owner_b: self.owner_b.load(Ordering::Relaxed),
+        }
+    }
+}
+
+static FRAME_HOMES: [FrameHome; PARAM_NATIVE_KINDS as usize] =
+    [const { FrameHome::new() }; PARAM_NATIVE_KINDS as usize];
+static FRAME_LOG: AtomicU32 = AtomicU32::new(0);
+static FRAME_MOVED_LOG: AtomicU32 = AtomicU32::new(0);
+
+fn frame_home(base_kind: i32) -> Option<&'static FrameHome> {
+    usize::try_from(base_kind).ok().and_then(|base| FRAME_HOMES.get(base))
+}
+
+unsafe fn window_resident(base_kind: i32, record: usize) -> Instance {
+    match frame_home(base_kind) {
+        Some(home) if home.depth.load(Ordering::Relaxed) != 0 => home.load(),
+        _ => read_instance(record),
+    }
+}
+
+fn cached_clone(clone_kind: i32) -> Option<Instance> {
+    let state = clone_state(clone_kind)?;
+    let payload = state.payload.load(Ordering::Relaxed);
+    (payload != 0).then(|| Instance {
+        payload,
+        owner: state.owner.load(Ordering::Relaxed),
+        payload_b: state.payload_b.load(Ordering::Relaxed),
+        owner_b: state.owner_b.load(Ordering::Relaxed),
+    })
+}
+
+pub(crate) unsafe fn enter_object_frame(clone_kind: i32) -> FrameGuard {
+    let Some(base_kind) = clone_base(clone_kind) else {
+        return FrameGuard::IDLE;
+    };
+    let (Some(instance), Some(record), Some(home)) =
+        (cached_clone(clone_kind), record_of(base_kind), frame_home(base_kind))
+    else {
+        return FrameGuard::IDLE;
+    };
+    let owned = lock_swaps();
+    let current = read_instance(record);
+    if current.payload == 0 || current.payload == instance.payload {
+        unlock_swaps(owned);
+        return FrameGuard::IDLE;
+    }
+    if home.depth.fetch_add(1, Ordering::Relaxed) == 0 {
+        home.store(current);
+    }
+    write_instance(record, instance);
+    unlock_swaps(owned);
+    if FRAME_LOG.fetch_add(1, Ordering::Relaxed) < 4 {
+        dbg_log_public(&format!(
+            "[cloneparam] clone {clone_kind} runs on its own vl.prc: A {:#x} B {:#x} stands in for A {:#x} B {:#x} in base {base_kind}'s record",
+            instance.payload, instance.payload_b, current.payload, current.payload_b
+        ));
+    }
+    FrameGuard {
+        record,
+        base_kind,
+        installed: instance.payload,
+        previous: current,
+    }
+}
+
+pub(crate) unsafe fn leave_object_frame(guard: FrameGuard) {
+    if guard.record == 0 {
+        return;
+    }
+    let owned = lock_swaps();
+    if read_pair(guard.record).0 == guard.installed {
+        write_instance(guard.record, guard.previous);
+    } else if FRAME_MOVED_LOG.fetch_add(1, Ordering::Relaxed) < 4 {
+        dbg_log_public(&format!(
+            "[cloneparam] base {}'s record changed while a clone ran (a fighter was being built); the builder restores it",
+            guard.base_kind
+        ));
+    }
+    if let Some(home) = frame_home(guard.base_kind) {
+        let _ = home
+            .depth
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |depth| depth.checked_sub(1));
+    }
+    unlock_swaps(owned);
 }
 
 const WORK_MODULE_OFFSET: usize = 0x50;

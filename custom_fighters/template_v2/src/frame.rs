@@ -16,6 +16,7 @@ pub unsafe extern "C" fn on_start(fighter: &mut L2CFighterCommon) {
 
 pub unsafe extern "C" fn once_per_frame(fighter: &mut L2CFighterCommon) {
     crate::throws::forward_throw(fighter);
+    crate::hud::update(fighter);
     if !LOGGED.swap(true, Ordering::Relaxed) {
         clone_engine_api::elog!(
             "[template_v2] first frame; entries {:?}",

@@ -3,19 +3,32 @@
 
 pub use smashline::skyline_smash as smash;
 
-use clone_engine_api::v2::{fighter, Grab, Manifest, Motion};
+use clone_engine_api::v2::{fighter, Grab, Hurtbox, Manifest, Motion};
 use smash::lib::lua_const::*;
 use smashline::{Agent, Main, Priority};
 
 mod acmd;
 mod articles;
 mod csk;
+mod fight;
+mod float;
 mod frame;
+mod glide;
 mod hooks;
+mod hud;
 mod kirby;
 mod params;
 mod status;
+mod tether;
 mod throws;
+
+// Files the engine picks up when the pack ships them, with no code:
+// - sound/bank/fighter_voice/vc_template_fighter_cNN: the fighter's voice, on any base
+// - sound/bank/fighter_voice/vc_kirby_copy_template_fighter: Kirby's voice while he holds the copy
+// - fighter/template_fighter/append/cNN/: more files loaded for the match
+// - finalsmash/template_fighter/shared/ and prebuilt;/movie/fighter/template_fighter/cNN/:
+//   the Final Smash background and movies, which the Final Smash statuses start
+// - ui/param/standard/standard_route_<name_label>.prc: the Classic Mode route
 
 // TEMPLATE: the handle the rest of the crate uses.
 // "template_fighter": the identity, the same string as Manifest::new's name.
@@ -60,6 +73,10 @@ pub fn main() {
     .color_start(0)                                 // the first costume folder, c00
     .own_css()                                      // csk::publish writes the select entry, not the engine
     .article("template_fireball", "mario/fireball") // fighter/template_fighter/model/template_fireball, copied from Mario's fireball
+    .article_hurtbox(
+        "template_fireball",      // the article
+        Hurtbox::new("rot", 2.5), // a joint of its model, radius: attacks can hit the fireball; its status scripts decide what a hit does
+    )
     .kirby_article("template_fighter_fireball", "mario/fireball") // the copy's own article, files under fighter/kirby/model/template_fighter_fireball
     .kirby(1)                                       // one status number for Kirby's copy
     .kirby_motion(
@@ -100,6 +117,36 @@ pub fn main() {
     } else {
         manifest
     };
+
+    // Joker's Rebellion gauge by this fighter's portrait; hud.rs fills it.
+    // .hud_layout("ui/layout/hud/template_fighter/layout.arc") draws a layout
+    // the pack ships instead, or as well.
+    let manifest = if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_HUD != 0 {
+        manifest.hud("jack") // the fighter whose HUD it shows
+    } else {
+        manifest
+    };
+
+    // The game's command inputs and one of this fighter's own, read in fight.rs.
+    let manifest = if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_COMMAND_INPUTS != 0 {
+        fight::commands(manifest)
+    } else {
+        manifest
+    };
+
+    // Samus's air tether and ledge grab, off until tether.rs is filled in and
+    // her beam is minted above with .article("template_gbeam", "samus/gbeam").
+    // let manifest = if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_TETHER != 0 {
+    //     manifest
+    //         .tether("samus")                        // the donor: its air_lasso_data and ledge boxes
+    //         .tether_box([60.0, 48.0], [5.0, -34.0]) // a ledge box of your own, two corners from the fighter
+    // } else {
+    //     manifest
+    // };
+
+    // More a manifest can declare, in docs/wiki/FIGHTERS.md:
+    // .partner(true): a copy of this fighter follows it, the way Nana follows Popo
+    // .switch_with(&["other_fighter"]): shares the player slot with another fighter of yours
     let kind = match TEMPLATE.register(manifest) {
         Ok(kind) => kind,
         Err(error) => {
@@ -126,6 +173,10 @@ pub fn main() {
     articles::install(kind);
     kirby::install();
     hooks::install();
+    float::install();
+    // glide::install(); // Brawl's glide starts from the same input as the float: install one of the two
+    tether::install();
+    fight::install();
 
     if let Err(error) = clone_engine_api::v2::on_mods_mounted(mods_mounted) {
         clone_engine_api::elog!("[template_v2] mount event unavailable: {error:?}");

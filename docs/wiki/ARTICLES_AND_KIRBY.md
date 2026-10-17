@@ -148,6 +148,7 @@ offset2 = [0, 6, 0]     # optional second end; with it the shape is a capsule
 
 The names also accept the game's constant names (`COLLISION_PART_HEAD`) and plain numbers.
 Up to 16 per article. What a hit does is up to the article's status scripts.
+`custom_fighters/template_v2` puts one on its fireball.
 
 ## Kirby copies
 
@@ -238,6 +239,16 @@ scripts = "myfighterspecialn"
 The animation file goes in `fighter/kirby/motion/<your name>body/c00/` and is
 listed in `new-dir-files` under your `kirbycopy/cNN/bodymotion` group. A
 motion with a template and no scripts keeps the template's hitboxes.
+
+### Copy sounds
+
+While Kirby holds your copy, `PLAY_SE` and `PLAY_SEQUENCE` play any label of
+two banks; labels from other banks make no sound.
+
+- Your `se_<your name>_cNN`, from the status after the swallow on.
+- Your copy voice bank, `sound/bank/fighter_voice/vc_kirby_copy_<your name>`
+  (`.nus3audio`, `.nus3bank`, `.tonelabel`), listed under every
+  `kirbycopy/cNN` group. Without it Kirby uses the base's copy voices.
 
 ### Hiding a hat piece from the start
 

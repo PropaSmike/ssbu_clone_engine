@@ -131,6 +131,9 @@ pub(crate) fn csk_entry_custom_kind(entry_id: u8) -> Option<i32> {
 pub(crate) const ENTRY_RECORD_UI_CHARA: usize = 0x00;
 
 #[cfg(feature = "css_slot")]
+pub(crate) const ENTRY_RECORD_KIND: usize = 0x08;
+
+#[cfg(feature = "css_slot")]
 pub(crate) const ENTRY_RECORD_COSTUME: usize = 0x19;
 
 #[cfg(feature = "css_slot")]
@@ -165,6 +168,15 @@ pub(crate) unsafe fn record_clone_kind(source: *const u8) -> Option<i32> {
     let definition = record_clone_definition(source)?;
     let costume = core::ptr::read_volatile(source.add(ENTRY_RECORD_COSTUME));
     costume_in_css_colours(definition, costume).then_some(definition.kind)
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn follow_record(entry_id: u8, source: *const u8) {
+    let Some(reported) = CSS_REPORTED_ENTRY_UI.get(entry_id as usize) else {
+        return;
+    };
+    reported.store(record_ui_chara(source), core::sync::atomic::Ordering::SeqCst);
+    cache_custom_entry_selection(entry_id as i32, record_clone_kind(source));
 }
 
 #[cfg(feature = "css_slot")]
@@ -353,6 +365,114 @@ pub(crate) unsafe fn publish_late_css_slot(kind: i32) {
 }
 
 #[cfg(feature = "css_slot")]
+const UI_TAG: u64 = 0xc1 << 56;
+
+#[cfg(feature = "css_slot")]
+const UI_HASH_MASK: u64 = 0x00ff_ffff_ffff;
+
+#[cfg(feature = "css_slot")]
+const UI_DATABASE_HOLDER: usize = 0x532_e730;
+
+#[cfg(feature = "css_slot")]
+const UI_DATABASE_TABLE: usize = 0x168;
+
+#[cfg(feature = "css_slot")]
+const OFF_UI_TAG_FROM_HASH: usize = 0x326_2bf0;
+
+#[cfg(feature = "css_slot")]
+const OFF_UI_CHARA_NAME: usize = 0x326_1d60;
+
+#[cfg(feature = "css_slot")]
+static CLASSIC_ROUTE_LOGGED: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "css_slot")]
+static CLASSIC_TITLE_LOGGED: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "css_slot")]
+unsafe fn classic_route_ui(ui: u64) -> u64 {
+    if ui & !(UI_HASH_MASK | 0x00ff_ff00_0000_0000) != UI_TAG {
+        return ui;
+    }
+    let Some(definition) = clone_definition_from_ui(ui & UI_HASH_MASK) else {
+        return ui;
+    };
+    let Some(css) = definition.css else {
+        return ui;
+    };
+    if crate::fighter_modules::path_exists(&format!("ui/param/standard/standard_route_{}.prc", css.ui_name)) {
+        return ui;
+    }
+    let holder = core::ptr::read_volatile(crate::game::addr(UI_DATABASE_HOLDER) as *const usize);
+    if holder == 0 {
+        return ui;
+    }
+    let database = core::ptr::read_volatile((holder + 8) as *const usize);
+    if database == 0 {
+        return ui;
+    }
+    let table = core::ptr::read_volatile((database + UI_DATABASE_TABLE) as *const u64);
+    if table == 0 {
+        return ui;
+    }
+    let base_name = selectable_row(definition.base_resource_name);
+    let tag: unsafe extern "C" fn(u64, u64) -> u64 = core::mem::transmute(crate::game::addr(OFF_UI_TAG_FROM_HASH));
+    let base = tag(table, hash40(&format!("ui_chara_{base_name}")));
+    if base & UI_HASH_MASK == 0 {
+        return ui;
+    }
+    if let Ok(mut logged) = CLASSIC_ROUTE_LOGGED.lock() {
+        if !logged.contains(&(ui & UI_HASH_MASK)) {
+            logged.push(ui & UI_HASH_MASK);
+            dbg_log!(
+                "[classic] {} ships no standard_route_{}.prc, so Classic Mode runs {base_name}'s route",
+                definition.ui_chara,
+                css.ui_name
+            );
+        }
+    }
+    base
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_CLASSIC_ROUTE_PATH))]
+pub(crate) unsafe fn classic_route_path_hook(ui: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    call_original!(classic_route_ui(ui), a1, a2, a3)
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_CLASSIC_ROUTE_TITLE), inline)]
+pub(crate) unsafe fn classic_route_title_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let ui = ctx.registers[19].x();
+    let route = classic_route_ui(ui);
+    let table = ctx.registers[20].x();
+    let name = ctx.registers[23].x();
+    if route == ui || table == 0 || name == 0 {
+        return;
+    }
+    let ui_chara_name: unsafe extern "C" fn(u64, u64, u64) = core::mem::transmute(crate::game::addr(OFF_UI_CHARA_NAME));
+    ui_chara_name(name, table, route);
+    if let Ok(mut logged) = CLASSIC_TITLE_LOGGED.lock() {
+        if !logged.contains(&(ui & UI_HASH_MASK)) {
+            logged.push(ui & UI_HASH_MASK);
+            let text = core::ffi::CStr::from_ptr((name as usize + 8) as *const core::ffi::c_char).to_string_lossy();
+            let clone = clone_definition_from_ui(ui & UI_HASH_MASK).map_or("a clone", |definition| definition.ui_chara);
+            dbg_log!("[classic] {clone}'s route preview shows mnu_standard_sub_{text}, the title of the route it runs");
+        }
+    }
+}
+
+#[cfg(feature = "css_slot")]
+fn selectable_row(base_resource_name: &str) -> &str {
+    match base_resource_name {
+        "popo" | "nana" => "ice_climber",
+        "eflame" => "flame_first",
+        "elight" => "light_first",
+        "pzenigame" | "pfushigisou" | "plizardon" => "ptrainer",
+        other => other,
+    }
+}
+
+#[cfg(feature = "css_slot")]
 pub(crate) unsafe fn register_one_csk_css_slot(
     definition: &'static CloneDefinition,
     css: &'static CloneCssEntry,
@@ -370,6 +490,7 @@ pub(crate) unsafe fn register_one_csk_css_slot(
     let ui_chara = hash40(definition.ui_chara);
     let custom_kind_hash = hash40(definition.fighter_kind_name);
     let base_ui = hash40(&format!("ui_chara_{}", definition.base_resource_name));
+    let selectable_base_ui = hash40(&format!("ui_chara_{}", selectable_row(definition.base_resource_name)));
     let base_characall = match css.narration {
         Some(narration) => hash40(narration),
         None => hash40(&format!(
@@ -429,7 +550,7 @@ pub(crate) unsafe fn register_one_csk_css_slot(
 
     let entry = CharacterDatabaseEntry {
         ui_chara_id: ui_chara,
-        clone_from_ui_chara_id: Some(base_ui),
+        clone_from_ui_chara_id: Some(selectable_base_ui),
         name_id: StringType::Overwrite(CStrCSK::new(css.ui_name)),
         fighter_kind: Hash40Type::Overwrite(custom_kind_hash),
         fighter_kind_corps: Hash40Type::Overwrite(custom_kind_hash),
@@ -641,8 +762,6 @@ pub(crate) unsafe fn update_selected_fighter_hook(
     selection: *mut u8,
 ) {
     close_registration("CSS selection writer");
-    type GetUiCharaFn = unsafe extern "C" fn(u32) -> u64;
-
     let selection_ui = if selection.is_null() {
         0
     } else {
@@ -661,14 +780,6 @@ pub(crate) unsafe fn update_selected_fighter_hook(
     }
     let selected_mask = custom_entry_mask();
 
-    let get_ui_addr = CSK_GET_UI_CHARA_FROM_ENTRY.load(core::sync::atomic::Ordering::SeqCst);
-    let ui_before = if get_ui_addr != 0 && (0..=7).contains(&entry_id) {
-        let get_ui: GetUiCharaFn = core::mem::transmute(get_ui_addr);
-        get_ui(entry_id as u32)
-    } else {
-        0
-    };
-
     if let Some(definition) = selection_definition {
         with_resource_context(definition.kind, || {
             call_original!(records, entry_id, selection)
@@ -681,12 +792,6 @@ pub(crate) unsafe fn update_selected_fighter_hook(
         return;
     }
 
-    let ui_after = if get_ui_addr != 0 {
-        let get_ui: GetUiCharaFn = core::mem::transmute(get_ui_addr);
-        get_ui(entry_id as u32)
-    } else {
-        0
-    };
     let record = records.add(entry_id as usize * 0x20);
     let kind_ptr = record as *mut i32;
     let native_kind = core::ptr::read_volatile(kind_ptr);
@@ -694,7 +799,7 @@ pub(crate) unsafe fn update_selected_fighter_hook(
     if let Some(definition) = selection_definition {
         core::ptr::write_volatile(kind_ptr, definition.kind);
         dbg_log!(
-            "[cssselect] entry={entry_id} selection_ui={selection_ui:#x} api_before={ui_before:#x} api_after={ui_after:#x} mask={selected_mask:#04x} kind {native_kind}->{} record={:#x}",
+            "[cssselect] entry={entry_id} selection_ui={selection_ui:#x} mask={selected_mask:#04x} kind {native_kind}->{} record={:#x}",
             definition.kind,
             record as usize
         );
@@ -703,7 +808,7 @@ pub(crate) unsafe fn update_selected_fighter_hook(
         let n = TRACE_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < 24 {
             dbg_log!(
-                "[cssselect] #{n} entry={entry_id} selection_ui={selection_ui:#x} api_before={ui_before:#x} api_after={ui_after:#x} mask={selected_mask:#04x} native_kind={native_kind}"
+                "[cssselect] #{n} entry={entry_id} selection_ui={selection_ui:#x} mask={selected_mask:#04x} native_kind={native_kind}"
             );
         }
     }
@@ -812,6 +917,9 @@ pub(crate) unsafe fn construction_roster_expand_call_hook(ctx: &mut skyline::hoo
     );
     crate::finalsmash_residency::refresh_suppression();
     let n = CSS_ROSTER_ENTRY_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if let Some(roster_kind) = selected_kind.and_then(crate::entry_groups::roster_kind) {
+        ctx.registers[23].set_x(roster_kind);
+    }
     if let Some(custom_kind) = selected_kind {
         ctx.registers[0].set_x(custom_kind as u64);
         dbg_log!(
@@ -834,6 +942,9 @@ pub(crate) static CSS_CHANGE_REQUEST_COUNT: core::sync::atomic::AtomicU32 =
 #[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_FIGHTER_CHANGE_EXPAND_CALL), inline)]
 pub(crate) unsafe fn fighter_change_expand_call_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    if let Ok(entry) = u8::try_from(ctx.registers[22].x()) {
+        crate::entry_groups::unswap(entry, "as the fighter changes");
+    }
     let settings = ctx.registers[25].x() as *const u8;
     let input_kind = ctx.registers[0].x() as i32;
     if settings.is_null() || input_kind < 0 {
@@ -844,6 +955,9 @@ pub(crate) unsafe fn fighter_change_expand_call_hook(ctx: &mut skyline::hooks::I
         bridged_entry_kind(source, input_kind, "change@32ca150", &CSS_CHANGE_EXPAND_COUNT)
     {
         ctx.registers[0].set_x(custom_kind as u64);
+        if let Some(roster_kind) = crate::entry_groups::roster_kind(custom_kind) {
+            ctx.registers[21].set_x(roster_kind);
+        }
     }
 }
 
@@ -874,20 +988,103 @@ pub(crate) static TEAM_QUEUE_EXPAND_COUNT: core::sync::atomic::AtomicU32 =
 #[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_TEAM_QUEUE_EXPAND_INPUT), inline)]
 pub(crate) unsafe fn team_queue_expand_input_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let entry = u8::try_from(ctx.registers[26].x()).ok().filter(|entry| *entry < 8);
+    if let Some(entry) = entry {
+        crate::entry_groups::unswap(entry, "as the next team member comes in");
+    }
     let settings = ctx.registers[25].x() as *const u8;
     if settings.is_null() {
         return;
     }
     let source = settings.add(PLAYER_INFO_IN_MATCH_SETTINGS);
+    if let Some(entry) = entry {
+        follow_record(entry, source);
+    }
     let Some(custom_kind) = record_clone_kind(source) else {
         return;
     };
     let input_kind = ctx.registers[0].x() as i32;
     ctx.registers[0].set_x(custom_kind as u64);
+    if let Some(roster_kind) = crate::entry_groups::roster_kind(custom_kind) {
+        ctx.registers[22].set_x(roster_kind);
+    }
     let n = TEAM_QUEUE_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 24 {
         dbg_log!(
             "[cssentry] queue@249376c #{n} next team member kind {input_kind}->{custom_kind} source={:#x}",
+            source as usize
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) static TAG_TEAM_EXPAND_COUNT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_TAG_TEAM_EXPAND_INPUT), inline)]
+pub(crate) unsafe fn tag_team_expand_input_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let entry = u8::try_from(ctx.registers[28].x()).ok().filter(|entry| *entry < 8);
+    if let Some(entry) = entry {
+        crate::entry_groups::unswap(entry, "as the next squad member tags in");
+    }
+    let settings = ctx.registers[23].x() as *const u8;
+    if settings.is_null() {
+        return;
+    }
+    let source = settings.add(PLAYER_INFO_IN_MATCH_SETTINGS);
+    if let Some(entry) = entry {
+        follow_record(entry, source);
+    }
+    let Some(custom_kind) = record_clone_kind(source) else {
+        return;
+    };
+    let input_kind = ctx.registers[0].x() as i32;
+    ctx.registers[0].set_x(custom_kind as u64);
+    core::ptr::write_volatile(source.add(ENTRY_RECORD_KIND) as *mut i8, custom_kind as i8);
+    if let Some(roster_kind) = crate::entry_groups::roster_kind(custom_kind) {
+        ctx.registers[24].set_x(roster_kind);
+    }
+    let n = TAG_TEAM_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 24 {
+        dbg_log!(
+            "[cssentry] tag@1570374 #{n} entry {entry:?} next squad member kind {input_kind}->{custom_kind} source={:#x}",
+            source as usize
+        );
+    }
+}
+
+#[cfg(feature = "css_slot")]
+pub(crate) static RETRY_EXPAND_COUNT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_RETRY_EXPAND_INPUT), inline)]
+pub(crate) unsafe fn retry_expand_input_hook(ctx: &mut skyline::hooks::InlineCtx) {
+    let entry = u8::try_from(ctx.registers[22].x()).ok().filter(|entry| *entry < 8);
+    if let Some(entry) = entry {
+        crate::entry_groups::unswap(entry, "as the match restarts");
+    }
+    let settings = ctx.registers[20].x() as *const u8;
+    if settings.is_null() {
+        return;
+    }
+    let source = settings.add(PLAYER_INFO_IN_MATCH_SETTINGS);
+    if let Some(entry) = entry {
+        follow_record(entry, source);
+    }
+    let Some(custom_kind) = record_clone_kind(source) else {
+        return;
+    };
+    let input_kind = ctx.registers[0].x() as i32;
+    ctx.registers[0].set_x(custom_kind as u64);
+    if let Some(roster_kind) = crate::entry_groups::roster_kind(custom_kind) {
+        ctx.registers[27].set_x(roster_kind);
+    }
+    let n = RETRY_EXPAND_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if n < 24 {
+        dbg_log!(
+            "[cssentry] retry@1504280 #{n} entry {entry:?} rebuilt with kind {input_kind}->{custom_kind} source={:#x}",
             source as usize
         );
     }

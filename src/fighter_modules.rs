@@ -15,9 +15,11 @@ macro_rules! module_log {
 const DYNAMIC_MODULE_MANAGER: usize = 0x5326cd0;
 const FILESYSTEM: usize = 0x5331f20;
 const MODULE_TREE: usize = 0x38;
+const MANAGER_MUTEX: usize = 0x60;
 const COMMAND_DEQUE: usize = 0x80;
 const MANAGER_EVENT: usize = 0x50;
 const COMMAND_LOAD: u32 = 3;
+const COMMAND_BLOCK: usize = 0x100;
 const MODULE_REFCOUNT: usize = 0x134;
 
 #[skyline::from_offset(crate::game::rel(0x22b59c0))]
@@ -49,8 +51,7 @@ struct Module {
     _x20: *mut u8,
     source_buffer: *mut u8,
     name: [u8; 0x100],
-    _x130: u8,
-    _x131: u8,
+    name_length: u16,
     is_loaded: bool,
     _x133: u8,
     refcount: u32,
@@ -64,7 +65,7 @@ struct Command {
 
 #[repr(C)]
 struct Deque {
-    start: *mut *mut Command,
+    _first: *mut *mut Command,
     begin: *mut *mut Command,
     end: *mut *mut Command,
     end_cap: *mut *mut Command,
@@ -104,7 +105,7 @@ impl Tree {
     }
 
     unsafe fn insert(&mut self, key: u64, value: *mut Module) {
-        let mut parent = std::ptr::null_mut::<TreeNode>();
+        let mut parent = (&mut self.root as *mut *mut TreeNode).cast::<TreeNode>();
         let mut link: *mut *mut TreeNode = &mut self.root;
 
         while !(*link).is_null() {
@@ -148,6 +149,53 @@ unsafe fn manager() -> *mut u64 {
 
 unsafe fn module_tree(manager: *mut u64) -> *mut Tree {
     (manager as *mut u8).add(MODULE_TREE) as *mut Tree
+}
+
+struct ManagerLock(u64);
+
+impl ManagerLock {
+    unsafe fn take(manager: *mut u64) -> Self {
+        let lock: extern "C" fn(u64) =
+            core::mem::transmute(crate::game::addr(crate::offsets::OFF_STD_RECURSIVE_MUTEX_LOCK));
+        let mutex = manager as u64 + MANAGER_MUTEX as u64;
+        lock(mutex);
+        Self(mutex)
+    }
+}
+
+impl Drop for ManagerLock {
+    fn drop(&mut self) {
+        unsafe {
+            let unlock: extern "C" fn(u64) =
+                core::mem::transmute(crate::game::addr(crate::offsets::OFF_STD_RECURSIVE_MUTEX_UNLOCK));
+            unlock(self.0);
+        }
+    }
+}
+
+unsafe fn hold(manager: *mut u64, key: u64) -> Option<u32> {
+    let module = (*module_tree(manager)).find(key)?;
+    (*module).refcount += 1;
+    Some((*module).refcount)
+}
+
+unsafe fn queue_load(manager: *mut u64, module: *mut Module) {
+    let deque = &mut *((manager as *mut u8).add(COMMAND_DEQUE) as *mut Deque);
+    let blocks = deque.end.offset_from(deque.begin) as usize;
+    let capacity = if blocks == 0 { 0 } else { blocks * COMMAND_BLOCK - 1 };
+    if deque.start_index + deque.len == capacity {
+        extend_deque(deque);
+    }
+    let next = deque.start_index + deque.len;
+    *(*deque.begin.add(next / COMMAND_BLOCK)).add(next % COMMAND_BLOCK) = Command {
+        id: COMMAND_LOAD,
+        arg: module as u64,
+    };
+    deque.len += 1;
+    let event = **((manager as *mut u8).add(MANAGER_EVENT) as *const *const u64);
+    if event != 0 {
+        signal_event(event);
+    }
 }
 
 unsafe fn filesystem() -> *mut u64 {
@@ -224,9 +272,10 @@ pub fn is_loaded(fighter_kind: i32) -> bool {
         if manager.is_null() {
             return false;
         }
+        let _lock = ManagerLock::take(manager);
         (*module_tree(manager))
             .find(key)
-            .is_some_and(|module| (*module).is_loaded)
+            .is_some_and(|module| core::ptr::read_volatile(&(*module).is_loaded))
     }
 }
 
@@ -245,24 +294,27 @@ pub fn request(fighter_kind: i32) -> bool {
             return false;
         };
 
-        let tree = module_tree(manager);
-
-        if let Some(module) = (*tree).find(key) {
-            if requested.insert(fighter_kind) {
-                (*module).refcount += 1;
-                module_log!(
-                    "[fightermodule] lua2cpp_{name} already present; refcount now {}",
-                    (*module).refcount
-                );
-            }
-            return true;
-        }
-
         if !requested.insert(fighter_kind) {
             return true;
         }
 
+        let held = {
+            let _lock = ManagerLock::take(manager);
+            hold(manager, key)
+        };
+        if let Some(refcount) = held {
+            module_log!("[fightermodule] lua2cpp_{name} already present; refcount now {refcount}");
+            return true;
+        }
+
         load_file(&format!("prebuilt:/nro/release/lua2cpp_{name}.nro"));
+
+        let lock = ManagerLock::take(manager);
+        if let Some(refcount) = hold(manager, key) {
+            drop(lock);
+            module_log!("[fightermodule] lua2cpp_{name} already present; refcount now {refcount}");
+            return true;
+        }
 
         let mut module_name = [0u8; 0x100];
         module_name[..name.len()].copy_from_slice(name.as_bytes());
@@ -275,8 +327,7 @@ pub fn request(fighter_kind: i32) -> bool {
             _x20: std::ptr::null_mut(),
             source_buffer: std::ptr::null_mut(),
             name: module_name,
-            _x130: 0,
-            _x131: 0,
+            name_length: name.len() as u16,
             is_loaded: false,
             _x133: 0,
             refcount: 1,
@@ -287,27 +338,9 @@ pub fn request(fighter_kind: i32) -> bool {
             "Module layout no longer matches the game's"
         );
 
-        (*tree).insert(key, module);
-
-        let deque = &mut *((manager as *mut u8).add(COMMAND_DEQUE) as *mut Deque);
-        let distance = if deque.end.offset_from(deque.start) != 0 {
-            deque.end.offset_from(deque.start) * 0x100 - 1
-        } else {
-            0
-        };
-
-        let next_index = deque.start_index + deque.len;
-        if next_index as isize == distance {
-            extend_deque(deque);
-        }
-
-        *(*deque.start.add(next_index / 0x100)).add(next_index & 0xFF) = Command {
-            id: COMMAND_LOAD,
-            arg: module as u64,
-        };
-        deque.len += 1;
-
-        signal_event(**((manager as *mut u8).add(MANAGER_EVENT) as *const *const u64));
+        (*module_tree(manager)).insert(key, module);
+        queue_load(manager, module);
+        drop(lock);
 
         module_log!("[fightermodule] queued lua2cpp_{name}.nro (fighter kind {fighter_kind})");
         true
@@ -322,8 +355,11 @@ pub fn ensure_loaded(fighter_kind: i32, timeout_ms: u32) -> bool {
         return false;
     }
 
-    for _ in 0..timeout_ms {
+    for waited in 0..timeout_ms {
         if is_loaded(fighter_kind) {
+            if waited >= 500 {
+                module_log!("[fightermodule] lua2cpp for fighter kind {fighter_kind} loaded after {waited} 1ms waits");
+            }
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
