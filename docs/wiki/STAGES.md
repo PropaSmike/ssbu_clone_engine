@@ -77,3 +77,19 @@ A moving platform needs its collision in the `.lvd` file plus a matching
 dynamic collision entry. The engine applies that entry only while your stage
 is running, so other stages with the same `donor` are unaffected. Use the
 exact collision and bone names from your own stage files.
+
+Without `config_stage.toml`, list the model sets in `stage.toml`:
+
+```toml
+dynamic_collisions = ["platform_set"]
+```
+
+For each collision that follows a bone:
+
+- subname: the model set's name, exactly
+- bone name: the bone it follows
+- points: in that bone's space
+
+The set needs a motion that moves the bone,
+`stage/<place>/normal/motion/<set>/<set>_00.nuanmb`; it plays by itself.
+Bind a set here or in `config_stage.toml`, not both.

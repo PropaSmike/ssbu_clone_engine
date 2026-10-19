@@ -31,6 +31,7 @@ pub struct RegisteredStage {
     pub row_registered: bool,
     pub owns_stdat: bool,
     pub music: crate::stage_music::MusicRequest,
+    pub dynamic_collisions: Vec<u64>,
 }
 
 impl RegisteredStage {
@@ -132,6 +133,25 @@ impl Registry {
         }
     }
 
+    pub fn set_dynamic_collisions(&mut self, place_name: &str, model_sets: Vec<u64>) -> bool {
+        let name = place_name.to_ascii_lowercase();
+        match self.by_name.get(&name).copied() {
+            Some(index) => {
+                self.stages[index].dynamic_collisions = model_sets;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn dynamic_collisions_for(&self, stage_id: u32) -> &[u64] {
+        self.stages
+            .iter()
+            .find(|stage| stage.forms.iter().any(|(id, _)| *id == stage_id))
+            .map(|stage| stage.dynamic_collisions.as_slice())
+            .unwrap_or(&[])
+    }
+
     pub fn claim_row(&mut self, place_name: &str) -> bool {
         let name = place_name.to_ascii_lowercase();
         match self.by_name.get(&name).copied() {
@@ -181,6 +201,7 @@ impl Registry {
             row_registered: false,
             owns_stdat: false,
             music: crate::stage_music::MusicRequest::default(),
+            dynamic_collisions: Vec::new(),
         });
         Ok(&self.stages[index])
     }

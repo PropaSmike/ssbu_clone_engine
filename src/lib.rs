@@ -108,6 +108,7 @@ mod stage_backend;
 mod stage_bounds;
 mod stage_collision_probe;
 mod stage_config_bridge;
+mod stage_move_floors;
 mod stage_csk_table;
 mod stage_db_rows;
 mod stage_dispatch;

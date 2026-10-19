@@ -133,6 +133,7 @@ mod live {
                 if let Some(minted) = pending::close(stage) {
                     core::ptr::write_volatile((stage as *mut u8).add(STAGE_ID) as *mut u32, minted);
                 }
+                crate::stage_move_floors::bind(stage);
             }
         };
     }

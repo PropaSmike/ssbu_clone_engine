@@ -17,6 +17,7 @@ pub struct PackDeclaration {
     pub bgm: Option<String>,
     pub bgm_setting_no: Option<i64>,
     pub bgm_selector: Option<bool>,
+    pub dynamic_collisions: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +113,9 @@ pub fn parse(text: &str) -> Result<PackDeclaration, ParseError> {
             ("bgm_selector", Value::Flag(flag)) => out.bgm_selector = Some(flag),
             ("ships_battle_tree", Value::Flag(flag)) => out.ships_battle_tree = flag,
             ("disp_order", Value::Number(value)) => out.disp_order = value as i32,
+            ("dynamic_collisions", Value::List(items)) => {
+                out.dynamic_collisions = items.iter().map(|item| item.to_ascii_lowercase()).collect()
+            }
             ("forms", Value::List(items)) => {
                 saw_forms = true;
                 out.forms.clear();
@@ -132,7 +136,7 @@ pub fn parse(text: &str) -> Result<PackDeclaration, ParseError> {
             (
                 "place" | "display_name" | "id_name" | "series" | "donor" | "resource_place"
                 | "ships_battle_tree" | "disp_order" | "forms" | "bgm" | "bgm_setting_no"
-                | "bgm_selector",
+                | "bgm_selector" | "dynamic_collisions",
                 _,
             ) => return Err(bad()),
             _ => {}
@@ -352,6 +356,23 @@ fn mint(directory: &str, declaration: &PackDeclaration) {
 
     if let Ok(mut registry) = crate::stage_registry::registry().lock() {
         registry.set_music(&stage.place_name, declaration.music_request());
+    }
+
+    if !declaration.dynamic_collisions.is_empty() {
+        let sets = declaration
+            .dynamic_collisions
+            .iter()
+            .map(|set| crate::stage_ledger::hash40(set))
+            .collect();
+        if let Ok(mut registry) = crate::stage_registry::registry().lock() {
+            registry.set_dynamic_collisions(&stage.place_name, sets);
+        }
+        crate::stage_move_floors::arm();
+        skyline::println!(
+            "[movefloor] {}: binds the collisions of {:?} to their model bones",
+            stage.place_name,
+            declaration.dynamic_collisions
+        );
     }
 
     skyline::println!(
