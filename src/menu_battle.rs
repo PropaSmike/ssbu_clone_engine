@@ -45,8 +45,15 @@ const APPEARANCE_START_OPCODE: u32 = 0xd10203ff;
 const FLOW_NO_ENTRANCE: usize = 0x73;
 const OFF_INFO_START: usize = 0x1392a40;
 const INFO_START_OPCODE: u32 = 0xf81e0ff3;
-const OFF_PLAY_SOUND: usize = 0x2407280;
-const PLAY_SOUND_OPCODE: u32 = 0xd10283ff;
+const OFF_QUEUED_NARRATION: usize = 0x156c0f8;
+const QUEUED_NARRATION_OPCODE: u32 = 0xf9400a81;
+const QUEUE_NODE: usize = 20;
+const QUEUE_NODE_SOUND: usize = 0x10;
+const OFF_GO_FROM_UPDATE: usize = 0x158b8e0;
+const GO_FROM_UPDATE_OPCODE: u32 = 0x9439ee68;
+const OFF_GO_FROM_START: usize = 0x156db38;
+const GO_FROM_START_OPCODE: u32 = 0x943a65d2;
+const SOUND_ARGUMENT: usize = 1;
 const NARRATION_READY_GO: [u64; 5] = [0x123590b7e3, 0xf2ab48f10, 0x125bc0eab9, 0x108ee9b2df, 0x10e54fbe48];
 const SILENT_SOUND: u64 = 0;
 const INFO_REQUEST: usize = 0xf8;
@@ -487,12 +494,32 @@ unsafe fn info_start(info: usize) -> u64 {
     call_original!(info)
 }
 
-#[skyline::hook(offset = crate::game::rel(OFF_PLAY_SOUND))]
-unsafe fn play_sound(handle: usize, sound: u64) -> u64 {
-    if NARRATION_READY_GO.contains(&sound) && quiet_battle() {
-        return call_original!(handle, SILENT_SOUND);
+unsafe fn mute_sound_argument(ctx: &mut skyline::hooks::InlineCtx) {
+    if NARRATION_READY_GO.contains(&ctx.registers[SOUND_ARGUMENT].x()) && quiet_battle() {
+        ctx.registers[SOUND_ARGUMENT].set_x(SILENT_SOUND);
     }
-    call_original!(handle, sound)
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_QUEUED_NARRATION), inline)]
+unsafe fn queued_narration(ctx: &mut skyline::hooks::InlineCtx) {
+    let node = ctx.registers[QUEUE_NODE].x() as usize;
+    if node == 0 || !quiet_battle() {
+        return;
+    }
+    let sound = (node + QUEUE_NODE_SOUND) as *mut u64;
+    if NARRATION_READY_GO.contains(&core::ptr::read_volatile(sound)) {
+        core::ptr::write_volatile(sound, SILENT_SOUND);
+    }
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_GO_FROM_UPDATE), inline)]
+unsafe fn go_from_update(ctx: &mut skyline::hooks::InlineCtx) {
+    mute_sound_argument(ctx);
+}
+
+#[skyline::hook(offset = crate::game::rel(OFF_GO_FROM_START), inline)]
+unsafe fn go_from_start(ctx: &mut skyline::hooks::InlineCtx) {
+    mute_sound_argument(ctx);
 }
 
 #[skyline::hook(offset = crate::game::rel(OFF_APPEARANCE_START))]
@@ -526,15 +553,22 @@ pub(crate) fn install() {
     }
     skyline::install_hooks!(flow_build, appearance_start);
     ENTRANCE_ARMED.store(true, Ordering::Release);
-    let info = unsafe { crate::game::text_word(OFF_INFO_START) };
-    let sound = unsafe { crate::game::text_word(OFF_PLAY_SOUND) };
-    if info != INFO_START_OPCODE || sound != PLAY_SOUND_OPCODE {
-        skyline::println!(
-            "[menubattle] REFUSED Ready/GO hooks: found {info:#010x} / {sound:#010x}; battle_ready_go stays off"
-        );
-        return;
+    let sites = [
+        (OFF_INFO_START, INFO_START_OPCODE),
+        (OFF_QUEUED_NARRATION, QUEUED_NARRATION_OPCODE),
+        (OFF_GO_FROM_UPDATE, GO_FROM_UPDATE_OPCODE),
+        (OFF_GO_FROM_START, GO_FROM_START_OPCODE),
+    ];
+    for (offset, expected) in sites {
+        let found = unsafe { crate::game::text_word(offset) };
+        if found != expected {
+            skyline::println!(
+                "[menubattle] REFUSED Ready/GO hooks: {offset:#x} holds {found:#010x}, not {expected:#010x}; battle_ready_go stays off"
+            );
+            return;
+        }
     }
-    skyline::install_hooks!(info_start, play_sound);
+    skyline::install_hooks!(info_start, queued_narration, go_from_update, go_from_start);
     READY_GO_ARMED.store(true, Ordering::Release);
 }
 
