@@ -1,3 +1,9 @@
+pub use smashline::skyline_smash as smash;
+
+use smashline::{Agent, Main};
+
+mod door;
+
 use clone_engine_api::{
     allocate_stage, compiled_capabilities, register_stage, runtime_capabilities,
     set_stage_behaviour, set_stage_music, stage_capacity, stage_id_for, StageAllocation, StageForm,
@@ -69,5 +75,8 @@ fn install() -> Result<(), String> {
 pub fn main() {
     if let Err(error) = install() {
         println!("[{PLACE}] disabled: {error}");
+        return;
     }
+    // "fighter": every fighter, once per frame; door.rs opens the stage.toml doors
+    Agent::new("fighter").on_line(Main, door::frame).install();
 }

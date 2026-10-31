@@ -321,6 +321,24 @@ impl Fighter {
         (result == RESULT_OK && count > 0).then_some((first, count))
     }
 
+    pub fn own_status(&self, index: i32) -> i32 {
+        let start = self
+            .kind()
+            .get()
+            .map(crate::base_kind)
+            .and_then(clone_engine_core::status_starts::status_start_of_kind);
+        match start {
+            Some(start) if index >= 0 => start + index,
+            _ => {
+                elog!(
+                    "[clone_engine] {}: own_status({index}) needs a registered fighter on a vanilla base",
+                    self.identity
+                );
+                -1
+            }
+        }
+    }
+
     pub fn kirby_status(&self, index: i32) -> i32 {
         match self.kirby_family() {
             Some((first, count)) if index >= 0 && index < count => first + index,

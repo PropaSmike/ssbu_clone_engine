@@ -9,7 +9,7 @@ const BRANCH_REACH: i64 = 1 << 27;
 
 const ADRP_REACH: i64 = 1 << 32;
 
-const REQUIRED_BYTES: u64 = 192 * 0x28 + 192 * 0x20 + 512 * 0x48;
+const REQUIRED_BYTES: u64 = 512 * 0x28 + 512 * 0x20 + 896 * 0x48;
 
 #[repr(C)]
 #[derive(Default, Clone, Copy)]

@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 const CONFIG_DIRECTORY: &str = "sd:/ultimate/clone_engine";
 const CONFIG_PATH: &str = "sd:/ultimate/clone_engine/config.toml";
-const DEFAULT_CONFIG: &str = "game_version = \"auto\"\n";
+const DEFAULT_CONFIG: &str = "game_version = \"auto\"\nmodes_button = \"x\"\n";
 const OLD_TEXT_END: usize = 0x39c_7e90;
 const OLD_DATA_START: usize = 0x39c_8000;
 const DATA_DELTA_13_0_5: usize = 0x1000;

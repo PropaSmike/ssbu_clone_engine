@@ -360,6 +360,16 @@ mod live {
                 ),
             }
         }
+        if let Some(list) = &declaration.move_list {
+            match crate::move_list::register(&declaration.ui_chara(), list) {
+                Ok(pages) => skyline::println!(
+                    "[fighterpack] {directory}: {name}'s move list has {pages} extra page(s)"
+                ),
+                Err(message) => skyline::println!(
+                    "[fighterpack] {directory}: {name} move list REFUSED: {message}"
+                ),
+            }
+        }
         if let Some(path) = &declaration.hud_layout {
             match crate::hud_layouts::register(kind, path) {
                 Ok(()) => skyline::println!("[fighterpack] {directory}: {name} draws its own HUD layout {path}"),

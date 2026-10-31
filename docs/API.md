@@ -20,7 +20,7 @@ call returns `Error::EngineUnavailable`.
 ### Registration by code
 
 ```rust
-use clone_engine_api::v2::{fighter, hook, slot, Line, Manifest};
+use clone_engine_api::v2::{fighter, hook, slot, Manifest};
 use smash::hash40;
 use smashline::{Agent, Main, Priority};
 
@@ -60,8 +60,8 @@ pub fn main() {
         .game_acmd("game_attack11", game_attack11, Priority::Default) // script name, your function, priority
         .on_line(Main, wawa_frame)                                  // once per frame
         .install();
-    WAWA.article("beam")
-        .status(Line::Main, *WEAPON_SAMUS_CSHOT_STATUS_KIND_FLY, beam_main) // status line, a status kind of the source weapon, your function
+    Agent::new("wawa_beam")                                         // the article's scripts and statuses: "<fighter>_<article>"
+        .status(Main, *WEAPON_SAMUS_CSHOT_STATUS_KIND_FLY, beam_main) // status line, a status kind of the source weapon or a new number, your function
         .install();
     Agent::new("kirby")
         .status(Main, WAWA.kirby_status(0), kirby_special_n) // kirby_status(0): the first reserved number
@@ -94,8 +94,8 @@ or `Error::Engine(ERROR_MANIFEST)`; the log names the fault.
 | `owns_param_resources()`, `effect_namespace(n)`, `article_namespace(n)` | Leave out. |
 | `article(name, "fighter/weapon")` | Copy that vanilla weapon into `fighter/<name>/model/<article>`, scripts under `<name>_<article>`. |
 | `base_article(name, "weapon")` | Rename one of the base's own articles into that folder. |
-| `kirby_article(name, "fighter/weapon")` | An article for Kirby's copy, files under `fighter/kirby/model/<name>/`. |
-| `kirby(statuses)`, `kirby_first(n)` | Reserve that many copy status numbers; `kirby_first` pins the first. |
+| `kirby_article(name, "fighter/weapon")` | An article for Kirby's copy, files under `fighter/kirby/model/<name>/`, scripts under `kirby_<name>`. |
+| `kirby(statuses)`, `kirby_first(n)` | Reserve that many copy status numbers; the engine picks them and `kirby_status(n)` reads them. `kirby_first` pins the first, only for code that hard-codes them. |
 | `kirby_full_model()`, `kirby_model(dir)`, `kirby_mesh(name, visible)` | Full-body copy; one extra model folder under `fighter/kirby/model/`; a mesh's starting visibility (up to 16). |
 | `kirby_motion(Motion)` | A copy animation: `Motion::new(name, "file.nuanmb")` with `.template(motion)`, `.scripts(stem)` or `.game/.sound/.effect/.expression(script)`, `.flags(&[..])`, `.blend_frames(n)`, `.cancel_frame(n)`, `.xlu(start, end)`, `.no_stop_intp(b)`, `.animation_unk(n)`, `.no_extra()`. File: `fighter/kirby/motion/<name>body/c00/`, listed under `fighter/<name>/kirbycopy/cNN/bodymotion`. Name must start with `<name>`. |
 | `global_motion(Motion)` | Add a motion to every fighter, clones and every costume included. `Motion::from_template(name, template)` copies an existing motion from each fighter's own list; `.animation(file)` plays your file instead, for fighters that ship it; the `kirby_motion` options override the rest. `Motion::victim(name)` is the opponent's half of a throw: no animation, so the grabber's plays. A fighter that already has the name keeps its own. See [Motions on every fighter](wiki/FIGHTERS.md#motions-on-every-fighter). |
@@ -104,6 +104,7 @@ or `Error::Engine(ERROR_MANIFEST)`; the log names the fault.
 | `hud_layout(path)` | Draw the pack's own HUD layout, shipped at that arc path, on this fighter's damage card. Drive it with the `Fighter`'s `hud`. See [Your own HUD](wiki/FIGHTERS.md#your-own-hud). |
 | `tether(donor)` | Turn the air tether on and take that fighter's tether timings and ledge boxes: `"samus"`, `"samusd"`, `"szerosuit"`, `"younglink"`, `"toonlink"`, `"lucas"` or `"luigi"`. See [Tethers](wiki/FIGHTERS.md#tethers). |
 | `tether_box([x, y], [x, y])` | One ledge box of your own, two corners relative to the fighter. Replaces the donor's boxes. |
+| `move_list(pages)`, `move_list_images(&[..])` | Extra move list pages, up to 32, and the ones that show a picture, counted from 0. See [Move list pages](wiki/FIGHTERS.md#move-list-pages). |
 | `param(name, v)`, `param_int(name, v)`, `param_mul(name, v)` | One stat. `"a.b"` reaches a sub value. |
 | `params(&[..])`, `params_int(&[..])`, `params_mul(&[..])` | Several at once. |
 | `param_at(costume, name, v)`, `param_int_at`, `param_mul_at` | One costume only. |
@@ -211,9 +212,10 @@ With no plugin, drop `css = false` and add `series`, `disp_order`,
 | `[kirby]` with `statuses`, `first`, `full_model`, `model`; `[[kirby.mesh]]` with `name`, `visible` | `kirby`, `kirby_first`, `kirby_full_model`, `kirby_model`, `kirby_mesh`. |
 | `[[kirby.motion]]` with `name`, `animation`, `template`, `scripts` or `game`/`sound`/`effect`/`expression`, `flags` or `loop`, `blend_frames`, `cancel_frame`, `xlu`, `no_stop_intp`, `animation_unk`, `no_extra` | `kirby_motion`. |
 | `[[global_motion]]` with `name`, then `template`, `animation`, `victim = true` or a mix, plus any `[[kirby.motion]]` key | `global_motion`. |
-| `[[grab]]` with `status`, `victim`, `then`, `node`, `offset`, `catch` | `grab`. A status is a number or a name: `ATTACK`, `ATTACK_DASH`, `ATTACK_S3`, `ATTACK_HI3`, `ATTACK_LW3`, `ATTACK_S4`, `ATTACK_HI4`, `ATTACK_LW4`, `ATTACK_AIR`, `SPECIAL_N`, `SPECIAL_S`, `SPECIAL_HI`, `SPECIAL_LW`, `CATCH`, `CATCH_PULL`, `CATCH_DASH`, `CATCH_DASH_PULL`, `CATCH_TURN`, `CATCH_WAIT`, `THROW`, `CAPTURE_PULLED`, `CAPTURE_WAIT`, `CATCHED_GANON`, `CATCHED_AIR_GANON`, `CLUNG_GANON`, `CLUNG_CAPTAIN`, `KOOPA_DIVED`, `SHOULDERED_DONKEY_START`, `SWALLOWED`, `BITTEN_WARIO_START`, `CLUNG_DIDDY`, `CAPTURE_YOSHI`, `CATCHED_REFLET`, `CATCHED_RIDLEY`, `MIIFIGHTER_SUPLEX_AIR_CAPTURED`, `CAPTURE_JACK_WIRE`, `DOLLY_SUPER_SPECIAL2_CAPTURE`, `CAPTURE_MASTER_SWORD`, `DEMON_DIVED`. |
+| `[[grab]]` with `status`, `victim`, `then`, `node`, `offset`, `catch` | `grab`. A status is a number or a name: `ATTACK`, `ATTACK_DASH`, `ATTACK_S3`, `ATTACK_HI3`, `ATTACK_LW3`, `ATTACK_S4`, `ATTACK_HI4`, `ATTACK_LW4`, `ATTACK_AIR`, `SPECIAL_N`, `SPECIAL_S`, `SPECIAL_HI`, `SPECIAL_LW`, `CATCH`, `CATCH_PULL`, `CATCH_DASH`, `CATCH_DASH_PULL`, `CATCH_TURN`, `CATCH_WAIT`, `THROW`, `CAPTURE_PULLED`, `CAPTURE_WAIT`, `CATCHED_GANON`, `CATCHED_AIR_GANON`, `CLUNG_GANON`, `CLUNG_CAPTAIN`, `KOOPA_DIVED`, `SHOULDERED_DONKEY_START`, `SWALLOWED`, `BITTEN_WARIO_START`, `CLUNG_DIDDY`, `CAPTURE_YOSHI`, `CATCHED_REFLET`, `CATCHED_RIDLEY`, `MIIFIGHTER_SUPLEX_AIR_CAPTURED`, `CAPTURE_JACK_WIRE`, `DOLLY_SUPER_SPECIAL2_CAPTURE`, `CAPTURE_MASTER_SWORD`, `DEMON_DIVED`. `status` and `then` also take `"own N"`: your fighter's own status N, counted from 0 past the base's (`own_status(N)` in code). |
 | `[hud]` with `from`, `layout` | `hud`, `hud_layout`. |
 | `[tether]` with `from`, `[[tether.box]]` with `p1`, `p2` | `tether`, `tether_box`. |
+| `[move_list]` with `pages`, `image_pages` | `move_list`, `move_list_images`. See [Move list pages](wiki/FIGHTERS.md#move-list-pages). |
 | `partner` (`true`, `false` or a fighter's name), `[partner_params]` | `partner`, `partner_with`, `partner_param`, `partner_param_int`. See [Partner](wiki/FIGHTERS.md#partner). |
 | `switch` | `switch_with`. See [Switching](wiki/FIGHTERS.md#switching). |
 | `[commands]` with `vanilla`, `special_command_life_max`, `super_special_command_life_max`, `special_command_ab_button_life`, `special_command_neutral_threshold`, `special_command_stick_range`; `[[command]]` with `name`, `input`, `button`, `super`, `life`, `neutral_resets`, `reverse`, `cpu` | `vanilla_commands`, the `special_command_*` and `super_special_command_life_max` methods, `command(Command)`. See [Command inputs](wiki/FIGHTERS.md#command-inputs). |
@@ -232,15 +234,20 @@ Several fighters in one file: `[[fighter]]` blocks, with `[[fighter.article]]`,
 | `owns(x)` | `x` is this fighter or one of its weapons or articles. |
 | `entries()`, `in_match()` | Match slots it occupies. |
 | `hud(x, Hud::...)` | Change the borrowed HUD: `Gauge(v)`, `State(on)`, `Select(i)`, `Slot(i, v)`, `MenuOpen([MenuCommand; 4])`, `MenuCursor(row)`, `MenuDecide(row)`, `MenuClose`. False when that HUD has no such call. See [Borrowed HUDs](wiki/FIGHTERS.md#borrowed-huds). Change your own layout: `Play(animation)`, `Frame(animation, frame)`, `Show(part, on)`, `Text(part, text)`. False when the layout on screen has no such part. See [Your own HUD](wiki/FIGHTERS.md#your-own-hud). |
-| `article("name")` | `.status(line, status, f)`, `.install()`, `.weapon_kind()`, `.index()`, `.spawn(boma)`, `.set_vtable_entry(n, f)`, `.set_common_vtable_entry(n, f)`. Read `index()` right before use; never fall back to 0. |
+| `article("name")` | `.status(line, status, f)`, `.install()`, `.weapon_kind()`, `.index()`, `.spawn(boma)`, `.set_vtable_entry(n, f)`, `.set_common_vtable_entry(n, f)`. Read `index()` right before use; never fall back to 0. `.status` installs through Smashline on `<fighter>_<article>`; new code writes statuses with `smashline::Agent` there. |
 | `copy_article("name")` | Same, for a `kirby_article`. |
 | `param("name")` | `.sub("field")`, `.slot(n)`, then `.set(v)`, `.mul(v)` or `.int(v)`. |
 | `kirby_family()`, `kirby_status(n)`, `arm_kirby()` | The reserved statuses. Arm after the `Agent::new("kirby")` statuses are installed. |
+| `own_status(n)` | Status number `n` of your fighter's own, counted from 0 past the base's statuses. Call after `register`; -1 before. |
 | `set_vtable_entry(n, f)` | Write one vtable entry; returns the previous. |
 | `set_common_vtable_entry(n, f)`, `set_copy_common_vtable_entry(n, f, &ORIGINAL)` | [Common vtables](#common-vtables). |
 | `register(manifest)` | Above. |
 
 Compare fighters with `is` and `owns`; `utility::get_kind` answers the base.
+
+Under Smashline 2.0 or later, Smashline numbers article weapon kinds, shared with
+other mods' `clone_weapon` calls. Read `weapon_kind()` and `index()` at runtime;
+never assume `615 + n`. A base fighter of kind 94 or above takes no articles there.
 
 ### Scripts
 
@@ -381,7 +388,8 @@ Item agent vtables are per item class and run from 10 to 118 slots, so the
 engine sizes the private copy from the class's real count rather than from the
 shared prefix. An agent whose count it cannot establish is refused and logged,
 because repointing to a short table would leave every slot above the copy
-reading past its end.
+reading past its end. Every member of an Assist Trophy, Pokemon or boss family
+is an item clone and gets its own copy too.
 
 Smashline gives each fighter and weapon object its own copy of the same
 vtable, and the engine writes into that copy rather than replacing it, so a
@@ -563,10 +571,9 @@ item!(WAWA, "wawa");
 #[skyline::main(name = "wawa_item")]
 pub fn main() {
     let manifest = ItemManifest::new(
-        "wawa", // resource name: files under item/wawa, script name
-        0x1ae,  // base kind: the vanilla item it is built on (0x1ae = Steve's block)
+        "wawa",         // resource name: files under item/wawa, script name
+        "pickelobject", // the vanilla item it is built on, here Steve's block
     )
-    .base_item("pickelobject")             // the base's name, for the log
     .spawn_per(30)                         // natural drop weight
     .common("throw_speed_mul", 0.75)       // a field of item/common/param/param.prc, value
     .owner_param("pickel", "life", 600.0); // owner fighter (Steve), a field of its vl.prc, value
@@ -579,8 +586,9 @@ pub fn main() {
 
 | `ItemManifest` method | Meaning |
 |---|---|
-| `new(resource_name, base_kind)` | Files under `item/<resource_name>`; the vanilla item kind it is built on. |
-| `base_item(name)` | Names the base in the log. |
+| `new(resource_name, base)` | Files under `item/<resource_name>`; the vanilla item it is built on, by name (`"killsword"`) or kind number. |
+| `base_item(name)` | Names the base in the log when `new` got a number. |
+| `members(&[..])` | Clones an Assist Trophy, Pokemon or boss family: every member's resource name in the base family's order, this item first. See [Items](wiki/ITEMS.md#assist-trophies-pokemon-and-bosses). |
 | `agent_name(name)` | Script name. Default `resource_name`. |
 | `ui_id(id)` | Training menu id. Default `ui_item_<resource_name>`. |
 | `training_order(n)` | Position in the Training list. |
@@ -596,9 +604,8 @@ pub fn main() {
 ### `item.toml`
 
 ```toml
-base_kind     = 430                 # the vanilla item it is built on (430 = 0x1ae, Steve's block)
+base_item     = "pickelobject"      # the vanilla item it is built on, here Steve's block
 resource_name = "wawa"              # files under item/wawa, script name
-base_item     = "pickelobject"      # optional: the base's name, for the log
 agent_name    = "wawa"              # optional: script name, default resource_name
 ui_id         = "ui_item_wawa"      # optional: Training menu id, default ui_item_<resource_name>
 training_order = 0                  # optional: position in the Training list
@@ -661,16 +668,136 @@ Common fields: `have_kind`, `size_kind`, `hit_kind`, `shield_kind`,
 `eatable`, `paintable`, `ai_pri`, `thrown_rot_kind`, `thrown_node`,
 `clung_node`, `captured_motion`, ... `group` cannot be set.
 
-Item families (`register_item_family`, `item_category`, `item_family_owner`,
-`item_family_member_index`, `item_spawn_source`, `item_parent_kind`) need an
-engine built with `research_item_families`; the release returns
-`ERROR_BACKEND_UNAVAILABLE`.
+`members = [...]` in `item.toml`, or `ItemManifest::members`, registers a
+family with no other code. Item families (`register_item_family`,
+`item_category`, `item_family_owner`, `item_family_member_index`,
+`item_spawn_source`, `item_parent_kind`) clone
+Assist Trophies, Pokemon and bosses with their members. Give each member
+`KIND_AUTO` and read its kind back with `item_kind_for_identity(name)`; the
+item template registers one. An Assist member ships its files under
+`assist/<resource>/` with every folder in `config.json`'s `new-dir-infos` and
+`new-dir-files`, as an item does under `item/`; without them it plays with the
+base's model and motions. Its `motion_list.bin` names its own folder at offset 8
+(`hash40("assist/<resource>/motion/body/c00")`); a copy of the base's list
+plays the base's animations. It loads into the second assist resource container
+when the base holds the first. `item::spawn` loads a clone's own resources
+before creating it; the game alone loads them only while creating the first
+item of the kind, which then plays with the base's motions.
+
+## Enemies
+
+Ultimate's stage enemies (Yellow Devil, Dark Emperor, Flying Men, Metal Face,
+Nabbit) on any stage, and new enemy kinds made from them:
+`clone_engine_api::enemy`. The enemy template is a complete pack.
+
+```rust
+use clone_engine_api::enemy;
+
+let kind = enemy::clone(enemy::NABBIT, "my_enemy").unwrap();      // base, name: files under enemy/my_enemy
+enemy::drive(kind, Some(my_driver), enemy::statuses(&[0])).unwrap(); // your driver runs its statuses; status 0 stays the base's
+enemy::arm(enemy::kinds(&[kind])).unwrap();                          // loaded in every battle from the next one on
+let request = enemy::spawn(kind, 0.0, 20.0, 0.0, 1.0).unwrap();   // kind, x, y, z, facing (1.0 right, -1.0 left)
+let object = enemy::start(request);                               // on a later frame: Some(battle object id) once it is made
+```
+
+| Function | Meaning |
+|---|---|
+| `enemy::arm(kinds)` | Load these kinds (`enemy::kinds(&[kind, ...])`) in every battle from the next one on; 0 turns it off. On the five stages with an enemy of their own, only that enemy loads. |
+| `enemy::spawn(kind, x, y, z, lr)` | Ask for an enemy; returns a request number. It is made on a later frame. |
+| `enemy::start(request)` | Bring it out; `None` until it is made. |
+| `enemy::object(index)` | The battle object id in enemy object `index` (below `enemy::OBJECTS`), live or not. |
+| `enemy::clone(base, name)` | A new kind that is `base` in all it does and loads `enemy/<name>/model`, `motion`, `param` and `script`, `effect/enemy/<name>` and `sound/bank/enemy/se_enemy_<name>.*`. Kinds 5 to 31; a name registered again answers its kind. |
+| `enemy::drive(kind, Some(driver), native)` | Every status the clone's class asks for, except those in `native` (`enemy::statuses(&[0, ...])`), runs `driver(object, module_accessor, status)` every frame instead of the base's logic. Damage and grabs stay the base's. `None` gives the kind back. |
+| `enemy::drive_now(object)` | End what the game is doing with a driven enemy (a hit's reaction) and hand it to the driver at once. |
+| `enemy::class_status(object)` | Its class status (each base numbers its own); `None` for no enemy. |
+| `enemy::remove(object)` | Take it off the stage. |
+| `enemy::set_vtable_entry(kind, slot, function)` | Replace one entry of the clone's 77-slot class vtable; the base's own enemies keep the game's. Set it before the battle; a null function gives the slot back. |
+| `enemy::original_entry(kind, slot)` | The entry it replaced, to call from your function; `None` until the first enemy of the clone is built. |
+| `enemy::set_object_vtable_entry(kind, slot, function)` | Replace one entry of the clone's copy of the enemy object's 163-slot vtable, otherwise one table for every enemy kind. |
+| `enemy::original_object_entry(slot)` | The game's entry for that slot, to call from your function. |
+
+Slots in `enemy::slot`: `JOINT_ROTATION`, `DAMAGE`, `CHANGE_STATUS` and
+`REQUEST_STATUS` (`fn(instance: usize, status: i32)`), `INSTALL_STATUS`,
+`INSTALL_REQUEST`; the others by number, below `slot::COUNT`. A driven clone's
+hook runs before its driver's routing. A clone brought out gets its first
+status through `REQUEST_STATUS` when driven and `CHANGE_STATUS` when not.
+
+Object slots in `enemy::object_slot`: `INITIALIZE`, `START`, `UPDATE_1` to
+`UPDATE_9` (`fn(object: *mut BattleObject)`, the same `BattleObject` entries
+as `slot::item`'s); the others by number, below `object_slot::COUNT`.
+
+Kinds: `YELLOW_DEVIL`, `DARK_EMPEROR`, `FLYING_MAN`, `METAL_FACE`, `NABBIT`. A
+Nabbit clone reads its own parameters from
+`enemy/<name>/model/body/c00/param.prc`.
+
+An `enemy.toml` beside `config.json` declares the clone without code:
+
+```toml
+name = "my_enemy"   # files under enemy/my_enemy/, effect/enemy/my_enemy/
+base = "nabbit"     # yellow_devil, dark_emperor, flying_man, metal_face or nabbit
+```
+
+- The engine clones it at boot; `enemy::clone(base, name)` then answers the
+  same kind. Several enemies: `[[enemy]]` blocks.
+- The game's own enemy logic runs only on its home stage: elsewhere Nabbit
+  waits out of sight and only Flying Man fights. The plugin spawns the enemy
+  and drives it, as the enemy template does; the Workbench writes that code.
+- Its `motion_list.bin` names its own folder at offset 8
+  (`hash40("enemy/<name>/motion/body/c00")`), or it plays the base's animations.
 
 ## Stages
 
 `stage.toml` only; see [Stages](wiki/STAGES.md). A stage plugin holds code
 and registers nothing. The old calls are in
 [DEPRECATED.md](DEPRECATED.md#stages).
+
+## Menus
+
+`menu.toml` covers sequences, layouts, preloads and menu script patches; see
+[Menus](wiki/MENUS.md).
+
+| Function | Meaning |
+|---|---|
+| `menu::register_sequence(code, runs_as)` | A main menu button with `code` starts the vanilla mode `runs_as`; `menu::vanilla_code("other_training")` gives a mode's code by the game's name. |
+| `menu::active_sequence()` | The custom code that started the last mode, `None` after a vanilla one. |
+| `menu::register_call(name, handler)` | Answers `prg_func.engine_call(name, ...)` in main menu Lua. |
+| `menu::battle_player(slot, kind, ui_chara, pad)` | Player selection for the next battle (`PlayerType::Human`, `Cpu`, `Amiibo`, `None`). |
+| `menu::battle_stage(ui_stage)` | Stage selection for the next battle. |
+| `menu::battle_damage(slot, percent)` | Starting damage for the next battle (`battle_player` resets it to 0). |
+| `menu::battle_color(slot, color)` | Costume for the next battle, 0 to 255 (`battle_player` resets it to 0). |
+| `menu::battle_rules(Rules { kind, stock, seconds, items })` | Rules for the next battle: `RuleKind::Time`, `Stock` or `Stamina`, stocks, time limit (0 = none), item frequency (0 = none). |
+| `menu::battle_pause(allowed)` | Whether the players may pause the next battle; `battle_rules` turns it on. |
+| `menu::battle_stock(slot)` | Stocks a player has left in the running battle. |
+| `menu::next_battle()` | Ends the running battle and starts a new one from the current selections. |
+| `menu::end_battle()` | Ends the running battle and returns to the main menu. |
+| `menu::battle_frame()` | Battle frames so far, counted by the HUD whoever is on stage. |
+| `menu::change_fighter(slot, ui_chara, color)` | Swap a player's fighter in the running battle; call it on the KO and the new fighter comes in at the rebirth. |
+| `menu::mode_sequence(id)` | The code the engine gave the `[[mode]]` or `[[sequence]]` named `id`; compare it with `active_sequence()`. |
+| `menu::battle_boss(Some(kind))` | Make the next battle a boss battle against boss item `kind` (a native boss or a boss family clone) on its stage; `None` turns it off. |
+| `menu::battle_boss_object()` | The boss's battle object id once the game made it. |
+| `menu::battle_boss_finished()` | The game counts the boss defeated. |
+
+A handler is `unsafe extern "C" fn(args: *const i64, count: usize) -> i64`.
+
+## Mii hats and outfits
+
+`mii.toml` only; see [Mii hats and outfits](wiki/MII_PARTS.md). Check
+`runtime_capabilities() & CAP_MII_PARTS`.
+
+## Battle HUD
+
+| Function | Meaning |
+|---|---|
+| `hud_layout_every(path)` | Draw the layout at that arc path on every player's damage card whose fighter has no layout of its own. Call before the battle. |
+| `hud_entry(entry, HudAction::...)` | `Play`, `Frame`, `Show`, `Text`, `Width` on player `entry`'s layout. |
+| `hud_screen_layout(name, path, x, y, scale)` | Draw a layout (a pack's or the game's) on the battle HUD at a screen place and scale, not on a card; several names may share a path. Call before the battle. |
+| `hud_screen(name, HudAction::...)` | The same calls on screen layout `name`. |
+| `boss_gauge_battle()` | Give the next battle the game's boss HP bar. Call before the battle loads. |
+| `boss_gauge(item, name)` | Put an item on that bar under `name`; returns its row (two at most). The bar shows the item's `ITEM_INSTANCE_WORK_FLOAT_HP` of `_HP_MAX`. |
+| `boss_gauge_name(row, name)` | Rename a row. |
+| `boss_gauge_hide(hide)` | Leave the game's boss bar out of the next battle's HUD, for a mod that draws its own. |
+
+See [On every player's card](wiki/FIGHTERS.md#on-every-players-card).
 
 ## Engine state
 
@@ -683,6 +810,7 @@ and registers nothing. The old calls are in
 | `smashline_bridge_version()`, `smashline_compatible()` | Smashline build found. |
 | `native_backend_status()` | Diagnostic flags. |
 | `log(&str)`, `elog!(..)` | Engine log. |
+| `fighter_manager()` | The game's `FighterManager`, for `lua_bind::FighterManager` calls such as `start_finalbg`. |
 
 Registration closes when the roster is built: `ERROR_REGISTRATION_CLOSED`.
 
@@ -696,7 +824,8 @@ Registration closes when the roster is built: `ERROR_REGISTRATION_CLOSED`.
 | `ERROR_REGISTRATION_CLOSED` | Registered after the roster was built. |
 | `ERROR_DUPLICATE` | Identity or kind taken; the log says what by whom. |
 | `ERROR_NAMESPACE` | No effect or article namespace left. |
-| `ERROR_ARTICLE_RESOURCE_CONFLICT` | Two articles in one folder. |
+| `ERROR_ARTICLE_RESOURCE_CONFLICT` | Two articles in one folder, or, under Smashline 2.0, the name of a vanilla article. |
+| `ERROR_ARTICLE_OWNER` | Owner not found, or, under Smashline 2.0, a base fighter of kind 94 or above. |
 | `ERROR_HOOK_PREFLIGHT` | Game code did not match the hook's expectation. |
 | `ERROR_HOOK_ABI` | Hook signature not supported. |
 | `ERROR_ITEM_UI_METADATA` | Training menu data malformed. |

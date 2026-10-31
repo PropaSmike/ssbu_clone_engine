@@ -207,6 +207,7 @@ pub struct Manifest {
     hud_layout: Option<String>,
     final_smash: Option<String>,
     tether: Option<crate::tether::Tether>,
+    move_list: Option<crate::move_list::MoveList>,
     params: Vec<(Option<u32>, bool, String, String)>,
     partner_params: Vec<(String, String)>,
     command_settings: crate::command_input::Settings,
@@ -234,6 +235,7 @@ impl Manifest {
             hud_layout: None,
             final_smash: None,
             tether: None,
+            move_list: None,
             params: Vec::new(),
             partner_params: Vec::new(),
             command_settings: crate::command_input::Settings::default(),
@@ -433,6 +435,16 @@ impl Manifest {
 
     pub fn tether(mut self, donor: &str) -> Self {
         self.tether.get_or_insert_with(Default::default).from = Some(donor.to_string());
+        self
+    }
+
+    pub fn move_list(mut self, pages: u8) -> Self {
+        self.move_list.get_or_insert_with(Default::default).pages = Some(pages);
+        self
+    }
+
+    pub fn move_list_images(mut self, pages: &[u8]) -> Self {
+        self.move_list.get_or_insert_with(Default::default).image_pages = Some(pages.to_vec());
         self
     }
 
@@ -663,6 +675,16 @@ impl Manifest {
                 ));
             }
         }
+        if let Some(list) = &self.move_list {
+            out.push_str("\n[move_list]\n");
+            if let Some(pages) = list.pages {
+                out.push_str(&format!("pages = {pages}\n"));
+            }
+            if let Some(images) = &list.image_pages {
+                let pages: Vec<String> = images.iter().map(|page| page.to_string()).collect();
+                out.push_str(&format!("image_pages = [{}]\n", pages.join(", ")));
+            }
+        }
         let mut tables: Vec<(Option<u32>, bool)> = Vec::new();
         for (costume, mul, _, _) in &self.params {
             if !tables.contains(&(*costume, *mul)) {
@@ -716,6 +738,22 @@ impl Manifest {
     }
 }
 
+pub trait ItemBase {
+    fn line(&self) -> String;
+}
+
+impl ItemBase for i32 {
+    fn line(&self) -> String {
+        format!("base_kind = {self}")
+    }
+}
+
+impl ItemBase for &str {
+    fn line(&self) -> String {
+        format!("base_item = {}", quoted(self))
+    }
+}
+
 pub struct ItemManifest {
     resource_name: String,
     item: Vec<String>,
@@ -725,11 +763,11 @@ pub struct ItemManifest {
 }
 
 impl ItemManifest {
-    pub fn new(resource_name: &str, base_kind: i32) -> Self {
+    pub fn new(resource_name: &str, base: impl ItemBase) -> Self {
         Self {
             resource_name: resource_name.to_string(),
             item: vec![
-                format!("base_kind = {base_kind}"),
+                base.line(),
                 format!("resource_name = {}", quoted(resource_name)),
             ],
             common: Vec::new(),
@@ -754,6 +792,12 @@ impl ItemManifest {
 
     pub fn base_item(self, name: &str) -> Self {
         self.text("base_item", name)
+    }
+
+    pub fn members(mut self, names: &[&str]) -> Self {
+        let listed: Vec<String> = names.iter().map(|name| quoted(name)).collect();
+        self.item.push(format!("members = [{}]", listed.join(", ")));
+        self
     }
 
     pub fn agent_name(self, name: &str) -> Self {
@@ -1048,6 +1092,14 @@ mod tests {
     }
 
     #[test]
+    fn a_move_list_renders_and_parses_back() {
+        let text = Manifest::new("wawa", "demon").move_list(6).move_list_images(&[0, 4]).to_toml();
+        assert!(text.contains("\n[move_list]\npages = 6\nimage_pages = [0, 4]\n"), "{text}");
+        let list = crate::fighter_toml::parse_all(&text).unwrap()[0].move_list.clone().unwrap();
+        assert_eq!((list.pages, list.image_pages), (Some(6), Some(vec![0, 4])));
+    }
+
+    #[test]
     fn a_switch_group_renders_and_parses_back() {
         let text = Manifest::new("wawa", "pzenigame").switch_with(&["wawab", "wawac"]).to_toml();
         assert!(text.contains("switch = [\"wawab\", \"wawac\"]"), "{text}");
@@ -1127,6 +1179,14 @@ mod tests {
         assert_eq!(
             text,
             "base_kind = 430\nresource_name = \"blusterblock\"\nbase_item = \"pickelobject\"\n\n[owner_params]\npickel.life = 600\npickel.auto_damage = 0.0\n"
+        );
+        assert_eq!(
+            ItemManifest::new("wawa", "killsword").to_toml(),
+            "base_item = \"killsword\"\nresource_name = \"wawa\"\n"
+        );
+        assert_eq!(
+            ItemManifest::new("boss", "galleom").members(&["boss", "boss_missile"]).to_toml(),
+            "base_item = \"galleom\"\nresource_name = \"boss\"\nmembers = [\"boss\", \"boss_missile\"]\n"
         );
     }
 }

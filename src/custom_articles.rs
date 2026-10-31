@@ -1,3 +1,4 @@
+use core::sync::atomic::{AtomicI32, AtomicU16, Ordering};
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::RwLock;
@@ -20,6 +21,28 @@ const WEAPON_OWNER_CATEGORIES: usize = 0x5186f08;
 const WEAPON_OWNER_NAMES: usize = 0x5188240;
 const WEAPON_OWNER_KINDS: usize = 0x455d7e4;
 const WEAPON_NAME_COUNT: usize = 0x267;
+
+const KIND_ROW_SPAN: usize = 2048;
+const NO_ROW: u16 = 0;
+const SMASHLINE_GENERATE_ID_FIGHTERS: i32 = 94;
+
+static KIND_ROWS: [AtomicU16; KIND_ROW_SPAN] = [const { AtomicU16::new(NO_ROW) }; KIND_ROW_SPAN];
+static ROW_KINDS: [AtomicI32; MAX_CUSTOM_ARTICLES] = [const { AtomicI32::new(-1) }; MAX_CUSTOM_ARTICLES];
+
+fn kind_cell(kind: i32) -> Option<&'static AtomicU16> {
+    let offset = usize::try_from(kind.checked_sub(FIRST_CUSTOM_WEAPON_KIND)?).ok()?;
+    KIND_ROWS.get(offset)
+}
+
+pub(crate) fn row_of(kind: i32) -> Option<usize> {
+    let row = kind_cell(kind)?.load(Ordering::Acquire);
+    (row != NO_ROW).then(|| row as usize - 1)
+}
+
+pub(crate) fn kind_of_row(row: usize) -> Option<i32> {
+    let kind = ROW_KINDS.get(row)?.load(Ordering::Acquire);
+    (kind >= FIRST_CUSTOM_WEAPON_KIND).then_some(kind)
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -53,6 +76,7 @@ struct CustomArticle {
     resource_owner_name: &'static [u8],
     name_slot: usize,
     placement: ArticlePlacement,
+    shared: bool,
 }
 
 fn registry() -> &'static RwLock<Vec<CustomArticle>> {
@@ -130,7 +154,16 @@ fn leak_cstr(value: &CStr) -> &'static [u8] {
 
 #[inline(always)]
 pub fn is_custom_weapon_kind(weapon_kind: i32) -> bool {
-    weapon_kind >= FIRST_CUSTOM_WEAPON_KIND
+    row_of(weapon_kind).is_some()
+}
+
+pub fn is_shared_weapon_kind(weapon_kind: i32) -> bool {
+    row_of(weapon_kind).is_some()
+        && registry().read().ok().is_some_and(|registry| {
+            registry
+                .iter()
+                .any(|article| article.weapon_kind == weapon_kind && article.shared)
+        })
 }
 
 fn assets_present(weapon_kind: i32) -> bool {
@@ -264,6 +297,18 @@ pub fn weapon_name_table_bias(weapon_kind: i32) -> Option<u64> {
         crate::game::addr(LOWERCASE_WEAPON_NAMES) + source as usize * 8
     };
     Some((slot as u64).wrapping_sub((weapon_kind as u64).wrapping_mul(8)))
+}
+
+pub fn agent_names(weapon_kind: i32) -> Option<(&'static [u8], &'static [u8])> {
+    if !is_custom_weapon_kind(weapon_kind) {
+        return None;
+    }
+    registry()
+        .read()
+        .ok()?
+        .iter()
+        .find(|article| article.weapon_kind == weapon_kind)
+        .map(|article| (article.resource_owner_name, article.name))
 }
 
 pub fn custom_weapon_owner_name(weapon_kind: i32) -> Option<&'static [u8]> {
@@ -459,7 +504,9 @@ pub fn descriptors_for(
 
     let mut appended = Vec::new();
     for article in registry.iter().filter(|article| {
-        article.destination_kind == fighter_kind && article.placement == ArticlePlacement::Static
+        article.destination_kind == fighter_kind
+            && article.placement == ArticlePlacement::Static
+            && !article.shared
     }) {
         let Some(table) = source_articles(article.source_owner_kind) else {
             continue;
@@ -775,6 +822,66 @@ pub unsafe fn register_kirby_copy(
     )
 }
 
+unsafe fn share_with_smashline(
+    owner_kind: i32,
+    resource_owner: &'static [u8],
+    name: &'static [u8],
+    source_weapon_kind: i32,
+) -> Result<i32, i32> {
+    let resource_text = resource_owner.strip_suffix(&[0]).unwrap_or(resource_owner);
+    let name_text = name.strip_suffix(&[0]).unwrap_or(name);
+    let decline = |why: String, code: i32| {
+        skyline::println!(
+            "[article] DECLINED '{}': {why}",
+            String::from_utf8_lossy(name_text)
+        );
+        code
+    };
+    if !(0..SMASHLINE_GENERATE_ID_FIGHTERS).contains(&owner_kind) {
+        return Err(decline(
+            format!(
+                "Smashline 2 adds articles only to fighter kinds below {SMASHLINE_GENERATE_ID_FIGHTERS}, and this table is fighter kind {owner_kind}'s"
+            ),
+            ERROR_ARTICLE_OWNER,
+        ));
+    }
+    let Some(owner) = table_string(LOWERCASE_FIGHTER_NAMES, owner_kind as usize) else {
+        return Err(decline(format!("fighter kind {owner_kind} has no name"), ERROR_ARTICLE_OWNER));
+    };
+    let source_owner = table_string(WEAPON_OWNER_NAMES, source_weapon_kind as usize);
+    if source_owner.and_then(|owner| fighter_kind_from_name(owner)).is_none() {
+        return Err(decline(
+            format!("source weapon {source_weapon_kind}'s owner is not a fighter name Smashline can resolve"),
+            ERROR_ARTICLE_SOURCE,
+        ));
+    }
+    let (Ok(owner_str), Ok(resource_str), Ok(name_str)) = (
+        owner.to_str(),
+        core::str::from_utf8(resource_text),
+        core::str::from_utf8(name_text),
+    ) else {
+        return Err(decline("owner or name is not UTF-8".to_string(), ERROR_ARTICLE_OWNER));
+    };
+    let article = format!("{resource_str}_{name_str}");
+    if let Some(vanilla) = weapon_kind_from_names(owner_str, &article) {
+        return Err(decline(
+            format!("vanilla weapon {vanilla} is already called {owner_str}_{article}"),
+            ERROR_ARTICLE_RESOURCE_CONFLICT,
+        ));
+    }
+    let Some(shared) =
+        crate::smashline_articles::clone_weapon(owner_str.as_bytes(), article.as_bytes(), source_weapon_kind)
+    else {
+        return Err(decline("Smashline 2 did not answer".to_string(), ERROR_ARTICLE_OWNER));
+    };
+    skyline::println!(
+        "[article] smashline numbered '{owner_str}_{article}' as weapon kind {} (generate id {} on fighter kind {owner_kind})",
+        shared.weapon_kind,
+        shared.generate_id
+    );
+    Ok(shared.weapon_kind)
+}
+
 unsafe fn register_inner(
     source_owner: *const c_char,
     source_weapon_kind: i32,
@@ -877,8 +984,37 @@ unsafe fn register_inner(
         return ERROR_ARTICLE_CAPACITY;
     }
 
-    let weapon_kind = FIRST_CUSTOM_WEAPON_KIND + registry.len() as i32;
+    let row = registry.len();
     let leaked_name = leak_cstr(name);
+    let resource_owner_name: &'static [u8] = Box::leak(resource_owner.into_boxed_slice());
+    let (weapon_kind, shared) = if crate::smashline_articles::numbering_shared() {
+        match share_with_smashline(
+            destination_kind,
+            resource_owner_name,
+            leaked_name,
+            source_weapon_kind,
+        ) {
+            Ok(kind) => (kind, true),
+            Err(code) => return code,
+        }
+    } else {
+        (FIRST_CUSTOM_WEAPON_KIND + row as i32, false)
+    };
+    let Some(cell) = kind_cell(weapon_kind) else {
+        skyline::println!(
+            "[article] DECLINED '{}': weapon kind {weapon_kind} is past the engine's article span ({} kinds from {FIRST_CUSTOM_WEAPON_KIND})",
+            name.to_string_lossy(),
+            KIND_ROW_SPAN
+        );
+        return ERROR_ARTICLE_CAPACITY;
+    };
+    if let Some(taken) = row_of(weapon_kind) {
+        skyline::println!(
+            "[article] DECLINED '{}': weapon kind {weapon_kind} already belongs to article row {taken}",
+            name.to_string_lossy()
+        );
+        return ERROR_ARTICLE_RESOURCE_CONFLICT;
+    }
     let name_slot = Box::leak(Box::new(leaked_name.as_ptr())) as *const *const u8 as usize;
     registry.push(CustomArticle {
         weapon_kind,
@@ -886,10 +1022,13 @@ unsafe fn register_inner(
         source_owner_kind,
         source_weapon_kind,
         name: leaked_name,
-        resource_owner_name: Box::leak(resource_owner.into_boxed_slice()),
+        resource_owner_name,
         name_slot,
         placement,
+        shared,
     });
+    ROW_KINDS[row].store(weapon_kind, Ordering::Release);
+    cell.store(row as u16 + 1, Ordering::Release);
 
     let article = registry.last().expect("just pushed");
     let placement_name = match placement {

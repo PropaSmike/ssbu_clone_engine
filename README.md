@@ -1,7 +1,8 @@
 # SSBU Clone Engine
 
 Clone Engine lets a Smash Ultimate mod add a fighter, item or stage of its
-own, built on a vanilla one, instead of replacing a slot.
+own, built on a vanilla one, instead of replacing a slot. Mii hats and
+outfits are added the same way.
 
 Game version 13.0.4 or 13.0.5. The engine detects the version at boot.
 `sd:/ultimate/clone_engine/config.toml` can name it instead:
@@ -13,7 +14,10 @@ game_version = "auto"
 `auto`, `13.0.4` or `13.0.5`. A wrong value is logged and the detected
 version is used. The other plugins must match the game: ARCropolis 4.0.8
 runs only on 13.0.4, 4.1.x only on 13.0.5, and Smashline needs 1.6.7 or
-newer on 13.0.5.
+newer on 13.0.5. Smashline 2.0 runs only on 13.0.5; with it, the engine
+registers articles through Smashline's `clone_weapon`, so weapon kinds are
+shared with other mods. Plugins built for Smashline 1.x `clone_weapon` crash
+a 2.0 boot until they are rebuilt.
 
 ## What you need
 
@@ -32,6 +36,10 @@ atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_clone_engine.
 ```
 
 Smashline (`libsmashline_plugin.nro`) goes in the same folder.
+
+The `Clone Engine Modes` folder from the release goes under `ultimate/mods/`:
+it is the modes page, where packs that add modes of their own list them (X
+on the main menu; see docs/wiki/MENUS.md).
 
 Every mod pack goes in its own folder under `ultimate/mods/`. If a pack has
 code, that code is a `plugin.nro` inside the pack's own folder, never in the
@@ -105,8 +113,10 @@ pack without code.
 | Template | What it shows |
 |---|---|
 | [Fighter](custom_fighters/template_v2/) | Registration by code, a capability check, the CSK select entry, ParamConfig and engine stats, a Smashline moveset, an article with its own scripts and ParamConfig behaviours, a Kirby copy with its own motions, article and scripts, and slot, common, copy and offset hooks |
-| [Item](custom_items/template_v2/) | Registration by code, a capability check, a pack skeleton, a status, common and owner parameters, natural drops, and item and common vtable hooks |
-| [Stage](custom_stages/template/) | A stage with normal, Omega and Battlefield forms and a stage select entry |
+| [Item](custom_items/template_v2/) | Registration by code, a capability check, a pack skeleton, a status, common and owner parameters, natural drops, item and common vtable hooks, and a boss family with its members (`KIND_AUTO`) |
+| [Stage](custom_stages/template/) | A stage with normal, Omega and Battlefield forms and a stage select entry, moving platforms, paused model motions, ladders, barrel cannons, springs and a door the plugin opens |
+| [Enemy](custom_enemies/template/) | A clone of Nabbit with its own logic, brought into every battle on any stage |
+| [Menu](custom_menus/template/) | Modes on the modes page: a gauntlet of battles with team swaps, a custom pause row, music, HUD layouts and a boss on the boss bar; the game's boss battle; a mode without select screens; a movie screen; main menu codes and patches |
 
 The long-form API is in [DEPRECATED.md](docs/DEPRECATED.md). Its templates
 are retired; the ones above show everything they did.
@@ -117,12 +127,13 @@ are retired; the ones above show everything they did.
   sounds, camera, CPU behaviour, stats, Final Smash backgrounds
 - articles (a fighter's projectiles and objects), with Kirby copy support
 - items: files, settings, scripts, statuses, Training menu cell, drops
+- item families: Assist Trophies, Pokemon and bosses
+- enemies: Ultimate's stage enemies on any stage, and new enemy kinds made
+  from them
 - stages: identity, forms, stage select entry and paging, collision,
   settings, music
+- menus: main menu buttons, modes, battles started from a menu
 - several packs changing the same game function at once
-
-Assist Trophies, Pokemon and bosses exist only as a research feature
-(`research_item_families`) and are not in the released engine.
 
 ## Documentation
 
@@ -133,6 +144,8 @@ Assist Trophies, Pokemon and bosses exist only as a research feature
 - [Articles and Kirby](docs/wiki/ARTICLES_AND_KIRBY.md)
 - [Items](docs/wiki/ITEMS.md)
 - [Stages](docs/wiki/STAGES.md)
+- [Menus](docs/wiki/MENUS.md)
+- [Mii hats and outfits](docs/wiki/MII_PARTS.md)
 - [API reference](docs/API.md), for packs with code
 - [Deprecated: the long form](docs/DEPRECATED.md), for packs written before `fighter.toml`
 

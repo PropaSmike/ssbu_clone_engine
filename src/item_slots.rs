@@ -26,8 +26,8 @@ const SLOT_CONFIG_BYTES: &[usize] = &[0x08, 0x0C, 0x0D, 0x4D];
 pub(crate) struct CloneSlot([u8; SLOT_SIZE]);
 
 impl CloneSlot {
-    fn boxed() -> Box<Self> {
-        let mut slot = Box::new(CloneSlot([0u8; SLOT_SIZE]));
+    fn fresh() -> Self {
+        let mut slot = CloneSlot([0u8; SLOT_SIZE]);
         unsafe { CloneSlot::init(slot.0.as_mut_ptr()) };
         slot
     }
@@ -362,6 +362,7 @@ const OFF_ITEM_ACQUIRE: usize = 0x1607FC0;
 const ITEM_MANAGER_GLOBAL: usize = 0x52C3498;
 const ITEM_RESOURCE_MANAGER_GLOBAL: usize = 0x5323680;
 const ITEM_RESOURCE_CONTAINER_OFFSET: usize = 0x78;
+const ITEM_RESOURCE_ASSIST_CONTAINERS: [usize; 2] = [0x88, 0x90];
 const MATCH_LOAD_TAIL: usize = 0x15D5604;
 const MATCH_LOAD_TAIL_EXPECTED: u32 = 0xF106C27F;
 const POST_ACQUIRE: usize = 0x15DB790;
@@ -554,8 +555,8 @@ struct CloneResource {
     public_kind: i32,
     base_kind: i32,
     resource_name: *const core::ffi::c_char,
-    slot: Box<CloneSlot>,
-    row: Box<CloneRow>,
+    slot: &'static CloneSlot,
+    row: &'static CloneRow,
 }
 
 unsafe impl Send for CloneResource {}
@@ -641,17 +642,26 @@ pub(crate) fn register_family(entries: &[CloneResourceRegistration]) -> bool {
         return false;
     }
 
-    let mut staged = Vec::with_capacity(entries.len());
-    for entry in entries {
-        if !(0..NATIVE_ITEM_KIND_COUNT as i32).contains(&entry.base_kind) {
-            crate::dbg_log_public(&format!(
-                "[itemslot] REFUSED family member {:#x}: invalid base {:#x}",
-                entry.public_kind, entry.base_kind
-            ));
-            return false;
-        }
-        let slot = CloneSlot::boxed();
-        let mut row = Box::new(CloneRow([0u8; ROW_STRIDE]));
+    if let Some(entry) = entries
+        .iter()
+        .find(|entry| !(0..NATIVE_ITEM_KIND_COUNT as i32).contains(&entry.base_kind))
+    {
+        crate::dbg_log_public(&format!(
+            "[itemslot] REFUSED family member {:#x}: invalid base {:#x}",
+            entry.public_kind, entry.base_kind
+        ));
+        return false;
+    }
+    let slots: &'static [CloneSlot] =
+        Box::leak(entries.iter().map(|_| CloneSlot::fresh()).collect::<Vec<_>>().into_boxed_slice());
+    let rows: &'static mut [CloneRow] = Box::leak(
+        entries
+            .iter()
+            .map(|_| CloneRow([0u8; ROW_STRIDE]))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
+    for (entry, row) in entries.iter().zip(rows.iter_mut()) {
         unsafe {
             let source = (crate::game::addr(ITEM_DESCRIPTOR_TABLE)
                 + entry.base_kind as usize * ROW_STRIDE) as *const u8;
@@ -659,14 +669,19 @@ pub(crate) fn register_family(entries: &[CloneResourceRegistration]) -> bool {
             (row.0.as_mut_ptr().add(ITEM_DESCRIPTOR_NAME_OFFSET) as *mut *const core::ffi::c_char)
                 .write(entry.resource_name);
         }
-        staged.push(CloneResource {
+    }
+    let rows: &'static [CloneRow] = rows;
+    let staged: Vec<CloneResource> = entries
+        .iter()
+        .zip(slots.iter().zip(rows.iter()))
+        .map(|(entry, (slot, row))| CloneResource {
             public_kind: entry.public_kind,
             base_kind: entry.base_kind,
             resource_name: entry.resource_name,
             slot,
             row,
-        });
-    }
+        })
+        .collect();
 
     for resource in &staged {
         crate::dbg_log_public(&format!(
@@ -684,7 +699,7 @@ pub(crate) fn register_family(entries: &[CloneResourceRegistration]) -> bool {
 
 #[cfg(test)]
 mod slot_gate_tests {
-    use super::{container_agrees, key_is_base_keyed};
+    use super::{container_agrees, container_listed, key_is_base_keyed};
 
     #[test]
     fn a_clone_slot_sharing_the_live_container_is_usable() {
@@ -699,6 +714,14 @@ mod slot_gate_tests {
     #[test]
     fn a_clone_slot_left_in_another_container_is_refused() {
         assert!(!container_agrees(0x12039E3C70, 0x1209FDD450));
+    }
+
+    #[test]
+    fn a_clone_assist_in_the_other_live_assist_container_is_usable() {
+        let live = [0x120627D6D0, 0x120627D8B0, 0x120627D900];
+        assert!(container_listed(0x120627D900, &live));
+        assert!(!container_listed(0x1209FDD450, &live));
+        assert!(!container_listed(0, &[0, 0, 0]));
     }
 
     #[test]
@@ -744,13 +767,32 @@ fn container_agrees(container: usize, native: usize) -> bool {
     container != 0 && native != 0 && container == native
 }
 
+fn container_listed(container: usize, live: &[usize]) -> bool {
+    container != 0 && live.contains(&container)
+}
+
+unsafe fn live_containers() -> [usize; 3] {
+    let manager = core::ptr::read_volatile(crate::game::addr(ITEM_RESOURCE_MANAGER_GLOBAL) as *const usize);
+    if manager == 0 {
+        return [0; 3];
+    }
+    let at = |offset: usize| core::ptr::read_volatile((manager + offset) as *const usize);
+    [
+        at(ITEM_RESOURCE_CONTAINER_OFFSET),
+        at(ITEM_RESOURCE_ASSIST_CONTAINERS[0]),
+        at(ITEM_RESOURCE_ASSIST_CONTAINERS[1]),
+    ]
+}
+
 unsafe fn slot_is_populated(slot: usize, native_slot: usize) -> bool {
     let word = |at: usize, offset: usize| core::ptr::read_volatile((at + offset) as *const usize);
     let container = word(slot, SLOT_CONTAINER_OFFSET);
     if container == 0 {
         return false;
     }
-    if !container_agrees(container, word(native_slot, SLOT_CONTAINER_OFFSET)) {
+    if !container_agrees(container, word(native_slot, SLOT_CONTAINER_OFFSET))
+        && !container_listed(container, &live_containers())
+    {
         return false;
     }
     if !SLOT_DATA_VECTORS
@@ -837,6 +879,23 @@ unsafe fn report_slot_difference(manager: usize, base_kind: i32, clone_slot: usi
 fn acquired() -> &'static std::sync::RwLock<Vec<i32>> {
     static ACQUIRED: std::sync::OnceLock<std::sync::RwLock<Vec<i32>>> = std::sync::OnceLock::new();
     ACQUIRED.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+pub(crate) fn prepare(public_kind: i32) -> bool {
+    let Some(slot) = resources()
+        .read()
+        .ok()
+        .and_then(|all| all.iter().find(|r| r.public_kind == public_kind).map(|r| r.slot.address()))
+    else {
+        return false;
+    };
+    if claim_acquire(public_kind) {
+        unsafe {
+            FORCED_CLONE.scope(crate::current_thread_key(), public_kind, || item_acquire(slot, 0));
+        }
+        crate::dbg_log_public(&format!("[itemslot] clone {public_kind:#x} slot {slot:#x} prepared"));
+    }
+    true
 }
 
 fn claim_acquire(public_kind: i32) -> bool {

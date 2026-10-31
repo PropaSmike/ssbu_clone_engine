@@ -274,7 +274,8 @@ fn current_builder_kind() -> i32 {
 pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks::InlineCtx) {
     const WEAPON_RECORD_STRIDE: i64 = 0xe8;
 
-    let weapon_kind = ctx.registers[24].x() as i32;
+    let weapon_kind = ctx.registers[28].x() as i32;
+    let row = ctx.registers[24].x() as i32;
     note_builder_kind(weapon_kind);
 
     {
@@ -335,7 +336,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
             source
         }
     };
-    let bias = (record as i64 - weapon_kind as i64) * WEAPON_RECORD_STRIDE;
+    let bias = (record as i64 - row as i64) * WEAPON_RECORD_STRIDE;
     let base = ctx.registers[25].x();
     let slot = weapon_record_slot(weapon_kind);
 
@@ -356,7 +357,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
     let source_record = base.wrapping_add((record as i64 * WEAPON_RECORD_STRIDE) as u64) as usize;
     let biased = match crate::weapon_records::private_record(weapon_kind, source_record) {
         Some(private) => (private as u64)
-            .wrapping_sub((weapon_kind as i64 * WEAPON_RECORD_STRIDE) as u64),
+            .wrapping_sub((row as i64 * WEAPON_RECORD_STRIDE) as u64),
         None => base.wrapping_add(bias as u64),
     };
     ctx.registers[25].set_x(biased);
@@ -368,7 +369,7 @@ pub(crate) unsafe fn custom_article_weapon_record_base(ctx: &mut skyline::hooks:
     let n = RECORD_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 16 {
         dbg_log!(
-            "[articlerecord] #{n} weapon kind {weapon_kind} uses source {source}'s record {record} (base {base:#x} biased by {bias} -> {biased:#x})"
+            "[articlerecord] #{n} weapon kind {weapon_kind} (row {row}) uses source {source}'s record {record} (base {base:#x} biased by {bias} -> {biased:#x})"
         );
     }
 }
@@ -867,6 +868,15 @@ pub(crate) unsafe fn custom_article_path_weapon_name(ctx: &mut skyline::hooks::I
     }
 }
 
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(0x17e0990), inline)]
+pub(crate) unsafe fn shared_article_path_weapon_name(ctx: &mut skyline::hooks::InlineCtx) {
+    let weapon_kind = ctx.registers[23].x() as i32;
+    if let Some(name) = custom_articles::custom_weapon_name(weapon_kind) {
+        ctx.registers[22].set_x(name.as_ptr() as u64);
+    }
+}
+
 #[cfg(all(feature = "css_slot", feature = "diag_article"))]
 #[skyline::hook(offset = crate::game::rel(0x48aba4), inline)]
 pub(crate) unsafe fn module_190_factory(ctx: &mut skyline::hooks::InlineCtx) {
@@ -968,23 +978,6 @@ pub(crate) unsafe fn article_status_agent_create(
         return agent;
     }
 
-    {
-        static MAPPED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-        if !MAPPED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            let smashline = lookup_symbol(b"smashline_install_status_script\0").unwrap_or(0);
-            let l2c_common =
-                lookup_symbol(b"_ZN7lua2cpp15L2CWeaponCommon26sub_weapon_common_settingsEv\0")
-                    .unwrap_or(0);
-            let l2c_agent = lookup_symbol(
-                b"_ZN7lua2cpp12L2CAgentBase18sv_set_status_funcEN3lib8L2CValueES2_PN3app8lua_boolE\0",
-            )
-            .unwrap_or(0);
-            dbg_log!(
-                "[modmap] smashline={smashline:#x} l2c_common={l2c_common:#x} l2c_agent={l2c_agent:#x} self_attach={:#x}",
-                article_agents::self_addresses().0
-            );
-        }
-    }
     let source = custom_articles::custom_weapon_source_kind(kind);
     let kind_field = object.add(0xc) as *mut i32;
     if let Some(source) = source {
@@ -1017,11 +1010,7 @@ pub(crate) unsafe fn article_status_agent_create(
             core::ptr::read_volatile(agent as *const usize)
         }
     );
-    if !agent.is_null() {
-        if article_agents::wants_agent(kind) {
-            article_agents::attach(kind, agent);
-        }
-    } else {
+    if agent.is_null() {
         dbg_log!("[articleagent] game declined weapon kind {kind}; passing the null through");
     }
     dbg_log!(
@@ -1244,8 +1233,6 @@ pub(crate) unsafe fn weapon_motion_setup_probe(object: *mut u8) -> u64 {
         return call_original!(object);
     }
 
-
-
     #[cfg(feature = "diag_article_motion")]
     let kind = core::ptr::read_volatile(object.add(0xc) as *const i32);
     let boma = core::ptr::read_volatile(object.add(0x20) as *const usize);
@@ -1461,10 +1448,7 @@ pub unsafe extern "C" fn clone_engine_article_status_v1(
 ) -> i32 {
     #[cfg(feature = "css_slot")]
     {
-        if article_agents::register_status(weapon_kind, line, status_kind, function) {
-            return RESULT_OK;
-        }
-        return clone_engine_api::ERROR_ARTICLE_SOURCE;
+        return crate::smashline_articles::install_status(weapon_kind, line, status_kind, function);
     }
     #[cfg(not(feature = "css_slot"))]
     {
@@ -2077,14 +2061,6 @@ pub(crate) unsafe fn custom_name_path_root(ctx: &mut skyline::hooks::InlineCtx) 
 
 #[cfg(feature = "css_slot")]
 pub(crate) fn install_custom_resource_name_hooks() {
-    {
-        let (attach, set_status_scripts) = article_agents::self_addresses();
-        dbg_log!(
-            "[selfbase] text={:#x} attach={attach:#x} set_status_scripts={set_status_scripts:#x} dbg_out={:#x}",
-            crate::game::raw_text_base(),
-            dbg_out as *const () as usize
-        );
-    }
     install_custom_article_weapon_name_hooks();
     install_custom_article_scaled_weapon_name_hooks();
     install_custom_article_scaled_owner_name_hooks();
@@ -2112,6 +2088,9 @@ pub(crate) fn install_custom_resource_name_hooks() {
     );
     install_custom_article_owner_kind_hooks();
     install_custom_article_creator_owner_kind_hooks();
+    if crate::smashline_articles::numbering_shared() {
+        skyline::install_hooks!(shared_article_path_weapon_name);
+    }
     install_contextual_custom_resource_name_hooks();
     install_w1_custom_resource_name_hooks();
     install_w19_custom_resource_name_hooks();

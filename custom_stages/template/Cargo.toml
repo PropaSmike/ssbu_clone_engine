@@ -12,8 +12,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
-skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git", rev = "58aee32a5838379cadd120c8e62fd0e0ea9e5ad7" }
-clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.1.0-beta.1" }
+smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
+clone_engine_api = { path = "../../clone_engine_api" }
 
 [profile.dev]
 panic = "abort"

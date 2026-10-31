@@ -262,7 +262,7 @@ pub(crate) fn item_category_for_public(public_kind: i32) -> ItemCategory {
         .unwrap_or(ItemCategory::Unknown)
 }
 
-unsafe fn native_family_len(base_owner_kind: i32) -> Option<usize> {
+pub(crate) unsafe fn native_family_len(base_owner_kind: i32) -> Option<usize> {
     let owner = descriptor_meta(base_owner_kind)?;
     if owner.class == 13 {
         return None;
@@ -541,6 +541,16 @@ pub(crate) fn queue_pocket_ticket(public_kind: i32) -> bool {
 
 pub(crate) fn queue_lot_ticket(public_kind: i32) -> bool {
     queue_spawn_ticket(public_kind, ItemSpawnSource::Lot)
+}
+
+pub(crate) fn boss_clone_base(public_kind: i32) -> Option<i32> {
+    definition(public_kind)
+        .filter(|view| matches!(view.category, ItemCategory::Boss))
+        .map(|view| view.base_kind)
+}
+
+pub(crate) fn queue_boss_ticket(public_kind: i32) -> bool {
+    queue_spawn_ticket(public_kind, ItemSpawnSource::Direct)
 }
 
 pub(crate) fn pocket_ticket_pending(public_kind: i32) -> bool {
@@ -1338,6 +1348,9 @@ unsafe fn item_lower_creator_bridge(
     if let Some((definition, source)) = claimed {
         REGISTRATION_CLOSED.store(true, Ordering::Release);
         BACKEND_STATUS.fetch_or(STATUS_REGISTRATION_CLOSED, Ordering::AcqRel);
+        if matches!(definition.category, ItemCategory::Assist | ItemCategory::Pokemon | ItemCategory::Boss) {
+            crate::item_slots::prepare(definition.public_kind);
+        }
         let armed = arm_request_with_context(definition, -1, source);
         limited_log(format!(
             "[itemclone] spawn ticket public={:#x} base={raw_kind:#x} source={source:?} armed={armed}",
@@ -1350,6 +1363,9 @@ unsafe fn item_lower_creator_bridge(
     let (effective_descriptor, pending_index) = if let Some(index) = take_request(raw_kind) {
         (descriptor, Some(index))
     } else if let Some(definition) = definition(raw_kind) {
+        if matches!(definition.category, ItemCategory::Assist | ItemCategory::Pokemon | ItemCategory::Boss) {
+            crate::item_slots::prepare(raw_kind);
+        }
         core::ptr::copy_nonoverlapping(descriptor, descriptor_copy.0.as_mut_ptr(), 0x50);
         (descriptor_copy.0.as_mut_ptr().add(0x20) as *mut i32)
             .write_unaligned(definition.base_kind);
@@ -2096,9 +2112,9 @@ fn item_identity(resource: &str) -> String {
     format!("item_kind_{resource}")
 }
 
-fn allocate_item_kind(existing: &[ItemCloneDefinition], resource: &str) -> Option<i32> {
+fn allocate_item_kind(existing: &[ItemCloneDefinition], chosen: &[i32], resource: &str) -> Option<i32> {
     let identity = item_identity(resource);
-    let taken = |kind: i32| existing.iter().any(|known| known.public_kind == kind);
+    let taken = |kind: i32| chosen.contains(&kind) || existing.iter().any(|known| known.public_kind == kind);
     if let Some(kind) = crate::kind_ledger::reserved_kind(&identity) {
         if kind >= FIRST_SPARSE_ITEM_KIND && !taken(kind) {
             return Some(kind);
@@ -2108,6 +2124,19 @@ fn allocate_item_kind(existing: &[ItemCloneDefinition], resource: &str) -> Optio
     let kind = (FIRST_SPARSE_ITEM_KIND..limit).find(|candidate| !taken(*candidate))?;
     crate::kind_ledger::record(&identity, kind);
     Some(kind)
+}
+
+pub(crate) fn item_kind_for_hash(hash: i64) -> Option<i32> {
+    let definitions = definitions().read().ok()?;
+    definitions
+        .iter()
+        .find(|known| {
+            known
+                .resource_name
+                .to_str()
+                .map_or(false, |name| clone_engine_core::menu::call_hash(name) == hash)
+        })
+        .map(|known| known.public_kind)
 }
 
 pub(crate) fn item_kind_for_identity(resource: &str) -> Option<i32> {
@@ -2203,7 +2232,7 @@ pub unsafe extern "C" fn clone_engine_register_item_v1(
         let Ok(resource) = CStr::from_ptr(registration.resource_name).to_str() else {
             return ERROR_NAME;
         };
-        let Some(allocated) = allocate_item_kind(&existing, resource) else {
+        let Some(allocated) = allocate_item_kind(&existing, &[], resource) else {
             return ERROR_ITEM_FAMILY_CAPACITY;
         };
         item_kind = allocated;
@@ -2228,12 +2257,6 @@ pub unsafe extern "C" fn clone_engine_register_item_v1(
 pub unsafe extern "C" fn clone_engine_register_item_family_v2(
     registration: *const CloneItemFamilyRegistrationV2,
 ) -> i32 {
-    #[cfg(not(feature = "research_item_families"))]
-    {
-        let _ = registration;
-        return ERROR_BACKEND_UNAVAILABLE;
-    }
-    #[cfg(feature = "research_item_families")]
     {
         if registration.is_null() {
             return ERROR_NULL;
@@ -2286,7 +2309,32 @@ pub unsafe extern "C" fn clone_engine_register_item_family_v2(
         let Some(_) = stride.checked_mul(registration.member_count as usize) else {
             return ERROR_STRUCT_SIZE;
         };
-        let owner_public_kind = core::ptr::read_unaligned(registration.members).item_kind;
+        let mut kinds: Vec<i32> = Vec::with_capacity(expected_count);
+        {
+            let Ok(existing) = definitions().read() else {
+                return ERROR_UNSUPPORTED;
+            };
+            for index in 0..expected_count {
+                let member_ptr = (registration.members as *const u8).add(index * stride)
+                    as *const CloneItemFamilyMemberV2;
+                let member = core::ptr::read_unaligned(member_ptr);
+                if member.item_kind != KIND_AUTO {
+                    kinds.push(member.item_kind);
+                    continue;
+                }
+                if member.resource_name.is_null() {
+                    return ERROR_NAME;
+                }
+                let Ok(resource) = CStr::from_ptr(member.resource_name).to_str() else {
+                    return ERROR_NAME;
+                };
+                let Some(allocated) = allocate_item_kind(&existing, &kinds, resource) else {
+                    return ERROR_ITEM_FAMILY_CAPACITY;
+                };
+                kinds.push(allocated);
+            }
+        }
+        let owner_public_kind = kinds[0];
         let mut staged = Vec::with_capacity(expected_count);
         for index in 0..expected_count {
             let member_ptr = (registration.members as *const u8).add(index * stride)
@@ -2306,7 +2354,7 @@ pub unsafe extern "C" fn clone_engine_register_item_family_v2(
                 return ERROR_ITEM_FAMILY_LAYOUT;
             }
             let definition = match make_item_definition(
-                member.item_kind,
+                kinds[index],
                 base_kind,
                 member.resource_name,
                 member.agent_name,
@@ -2705,7 +2753,6 @@ pub(crate) fn mark_param_router_ready() {
 
 pub(crate) fn mark_category_router_ready() {
     BACKEND_STATUS.fetch_or(STATUS_CATEGORY_ROUTER_READY, Ordering::AcqRel);
-    #[cfg(feature = "research_item_families")]
     BACKEND_STATUS.fetch_or(STATUS_FAMILY_ROUTER_READY, Ordering::AcqRel);
 }
 

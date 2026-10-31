@@ -1,0 +1,63 @@
+# The pack's modes, each a row on the engine's modes page (X on the main menu).
+# Compile lua/*.lua with Ultimate's luac (docs/wiki/MENUS.md, "Lua") into
+# ui/script/menu/template_menu/<name>.lc beside this file.
+
+[[mode]]
+id = "template_gauntlet"                 # lower case letters, digits and _
+name = "Template Gauntlet"               # the row's name
+description = "Rounds against CPUs with a team of three, then a boss."
+runs_as = "melee_normal"                 # the game's mode it runs as: Smash
+scene = "IngameCallSequenceScene"        # straight into the battle, no select screens
+script = "menu/template_menu/gauntlet"   # its decide asks the plugin to set the battle up
+order = 20                               # rows sort by it
+
+[[mode]]
+id = "template_boss"
+name = "Template Boss"
+description = "The game's own boss battle against Galleom."
+runs_as = "melee_normal"
+scene = "IngameCallSequenceScene"
+script = "menu/template_menu/boss"
+order = 21
+
+[[mode]]
+id = "template_pick"
+name = "Template Pick"
+description = "Pick fighters, then fight on Battlefield; this row comes back after the battle."
+runs_as = "melee_normal"
+skip = ["rules", "stage_select"]         # screens the mode goes without
+after_battle = "menu"                    # back to this row after each battle
+script = "menu/template_menu/pick"       # sets the stage and rules the skipped screens would have
+order = 22
+
+[[mode]]
+id = "template_intro"
+name = "Template Intro"
+description = "A screen inside the modes page that plays a movie."
+script = "menu/template_menu/intro"      # with enter, the mode runs as a screen of the page
+order = 23
+
+# The tables below change the main menu itself; uncomment the ones you use.
+
+# A main menu button pointed at this sequence starts Training; the engine
+# picks its code, and Lua asks for it by id.
+# [[sequence]]
+# id = "template_training"
+# runs_as = "other_training"
+
+# lua/other_patch.lua runs in place of the game's main_menu_layer_other and
+# points the VR button at that sequence.
+# [[patch]]
+# module = "menu/main/main_menu_layer_other"
+# script = "menu/template_menu/other_patch"
+
+# A layout of the pack the main menu builds as well (Lua: LayoutRootList.<name>).
+# [[layout]]
+# scene = "main_menu"
+# file = "ui/layout/menu/template_menu/template_page/layout.arc"
+# over_side_panel = true
+
+# Whenever the game requests `after`, it requests `files` too.
+# [[preload]]
+# after = "ui/script/menu/main/main_menu_layer_other.lc"
+# files = ["ui/script/menu/template_menu/intro.lc"]

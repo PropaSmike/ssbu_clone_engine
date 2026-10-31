@@ -73,6 +73,7 @@ pub enum HudAction<'a> {
     Frame(&'a str, f32),
     Show(&'a str, bool),
     Text(&'a str, &'a str),
+    Width(&'a str, f32),
 }
 
 impl HudAction<'_> {
@@ -90,14 +91,17 @@ impl HudAction<'_> {
             Self::Frame(..) => "Frame",
             Self::Show(..) => "Show",
             Self::Text(..) => "Text",
+            Self::Width(..) => "Width",
         }
     }
 
     pub fn part(&self) -> Option<&str> {
         match self {
-            Self::Play(part) | Self::Frame(part, _) | Self::Show(part, _) | Self::Text(part, _) => {
-                Some(part)
-            }
+            Self::Play(part)
+            | Self::Frame(part, _)
+            | Self::Show(part, _)
+            | Self::Text(part, _)
+            | Self::Width(part, _) => Some(part),
             _ => None,
         }
     }
@@ -129,6 +133,9 @@ pub fn check_part(action: &HudAction) -> Result<(), String> {
     }
     match action {
         HudAction::Frame(_, frame) if !frame.is_finite() => Err("the frame must be a number".to_string()),
+        HudAction::Width(_, width) if !(width.is_finite() && *width > 0.0) => {
+            Err("the width must be a number above 0".to_string())
+        }
         HudAction::Text(_, text) if text.contains('\0') => Err("the text cannot contain NUL".to_string()),
         HudAction::Text(_, text) if text.chars().count() > MAX_TEXT => {
             Err(format!("the text is longer than {MAX_TEXT} characters"))

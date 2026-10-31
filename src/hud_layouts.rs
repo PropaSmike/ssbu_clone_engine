@@ -6,6 +6,11 @@ use std::sync::{Mutex, RwLock};
 const BATTLE_HUD_FILE: u64 = 0x2F_26FF_8CC2;
 const HASH_MASK: u64 = 0xFF_FFFF_FFFF;
 const ENTRIES: usize = 8;
+pub(crate) const EVERY_FIGHTER: i32 = -2;
+const SCREEN: i32 = -3;
+const SCREEN_ENTRY_BASE: usize = 1000;
+const SCREEN_LIMIT: usize = 16;
+const MAX_SCREEN_NAME: usize = 64;
 
 const FILE_REQUEST: usize = 0x323_B900;
 const FILE_REQUEST_WORD: u32 = 0xD101_C3FF;
@@ -91,10 +96,21 @@ struct Layout {
 }
 
 #[derive(Clone)]
+struct Screen {
+    name: String,
+    path: String,
+    hash: &'static u64,
+    x: f32,
+    y: f32,
+    scale: f32,
+}
+
+#[derive(Clone)]
 enum Kept {
     Shown(bool),
     Frame(f32),
     Text(String),
+    Width(f32),
 }
 
 struct Remembered {
@@ -125,6 +141,7 @@ struct Stage {
 unsafe impl Send for Stage {}
 
 static LAYOUTS: RwLock<Vec<Layout>> = RwLock::new(Vec::new());
+static SCREENS: RwLock<Vec<Screen>> = RwLock::new(Vec::new());
 static STAGE: Mutex<Stage> = Mutex::new(Stage {
     hud: 0,
     built: false,
@@ -155,6 +172,69 @@ pub(crate) fn register(kind: i32, path: &str) -> Result<(), String> {
     });
     ANY.store(true, Ordering::Release);
     Ok(())
+}
+
+pub(crate) fn register_screen(name: &str, path: &str, x: f32, y: f32, scale: f32) -> Result<(), String> {
+    check_layout(path)?;
+    if name.is_empty() || name.len() > MAX_SCREEN_NAME || name.contains('\0') {
+        return Err(format!("{name:?} is not a screen layout name: 1 to {MAX_SCREEN_NAME} characters"));
+    }
+    if !(x.is_finite() && y.is_finite() && scale.is_finite() && scale > 0.0) {
+        return Err("the place and scale must be numbers, the scale above 0".to_string());
+    }
+    let mut screens = SCREENS.write().map_err(|_| "the screen layout table is poisoned".to_string())?;
+    let hash = clone_engine_core::hash40(path) & HASH_MASK;
+    if let Some(screen) = screens.iter_mut().find(|screen| screen.name == name) {
+        if screen.path != path {
+            screen.path = path.to_string();
+            screen.hash = Box::leak(Box::new(hash));
+        }
+        screen.x = x;
+        screen.y = y;
+        screen.scale = scale;
+        return Ok(());
+    }
+    if screens.len() >= SCREEN_LIMIT {
+        return Err(format!("{SCREEN_LIMIT} screen layouts at most"));
+    }
+    screens.push(Screen {
+        name: name.to_string(),
+        path: path.to_string(),
+        hash: Box::leak(Box::new(hash)),
+        x,
+        y,
+        scale,
+    });
+    ANY.store(true, Ordering::Release);
+    Ok(())
+}
+
+fn wanted_hashes() -> Vec<(String, &'static u64)> {
+    let mut wanted: Vec<(String, &'static u64)> = match LAYOUTS.read() {
+        Ok(layouts) => layouts.iter().map(|layout| (layout.path.clone(), layout.hash)).collect(),
+        Err(_) => Vec::new(),
+    };
+    if let Ok(screens) = SCREENS.read() {
+        wanted.extend(screens.iter().map(|screen| (screen.path.clone(), screen.hash)));
+    }
+    wanted
+}
+
+unsafe fn build_layout(loader: usize, hash: &'static u64) -> Option<(*mut usize, usize, usize)> {
+    let handle = Box::into_raw(Box::new(0usize));
+    game::<HandleFn>(HANDLE_INIT)(handle);
+    let mut slot = handle as usize;
+    game::<BuildFn>(LAYOUT_BUILD)(&mut slot, loader, hash, 0);
+    let layout = *handle;
+    let holder: usize = if layout != 0 { read(layout + LAYOUT_HOLDER) } else { 0 };
+    let ui2d: usize = if holder != 0 { read(holder + HOLDER_UI2D) } else { 0 };
+    let root: usize = if ui2d != 0 { read(ui2d + UI2D_ROOT) } else { 0 };
+    if root == 0 {
+        game::<HandleFn>(HANDLE_DESTROY)(handle);
+        drop(Box::from_raw(handle));
+        return None;
+    }
+    Some((handle, layout, root))
 }
 
 fn layout_of(kind: i32) -> Option<(String, &'static u64)> {
@@ -201,7 +281,7 @@ unsafe fn find(finder: usize, offset: usize, name: &str) -> Option<usize> {
     (data != 0).then_some(data)
 }
 
-unsafe fn find_pane(layout: usize, name: &str) -> Option<(usize, usize)> {
+pub(crate) unsafe fn find_pane(layout: usize, name: &str) -> Option<(usize, usize)> {
     let data = find(layout + LAYOUT_FINDER, FIND_PANE, name)?;
     let pane: usize = read(data + DATA_PANE);
     let text_box: usize = read(data + DATA_TEXT_BOX);
@@ -267,12 +347,20 @@ impl Instance {
                 let text = CString::new(text).map_err(|_| "the text cannot contain NUL".to_string())?;
                 game::<TextFn>(TEXT_SET)(text_box, text.as_ptr() as *const u8);
             }
+            HudAction::Width(part, width) => {
+                let (pane, _) = self.pane(part)?;
+                write(pane + PANE_SCALE, width);
+                write(pane + PANE_FLAGS, read::<u8>(pane + PANE_FLAGS) | PANE_MATRIX_DIRTY);
+            }
             _ => return Err(format!("{} is not a call for the fighter's own layout", action.name())),
         }
         Ok(())
     }
 
     unsafe fn follow(&self) {
+        if self.card == 0 {
+            return;
+        }
         let matrix = self.card + PANE_GLOBAL_MATRIX;
         let x: f32 = read(matrix + MATRIX_X * 4);
         let y: f32 = read(matrix + MATRIX_Y * 4);
@@ -328,6 +416,7 @@ impl Stage {
             HudAction::Show(part, on) => (part, Kept::Shown(on)),
             HudAction::Frame(part, frame) => (part, Kept::Frame(frame)),
             HudAction::Text(part, text) => (part, Kept::Text(text.to_string())),
+            HudAction::Width(part, width) => (part, Kept::Width(width)),
             _ => return,
         };
         let same = |kept_now: &Kept| core::mem::discriminant(kept_now) == core::mem::discriminant(&kept);
@@ -345,7 +434,7 @@ impl Stage {
         self.hud = hud;
         let loader = LOADER.load(Ordering::Acquire);
         for entry in 0..ENTRIES {
-            let Some(kind) = crate::css_registration::entry_custom_kind(entry as u8) else {
+            let Some(kind) = kind_for_entry(entry) else {
                 continue;
             };
             let Some((path, hash)) = layout_of(kind) else {
@@ -369,20 +458,10 @@ impl Stage {
                 report(format!("the battle HUD has no card {card_name}; no layout"));
                 continue;
             };
-            let handle = Box::into_raw(Box::new(0usize));
-            game::<HandleFn>(HANDLE_INIT)(handle);
-            let mut slot = handle as usize;
-            game::<BuildFn>(LAYOUT_BUILD)(&mut slot, loader, hash, 0);
-            let layout = *handle;
-            let holder: usize = if layout != 0 { read(layout + LAYOUT_HOLDER) } else { 0 };
-            let ui2d: usize = if holder != 0 { read(holder + HOLDER_UI2D) } else { 0 };
-            let root: usize = if ui2d != 0 { read(ui2d + UI2D_ROOT) } else { 0 };
-            if root == 0 {
-                game::<HandleFn>(HANDLE_DESTROY)(handle);
-                drop(Box::from_raw(handle));
+            let Some((handle, layout, root)) = build_layout(loader, hash) else {
                 report(format!("{path} built no layout (is info/layout.info in the archive?)"));
                 continue;
-            }
+            };
             self.instances.push(Instance {
                 kind,
                 entry,
@@ -396,11 +475,41 @@ impl Stage {
             });
             report(format!("built {path} on card {card_name}"));
         }
-        if loader != 0 {
-            let hashes: Vec<&'static u64> = match LAYOUTS.read() {
-                Ok(layouts) => layouts.iter().map(|layout| layout.hash).collect(),
-                Err(_) => Vec::new(),
+        let screens: Vec<Screen> = SCREENS.read().map(|screens| screens.clone()).unwrap_or_default();
+        for (index, screen) in screens.iter().enumerate() {
+            let report = |message: String| {
+                if BUILDS.fetch_add(1, Ordering::Relaxed) < BUILD_REPORTS {
+                    crate::dbg_log_public(&format!("[hudlayout] screen {}: {message}", screen.name));
+                }
             };
+            if loader == 0 || !requested(loader, *screen.hash) {
+                report(format!("{} is not loaded; no layout this match", screen.path));
+                continue;
+            }
+            let Some((handle, layout, root)) = build_layout(loader, screen.hash) else {
+                report(format!("{} built no layout", screen.path));
+                continue;
+            };
+            write(root + PANE_TRANSLATE, screen.x);
+            write(root + PANE_TRANSLATE + 4, screen.y);
+            write(root + PANE_SCALE, screen.scale);
+            write(root + PANE_SCALE + 4, screen.scale);
+            write(root + PANE_FLAGS, read::<u8>(root + PANE_FLAGS) | PANE_MATRIX_DIRTY);
+            self.instances.push(Instance {
+                kind: SCREEN,
+                entry: SCREEN_ENTRY_BASE + index,
+                handle,
+                layout,
+                root,
+                card: 0,
+                shown: false,
+                animations: Vec::new(),
+                panes: Vec::new(),
+            });
+            report(format!("built {} at ({}, {}) scale {}", screen.path, screen.x, screen.y, screen.scale));
+        }
+        if loader != 0 {
+            let hashes: Vec<&'static u64> = wanted_hashes().into_iter().map(|(_, hash)| hash).collect();
             for hash in hashes {
                 if requested(loader, *hash) {
                     game::<ReleaseFn>(FILE_RELEASE)(loader + LOADER_RELEASE_TABLE, hash);
@@ -420,6 +529,7 @@ impl Stage {
                 Kept::Shown(on) => HudAction::Show(&part, *on),
                 Kept::Frame(frame) => HudAction::Frame(&part, *frame),
                 Kept::Text(text) => HudAction::Text(&part, text),
+                Kept::Width(width) => HudAction::Width(&part, *width),
             };
             if let Err(message) = instance.perform(&action) {
                 crate::dbg_log_public(&format!("[hudlayout] entry {entry}: {} {part:?} kept from before the HUD: {message}", action.name()));
@@ -454,14 +564,12 @@ impl Stage {
 #[skyline::hook(offset = crate::game::rel(FILE_REQUEST))]
 unsafe fn file_request(loader: usize, hash: *const u64, index: i64, flags: u32, extra: u32) -> u64 {
     let result = original!()(loader, hash, index, flags, extra);
+    crate::menu_sequences::request_after(original!(), loader, hash, index, flags);
     if !ANY.load(Ordering::Acquire) || hash.is_null() || *hash & HASH_MASK != BATTLE_HUD_FILE {
         return result;
     }
     LOADER.store(loader, Ordering::Release);
-    let wanted: Vec<(String, &'static u64)> = match LAYOUTS.read() {
-        Ok(layouts) => layouts.iter().map(|layout| (layout.path.clone(), layout.hash)).collect(),
-        Err(_) => return result,
-    };
+    let wanted = wanted_hashes();
     let mut asked: Vec<u64> = Vec::new();
     for (path, hash) in wanted {
         if asked.contains(hash) {
@@ -478,6 +586,7 @@ unsafe fn file_request(loader: usize, hash: *const u64, index: i64, flags: u32, 
 
 #[skyline::hook(offset = crate::game::rel(LAYOUT_SHOW), inline)]
 unsafe fn layout_show(ctx: &mut skyline::hooks::InlineCtx) {
+    crate::menu_sequences::place_layout(ctx);
     if !ANY.load(Ordering::Acquire) {
         return;
     }
@@ -508,6 +617,7 @@ unsafe fn renderer_remove(renderer: usize, core: usize) -> u64 {
 unsafe fn handle_destroy(handle: *mut usize) -> u64 {
     let hud = HUD_LAYOUT.load(Ordering::Acquire);
     if hud != 0 && !handle.is_null() && *handle == hud {
+        crate::fighter_change::hud_gone();
         HUD_LAYOUT.store(0, Ordering::Release);
         HUD_CORE.store(0, Ordering::Release);
         if let Ok(mut stage) = STAGE.lock() {
@@ -523,6 +633,10 @@ unsafe fn handle_destroy(handle: *mut usize) -> u64 {
 #[skyline::hook(offset = crate::game::rel(HUD_UPDATE))]
 unsafe fn hud_update(manager: usize) -> u64 {
     let result = original!()(manager);
+    crate::menu_movie::battle_frame();
+    crate::menu_battle::count_frame();
+    crate::fighter_change::frame();
+    crate::boss_gauge::frame();
     if !ANY.load(Ordering::Acquire) {
         return result;
     }
@@ -547,6 +661,17 @@ unsafe fn hud_update(manager: usize) -> u64 {
     result
 }
 
+fn kind_for_entry(entry: usize) -> Option<i32> {
+    crate::css_registration::entry_custom_kind(entry as u8)
+        .filter(|kind| layout_of(*kind).is_some())
+        .or_else(|| layout_of(EVERY_FIGHTER).map(|_| EVERY_FIGHTER))
+}
+
+pub(crate) fn act_entry(entry: usize, action: &HudAction) -> Result<bool, String> {
+    let kind = kind_for_entry(entry).ok_or_else(|| "no HUD layout covers this player".to_string())?;
+    act(kind, entry, action)
+}
+
 pub(crate) fn act(kind: i32, entry: usize, action: &HudAction) -> Result<bool, String> {
     if !ARMED.load(Ordering::Acquire) {
         return Err("own HUD layouts are off in this engine build".to_string());
@@ -565,6 +690,31 @@ pub(crate) fn act(kind: i32, entry: usize, action: &HudAction) -> Result<bool, S
         crate::dbg_log_public(&format!("[hudlayout] entry {entry} kind {kind}: {action:?} on {path}"));
     }
     Ok(true)
+}
+
+pub(crate) fn act_screen(name: &str, action: &HudAction) -> Result<bool, String> {
+    if !ARMED.load(Ordering::Acquire) {
+        return Err("own HUD layouts are off in this engine build".to_string());
+    }
+    let index = SCREENS
+        .read()
+        .map_err(|_| "the screen layout table is poisoned".to_string())?
+        .iter()
+        .position(|screen| screen.name == name)
+        .ok_or_else(|| format!("no screen layout named {name:?}"))?;
+    check_part(action)?;
+    let entry = SCREEN_ENTRY_BASE + index;
+    let mut stage = STAGE.lock().map_err(|_| "the HUD layout state is poisoned".to_string())?;
+    stage.remember(entry, action);
+    let Some(instance) = stage.instances.iter_mut().find(|instance| instance.entry == entry) else {
+        return Ok(false);
+    };
+    unsafe { instance.perform(action)? };
+    Ok(true)
+}
+
+pub(crate) fn armed() -> bool {
+    ARMED.load(Ordering::Acquire)
 }
 
 pub(crate) fn install() {

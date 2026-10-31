@@ -93,3 +93,123 @@ For each collision that follows a bone:
 The set needs a motion that moves the bone,
 `stage/<place>/normal/motion/<set>/<set>_00.nuanmb`; it plays by itself.
 Bind a set here or in `config_stage.toml`, not both.
+
+## Model set motions
+
+A model set's motion (`motion/<set>/<set>_00.nuanmb`) plays from the start
+of the battle and loops. List the sets that should wait instead:
+
+```toml
+paused_motions = ["gdor_01_set", "gmov_00_set"]
+```
+
+They hold their first frame until a plugin starts them:
+
+```rust
+use clone_engine_api::stage;
+
+stage::set_motion_frame("gdor_01_set", 0.0)?;
+stage::set_motion_rate("gdor_01_set", 1.0)?;   // 0 holds it, 0.5 half speed
+let now = stage::motion("gdor_01_set")?;        // frame and rate
+```
+
+These act on the stage being played. A collision bound to the set (see
+Moving platforms) follows its motion. A set without a skeletal motion has
+nothing to control (`Engine(-2)`).
+
+## Ladders
+
+```toml
+[[ladder]]        # [[stage.ladder]] inside a [[stage]] block
+x = 625           # the foot of the ladder
+y = -50
+height = 80
+width = 10        # optional, 10 by default
+```
+
+Each table builds Ultimate's own ladder (the one 75m uses) on the stage's
+normal form: fighters catch it, climb up and down, and step off the top with
+their ladder animations. It draws nothing, so the ladder belongs in your stage
+model. Ladder tables go after the stage's own keys; up to 64 per stage.
+
+## Barrel cannons
+
+```toml
+[[barrel]]               # [[stage.barrel]] inside a [[stage]] block
+x = 1165                 # centre
+y = 190
+model = "gbc_00_set"     # optional: a model set of this stage, drawn and turned with the barrel
+rotation = 0             # degrees, counter-clockwise from facing right
+rotation_max = 90        # the other end of the sweep (default: rotation)
+rotation_speed = 1.08    # degrees per frame; 0 keeps it still
+always_rotate = true     # turn even when empty (otherwise only while loaded)
+full_rotate = false      # spin all the way round instead of sweeping
+auto_fire = false        # fire by itself at fire_rotation (otherwise on the attack button)
+fire_rotation = 0
+fire_delay = 0           # frames between the fire and the shot
+speed = 5                # shot: speed, decrease per frame, gravity, speed at which it ends
+decrease = 0.075
+gravity = 0.025
+fall_speed = 0.25
+width = 20               # entry area
+height = 15
+path = [990, 55, 990.75, 56.4]   # optional: x, y per frame; the shot follows it
+path_speed = 2.5                 # path frames per game frame
+```
+
+Each table builds Ultimate's own barrel cannon (the one Kongo Jungle uses) on
+the stage's normal form, with the turning and firing rules of Brawl's barrels.
+Fighters drop in, wait, and are shot along the barrel's direction, or along
+`path` when it is given. A barrel draws nothing unless `model` names one of
+the stage's model sets (one set per barrel, since a set is drawn once); the
+model faces up at rest. Up to 64 per stage.
+
+## Springs
+
+```toml
+[[spring]]               # [[stage.spring]] inside a [[stage]] block
+x = 155                  # where the spring stands
+y = -30
+model = "gspr_00_set"    # optional: a model set of this stage, drawn and tilted with the spring
+rotation = 0             # degrees; negative leans right, positive leans left
+speed = 4                # launch speed (default 4)
+width = 10               # contact area, centred on x + offset_x, y + offset_y
+height = 8
+offset_x = 0
+offset_y = -2
+launch_frame = 3         # with model: the motion frame the launch comes at
+joint = "SpringTop"      # with model: the joint the fighter is held on until then
+```
+
+Each table builds Ultimate's own spring (the one Windy Hill uses) on the
+stage's normal form. A fighter that lands on it is launched at `speed` along
+the spring's lean, and bounces again each time it lands back on it. A speed
+of 4 lifts Mario about 95 units. A spring draws nothing unless `model` names
+one of the stage's model sets (one set per spring). With `launch_frame`, a
+landing plays the set's motion (`motion/<set>/<set>_00.nuanmb`), holds the
+fighter on `joint` and launches at that frame; without it the launch is
+immediate. Up to 64 per stage.
+
+## Doors
+
+```toml
+[[door]]                 # [[stage.door]] inside a [[stage]] block
+x = 1770                 # where the fighter walks to
+y = 75
+width = 15               # entry area, centred on x + offset_x, y + offset_y
+height = 20
+offset_x = 0
+offset_y = 10
+air = false              # true: an air door, entered while airborne
+player = 1               # optional: only this player (1 to 8) may enter
+```
+
+A fighter standing (or, for an air door, flying) in the area with the stick
+held up enters `FIGHTER_STATUS_KIND_GIMMICK_DOOR`, the status Brawl's
+Subspace doors used: it walks to `x`, turns and walks into the door (an air
+door draws it to `x`, `y` and fades it). Only statuses that allow it (wait,
+walk, run and the like) can enter, and a Nana-style partner cannot.
+
+A door ends nothing by itself: the fighter stays in the door status until a
+plugin acts, for example by starting the next battle. A door draws nothing;
+it belongs in the stage model. Up to 64 per stage.

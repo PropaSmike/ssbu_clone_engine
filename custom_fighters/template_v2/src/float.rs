@@ -11,11 +11,9 @@ use smash::lib::lua_const::*;
 use smashline::{Agent, End, Init, Main, Pre};
 
 pub fn install() {
-    // The float's two statuses follow the base's own. Mario's status table is
-    // sized with FIGHTER_MARIO_STATUS_KIND_NUM; Donkey Kong, Bowser, Peach and
-    // Pit use _MAX, and an echo uses its original's. Statuses of your own
-    // start at start + 2.
-    let start = *FIGHTER_MARIO_STATUS_KIND_NUM;
+    // The float's two statuses are the fighter's first own statuses, right
+    // after the base's; statuses of your own start at own_status(2).
+    let start = crate::TEMPLATE.own_status(0);
     float::register(
         "template_fighter", // the fighter's name
         Float::PEACH,       // her values; .frames(n), .start_y(y), .motions(start, hover) change them

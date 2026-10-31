@@ -18,10 +18,9 @@ item!(WAWA, "wawa");
 #[skyline::main(name = "wawa")]
 pub fn main() {
     let manifest = ItemManifest::new(
-        "wawa", // resource name: files under item/wawa, script name
-        63,     // base kind: the vanilla item it is built on (63 = Killing Edge)
+        "wawa",      // resource name: files under item/wawa, script name
+        "killsword", // the vanilla item it is built on, here the Killing Edge
     )
-    .base_item("killsword")           // the base's name, for the log
     .spawn_per(30)                    // natural drop weight; most vanilla items are 20 to 50
     .spawn_from(&["box", "barrel"])   // containers that can hold it
     .common("throw_speed_mul", 0.75); // a field of item/common/param/param.prc, for this item only
@@ -35,9 +34,8 @@ Or as an `item.toml` beside the pack's `config.json`, in which case the
 plugin (if any) skips `register`:
 
 ```toml
-base_kind     = 63                  # the vanilla item you build on (63 = Killing Edge)
+base_item     = "killsword"         # the vanilla item you build on, here the Killing Edge
 resource_name = "wawa"              # your files live under item/wawa
-base_item     = "killsword"         # optional: names the base in the log
 spawn_per  = 30                     # optional: natural drop weight
 spawn_max  = 2                      # optional, with spawn_min; both default to 1
 spawn_from = "box, barrel, capsule" # optional: containers that can hold it
@@ -70,14 +68,52 @@ Packs written before `item.toml` register the item in code with
 `allocate_item`; that still works and is in
 [Deprecated: the long form](../DEPRECATED.md#items).
 
+To create an item of any kind at a point, with no fighter involved (Assist
+Trophy summons included), use the game's own creation entry:
+
+```rust
+let id = clone_engine_api::item::spawn(kind, x, y, 0.0, lr, 0)?; // battle object id
+let item = smash::app::sv_battle_object::module_accessor(id);
+TeamModule::set_team(item, 7, true); // a new item has no team; an assist on its own team fights everyone
+```
+
+Call it during a battle frame. A boss created this way waits, invisible, in
+its first status until it is sent to its `wait` status:
+
+```rust
+if let Some(status) = clone_engine_api::item::alias_status(item as usize, "wait") {
+    StatusModule::change_status_request(item, status, false); // the boss starts its fight
+}
+```
+
+## Assist Trophies, Pokemon and bosses
+
+These come as families: the Assist, Pokemon or boss first, then the items
+it creates. Clone the whole family by naming every member:
+
+```toml
+base_item     = "galleom"
+resource_name = "my_boss"
+members       = ["my_boss", "my_boss_missile", "my_boss_shockwave"]
+```
+
+- `members` follows the base family's order, this item first. Galleom's is
+  `galleom`, `galleommissile`, `galleomshockwave`.
+- Each member takes a free kind and loads its own files: `item/<member>/`,
+  or `assist/<member>/` for an Assist Trophy (see API.md, Items).
+- A wrong count is refused, and the log says how many members the base
+  family has.
+- In code: `ItemManifest::new("my_boss", "galleom").members(&[...])`.
+- The Workbench fills `members` in from the base it is given.
+
 ## An item whose settings live on a fighter
 
-Some items (Steve's blocks, base kind `0x1ae`) read their settings from a
+Some items (Steve's blocks, `pickelobject`) read their settings from a
 fighter's `vl.prc`. `owner_param` gives your item its own values, by fighter
 and field name, without touching the fighter:
 
 ```rust
-ItemManifest::new("wawa_block", 0x1ae)
+ItemManifest::new("wawa_block", "pickelobject")
     .owner_param("pickel", "life", 600.0)       // owner fighter (Steve), a field of its vl.prc, value
     .owner_param("pickel", "auto_damage", 0.0)
 ```
@@ -109,6 +145,11 @@ In `config.json`, key every `new-dir-files` group by the folder that directly
 holds the files (`item/wawa/model/body/c00`), and keep the model folders out
 of `new-dir-infos-base`. Otherwise the files never load and the log says
 nothing.
+
+`motion_list.bin` names its own folder: the u64 at offset 8 is
+`hash40("item/wawa/motion/body/c00")`. An item loads every animation from the
+folder that word names, so a list copied from the base keeps the base's
+animations (its own files and new motions then play nothing).
 
 ## Boot log
 

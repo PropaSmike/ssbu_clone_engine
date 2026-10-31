@@ -2,7 +2,7 @@ use clone_engine_api::{
     CloneHudV1, API_VERSION_V1, ERROR_BACKEND_UNAVAILABLE, ERROR_CUSTOM_KIND, ERROR_NULL,
     ERROR_STRUCT_SIZE, ERROR_UNSUPPORTED, ERROR_VERSION, HUD_FRAME, HUD_GAUGE, HUD_MENU_CLOSE,
     HUD_MENU_CURSOR, HUD_MENU_DECIDE, HUD_MENU_OPEN, HUD_PLAY, HUD_SELECT, HUD_SHOW, HUD_SLOT,
-    HUD_STATE, HUD_TEXT, RESULT_OK,
+    HUD_STATE, HUD_TEXT, HUD_WIDTH, RESULT_OK,
 };
 use clone_engine_core::hud::{donor_name, plan, HudAction, MenuCommand, Message, MENU_ROWS, NO_SELECTION};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
@@ -206,6 +206,7 @@ unsafe fn action_from(request: &CloneHudV1) -> Option<HudAction<'_>> {
         HUD_FRAME => HudAction::Frame(request.part()?, request.value),
         HUD_SHOW => HudAction::Show(request.part()?, request.index != 0),
         HUD_TEXT => HudAction::Text(request.part()?, request.text()?),
+        HUD_WIDTH => HudAction::Width(request.part()?, request.value),
         HUD_GAUGE => HudAction::Gauge(request.value),
         HUD_STATE => HudAction::State(request.index != 0),
         HUD_SELECT => HudAction::Select(request.index),
@@ -233,6 +234,98 @@ fn refuse(kind: i32, message: &str) -> i32 {
         crate::dbg_log_public(&format!("[hud] kind {kind}: REFUSED: {message}"));
     }
     ERROR_UNSUPPORTED
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_hud_layout_every_v1(path: *const u8, length: usize) -> i32 {
+    if path.is_null() {
+        return ERROR_NULL;
+    }
+    let Ok(path) = core::str::from_utf8(core::slice::from_raw_parts(path, length)) else {
+        return ERROR_UNSUPPORTED;
+    };
+    match crate::hud_layouts::register(crate::hud_layouts::EVERY_FIGHTER, path) {
+        Ok(()) => {
+            crate::dbg_log_public(&format!("[hudlayout] {path} drawn on every player's card without one of its own"));
+            RESULT_OK
+        }
+        Err(message) => refuse(crate::hud_layouts::EVERY_FIGHTER, &message),
+    }
+}
+
+unsafe fn text_arg<'a>(pointer: *const u8, length: usize) -> Option<&'a str> {
+    if pointer.is_null() {
+        return None;
+    }
+    core::str::from_utf8(core::slice::from_raw_parts(pointer, length)).ok()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_hud_screen_layout_v1(
+    name: *const u8,
+    name_length: usize,
+    path: *const u8,
+    path_length: usize,
+    x: f32,
+    y: f32,
+    scale: f32,
+) -> i32 {
+    let (Some(name), Some(path)) = (text_arg(name, name_length), text_arg(path, path_length)) else {
+        return ERROR_NULL;
+    };
+    match crate::hud_layouts::register_screen(name, path, x, y, scale) {
+        Ok(()) => {
+            crate::dbg_log_public(&format!("[hudlayout] screen {name}: {path} at ({x}, {y}) scale {scale}"));
+            RESULT_OK
+        }
+        Err(message) => refuse(crate::hud_layouts::EVERY_FIGHTER, &message),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_hud_screen_v1(name: *const u8, length: usize, request: *const CloneHudV1) -> i32 {
+    let Some(name) = text_arg(name, length) else {
+        return ERROR_NULL;
+    };
+    let Some(request) = request.as_ref() else {
+        return ERROR_NULL;
+    };
+    if request.api_version != API_VERSION_V1 {
+        return ERROR_VERSION;
+    }
+    if (request.struct_size as usize) < core::mem::size_of::<CloneHudV1>() {
+        return ERROR_STRUCT_SIZE;
+    }
+    let Some(action) = action_from(request) else {
+        return refuse(crate::hud_layouts::EVERY_FIGHTER, &format!("unknown HUD action {}", request.action));
+    };
+    match crate::hud_layouts::act_screen(name, &action) {
+        Ok(_) => RESULT_OK,
+        Err(message) => refuse(crate::hud_layouts::EVERY_FIGHTER, &message),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn clone_engine_hud_entry_v1(entry: u32, request: *const CloneHudV1) -> i32 {
+    let Some(request) = request.as_ref() else {
+        return ERROR_NULL;
+    };
+    if request.api_version != API_VERSION_V1 {
+        return ERROR_VERSION;
+    }
+    if (request.struct_size as usize) < core::mem::size_of::<CloneHudV1>() {
+        return ERROR_STRUCT_SIZE;
+    }
+    if entry as usize >= ENTRIES {
+        return ERROR_UNSUPPORTED;
+    }
+    let Some(action) = action_from(request) else {
+        return refuse(crate::hud_layouts::EVERY_FIGHTER, &format!("unknown HUD action {}", request.action));
+    };
+    match crate::hud_layouts::act_entry(entry as usize, &action) {
+        Ok(_) => RESULT_OK,
+        Err(message) => refuse(crate::hud_layouts::EVERY_FIGHTER, &message),
+    }
 }
 
 #[no_mangle]

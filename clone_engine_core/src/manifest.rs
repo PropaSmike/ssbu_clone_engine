@@ -4,7 +4,7 @@ pub struct Block {
     pub text: String,
 }
 
-fn strip_comment(line: &str) -> &str {
+pub fn strip_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     let mut quoted = false;
     for (index, byte) in bytes.iter().enumerate() {

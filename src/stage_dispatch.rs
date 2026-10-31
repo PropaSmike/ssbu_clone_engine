@@ -3,7 +3,7 @@
 use crate::stage_bounds::{StageSwitch, STAGE_SWITCHES, STAGE_SWITCH_COUNT, UNEXTENDED_SWITCHES};
 use crate::stage_relocation::{encode_add, encode_adrp, PlanError};
 
-pub const EXPANDED_ENTRIES: usize = 512;
+pub const EXPANDED_ENTRIES: usize = 896;
 
 pub fn required_bytes() -> usize {
     STAGE_SWITCHES.len() * (0x1000 + EXPANDED_ENTRIES * 4)
@@ -496,7 +496,7 @@ mod tests {
         assert!(STAGE_SWITCHES.iter().any(|s| s.cmp_at == 0x2633d10));
         for switch in STAGE_SWITCHES {
             assert!(switch.entries <= 364, "{:#x}", switch.cmp_at);
-            assert_eq!((switch.new_cmp_opcode >> 10) & 0xFFF, 511);
+            assert_eq!((switch.new_cmp_opcode >> 10) & 0xFFF, EXPANDED_ENTRIES as u32 - 1);
             assert_eq!(
                 switch.cmp_opcode & 0xFF80_03FF,
                 switch.new_cmp_opcode & 0xFF80_03FF
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn every_table_fits_the_reserved_block() {
-        assert_eq!(required_bytes(), STAGE_SWITCHES.len() * (0x1000 + 512 * 4));
+        assert_eq!(required_bytes(), STAGE_SWITCHES.len() * (0x1000 + EXPANDED_ENTRIES * 4));
         assert_eq!(required_bytes(), 4 * (0x1000 + 2048));
     }
 }

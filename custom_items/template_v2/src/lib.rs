@@ -1,6 +1,8 @@
 use clone_engine_api::v2::{hook, item, slot, ItemManifest};
 use clone_engine_api::ItemStatusLine;
 use core::sync::atomic::{AtomicBool, Ordering};
+
+mod family;
 use smash::lib::L2CValue;
 use smash::lua2cpp::L2CFighterCommon;
 
@@ -21,6 +23,7 @@ const NEEDED_LATER: u64 = clone_engine_api::CAP_ITEM_STATUS;
 
 static ENTERED: AtomicBool = AtomicBool::new(false);
 static COMMON_SEEN: AtomicBool = AtomicBool::new(false);
+static SOURCE_SEEN: AtomicBool = AtomicBool::new(false);
 
 // A status callback: the line and status name are given at registration,
 // the function gets the item's script agent.
@@ -37,6 +40,14 @@ unsafe extern "C" fn throw_init(_agent: &mut L2CFighterCommon) -> L2CValue {
 #[hook(slot = slot::item::UPDATE_9, item = TEMPLATE_ITEM)]
 unsafe fn update_9(item: *mut smash::app::BattleObject) {
     call_original!(item);
+    if !SOURCE_SEEN.swap(true, Ordering::AcqRel) {
+        let object = item as *const core::ffi::c_void;
+        skyline::println!(
+            "[template_item_v2] made by {:?}, parent kind {:?}",
+            clone_engine_api::item_spawn_source(object), // how the item came to be: a drop, a fighter, a family parent...
+            clone_engine_api::item_parent_kind(object),  // the item that created it, for a family member
+        );
+    }
 }
 
 // common_slot: an entry of the agent vtable, written into a copy private to
@@ -65,9 +76,8 @@ pub fn main() {
     // then registers at boot and register() below just returns that kind.
     let manifest = ItemManifest::new(
         "template_item", // resource name: files under item/template_item, script name
-        0x1ae,           // base kind: the vanilla item it is built on (0x1ae = Steve's block)
+        "pickelobject",  // the vanilla item it is built on, here Steve's block
     )
-    .base_item("pickelobject")             // the base's name, for the log
     .training_order(0)                     // position in the Training menu's item list
     .spawn_per(30)                         // natural drop weight; leave out for no natural drops
     .common("throw_speed_mul", 0.75)       // a float field of item/common/param/param.prc
@@ -85,6 +95,11 @@ pub fn main() {
     TEMPLATE_ITEM.status(ItemStatusLine::Init, "THROW", throw_init);
     // every #[hook] in the crate, after registration
     clone_engine_api::install_hooks!(update_9, start_coroutine);
+
+    // A boss with the items it creates, as one family (family.rs).
+    if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_RESEARCH_ITEM_FAMILIES != 0 {
+        family::register();
+    }
 
     skyline::println!("[template_item_v2] installed; kind {kind:#x}");
 }

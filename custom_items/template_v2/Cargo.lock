@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "clone_engine_api"
-version = "0.1.0-beta.1"
+version = "0.7.0-beta.1"
 dependencies = [
  "clone_engine_core",
  "clone_engine_macros",
@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "clone_engine_core"
-version = "0.1.0-beta.1"
+version = "0.7.0-beta.1"
 
 [[package]]
 name = "clone_engine_item_template_v2"
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "clone_engine_macros"
-version = "0.1.0-beta.1"
+version = "0.7.0-beta.1"
 dependencies = [
  "proc-macro2",
  "quote",

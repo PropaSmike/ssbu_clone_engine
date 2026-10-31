@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::custom_articles::{FIRST_CUSTOM_WEAPON_KIND, MAX_CUSTOM_ARTICLES};
+use crate::custom_articles::MAX_CUSTOM_ARTICLES;
 use crate::dbg_log_public;
 
 const WEAPON_RECORD_SIZE: usize = 0xe8;
@@ -14,8 +14,7 @@ static PRIVATE_RECORDS: [AtomicUsize; MAX_CUSTOM_ARTICLES] =
     [const { AtomicUsize::new(0) }; MAX_CUSTOM_ARTICLES];
 
 fn row(kind: i32) -> Option<usize> {
-    let row = usize::try_from(kind.checked_sub(FIRST_CUSTOM_WEAPON_KIND)?).ok()?;
-    (row < MAX_CUSTOM_ARTICLES).then_some(row)
+    crate::custom_articles::row_of(kind)
 }
 
 unsafe fn word(record: usize, offset: usize) -> usize {

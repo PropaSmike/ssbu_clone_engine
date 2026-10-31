@@ -27,3 +27,4 @@ target/
 custom_fighters/template/
 custom_items/template/
 custom_items/fighter_owned_template/
+modes/*/out/

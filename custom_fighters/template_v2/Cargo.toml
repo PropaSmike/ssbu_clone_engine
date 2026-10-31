@@ -16,7 +16,7 @@ skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "
 smash_script = { git = "https://github.com/WuBoytH/smash-script.git", rev = "24c5b69b79c7d7b041c3993ecd766ceccf950c2b" }
 smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
 the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api.git", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361" }
-param_config = { git = "https://github.com/csharpm7/lib_paramconfig.git" }
+param_config = { git = "https://github.com/csharpm7/lib_paramconfig.git", rev = "c8b8db9cbbf0eb5f7d2a29261b83e47e2e86a20a" }
 
 [profile.dev]
 panic = "abort"

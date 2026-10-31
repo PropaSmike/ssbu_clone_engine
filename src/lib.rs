@@ -62,6 +62,18 @@ mod owner_effects;
 #[cfg(feature = "item_clone_backend")]
 mod item_clones;
 #[cfg(feature = "item_clone_backend")]
+mod item_spawn;
+#[cfg(feature = "item_clone_backend")]
+mod enemy_spawn;
+#[cfg(feature = "item_clone_backend")]
+mod enemy_clones;
+#[cfg(feature = "item_clone_backend")]
+mod enemy_packs;
+#[cfg(feature = "item_clone_backend")]
+mod enemy_drivers;
+#[cfg(feature = "item_clone_backend")]
+mod enemy_params;
+#[cfg(feature = "item_clone_backend")]
 mod item_common_tables;
 #[cfg(feature = "item_clone_backend")]
 mod item_generate;
@@ -95,7 +107,6 @@ compile_error!("diag_item_kind and item_clone_backend hook the same item lifecyc
 #[cfg(feature = "css_slot")]
 const VANILLA_COSTUME_SLOTS: u8 = 8;
 
-mod article_agents;
 #[cfg(feature = "css_slot")]
 mod article_item_order;
 mod custom_articles;
@@ -108,7 +119,29 @@ mod stage_backend;
 mod stage_bounds;
 mod stage_collision_probe;
 mod stage_config_bridge;
+#[cfg(feature = "css_slot")]
+mod battle_music;
+#[cfg(feature = "css_slot")]
+mod battle_pause;
+#[cfg(feature = "css_slot")]
+mod menu_battle;
+#[cfg(feature = "css_slot")]
+mod menu_calls;
+#[cfg(feature = "css_slot")]
+mod menu_flow;
+#[cfg(feature = "css_slot")]
+mod menu_loading;
+#[cfg(feature = "css_slot")]
+mod menu_modes;
+#[cfg(feature = "css_slot")]
+mod menu_movie;
+#[cfg(feature = "css_slot")]
+mod menu_scripts;
+#[cfg(feature = "css_slot")]
+mod menu_sequences;
 mod stage_move_floors;
+mod stage_motions;
+mod stage_gimmicks;
 mod stage_csk_table;
 mod stage_db_rows;
 mod stage_dispatch;
@@ -423,7 +456,7 @@ pub extern "C" fn clone_engine_api_version() -> u32 {
 }
 
 fn compiled_capabilities() -> u64 {
-    let mut capabilities = clone_engine_api::CAP_SHARED_HOOKS;
+    let mut capabilities = clone_engine_api::CAP_SHARED_HOOKS | clone_engine_api::CAP_MII_PARTS;
     #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
     {
         capabilities |= clone_engine_api::CAP_FIGHTER_IDENTITY
@@ -466,9 +499,10 @@ fn compiled_capabilities() -> u64 {
             | clone_engine_api::CAP_ENTRY_GROUPS
             | clone_engine_api::CAP_ANY_BASE_GROUPS
             | clone_engine_api::CAP_PARTNER_SWAP
-            | clone_engine_api::CAP_COMMAND_INPUTS;
+            | clone_engine_api::CAP_COMMAND_INPUTS
+            | clone_engine_api::CAP_MOVE_LIST_PAGES;
     }
-    #[cfg(feature = "research_item_families")]
+    #[cfg(feature = "item_clone_backend")]
     {
         capabilities |= clone_engine_api::CAP_RESEARCH_ITEM_FAMILIES;
     }
@@ -488,6 +522,13 @@ pub extern "C" fn clone_engine_runtime_capabilities_v1() -> u64 {
     }
     if shared_hooks::status() & clone_engine_api::SHARED_HOOK_STATUS_READY == 0 {
         capabilities &= !clone_engine_api::CAP_SHARED_HOOKS;
+    }
+    #[cfg(feature = "css_slot")]
+    if !move_list::armed() {
+        capabilities &= !clone_engine_api::CAP_MOVE_LIST_PAGES;
+    }
+    if mii_parts::refused() {
+        capabilities &= !clone_engine_api::CAP_MII_PARTS;
     }
     #[cfg(feature = "item_clone_backend")]
     {
@@ -1287,6 +1328,13 @@ pub extern "C" fn clone_engine_get_base_kind(custom_kind: i32) -> i32 {
     clone_base(custom_kind)
         .or_else(|| clone_definition(custom_kind).map(|definition| definition.base_kind))
         .unwrap_or(-1)
+}
+
+const FIGHTER_MANAGER_HOLDER: usize = 0x52b84f8;
+
+#[no_mangle]
+pub extern "C" fn clone_engine_fighter_manager_v1() -> usize {
+    unsafe { core::ptr::read_volatile(crate::game::addr(FIGHTER_MANAGER_HOLDER) as *const usize) }
 }
 
 #[no_mangle]
@@ -3383,7 +3431,7 @@ unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
             kind
         }
     };
-    if (0..94).contains(&resolved) {
+    if resolved != kind && (0..94).contains(&resolved) {
         let slot = crate::game::addr(FIGHTER_CLASS_TABLE) + resolved as usize * 8;
         return *(slot as *const u64);
     }
@@ -3462,6 +3510,7 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
                 if base_data.is_null() {
                     return own;
                 }
+                let base_data = mask_shared_articles(base, base_data, false);
                 patched.static_article_info = (*base_data).static_article_info;
                 base_blob = base_data as usize;
             }
@@ -3511,7 +3560,7 @@ unsafe fn static_fighter_data_hook(kind: i32) -> *const StaticFighterData {
                 "[article] fighter kind {kind} is the real base fighter under construction; leaving its own article table alone"
             ));
         }
-        return blob;
+        return mask_shared_articles(kind, blob, true);
     }
     append_custom_articles(kind, blob, &mut |source_kind| {
         if source_kind < 0 || source_kind > NATIVE_FIGHTER_KIND_MAX {
@@ -3740,6 +3789,7 @@ unsafe fn append_custom_articles(
     if blob.is_null() {
         return blob;
     }
+    let blob = mask_shared_articles(kind, blob, false);
 
     let copy_source_owners = custom_articles::prime_kirby_copy_headers(|source_kind| {
         let source = original(source_kind);
@@ -3830,6 +3880,91 @@ unsafe fn append_custom_articles(
         blobs.push((kind, blob as usize, appended_kinds, patched as usize));
     }
     patched
+}
+
+unsafe fn mask_shared_articles(
+    kind: i32,
+    blob: *const StaticFighterData,
+    vanilla: bool,
+) -> *const StaticFighterData {
+    if blob.is_null() || (*blob).static_article_info.is_null() {
+        return blob;
+    }
+    let info = (*blob).static_article_info as *const custom_articles::StaticArticleData;
+    if (*info).descriptors.is_null() || (*info).count == 0 {
+        return blob;
+    }
+    let rows = core::slice::from_raw_parts((*info).descriptors, (*info).count);
+    let mut masked: Vec<usize> = Vec::new();
+    let mut kept: Vec<i32> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        if !custom_articles::is_shared_weapon_kind(row.weapon_id) {
+            continue;
+        }
+        if vanilla || custom_articles::is_kirby_copy_weapon(row.weapon_id) || !article_owner_loaded(row.weapon_id) {
+            masked.push(index);
+        } else {
+            kept.push(row.weapon_id);
+        }
+    }
+    if masked.is_empty() && kept.is_empty() {
+        return blob;
+    }
+    let Ok(mut blobs) = masked_article_blobs().lock() else {
+        return blob;
+    };
+    if let Some((_, _, _, result)) = blobs
+        .iter()
+        .find(|(cached_kind, cached_blob, cached_mask, _)| {
+            *cached_kind == kind && *cached_blob == blob as usize && *cached_mask == masked
+        })
+    {
+        return *result as *const StaticFighterData;
+    }
+    for weapon_kind in kept.iter() {
+        if let Some(owner) = custom_articles::source_weapon_owner_kind(*weapon_kind) {
+            fighter_modules::request(owner);
+        }
+    }
+    let result = if masked.is_empty() {
+        blob
+    } else {
+        let own_weapon = rows
+            .iter()
+            .find(|row| {
+                (0..custom_articles::FIRST_CUSTOM_WEAPON_KIND).contains(&row.weapon_id) && row.extra & 1 == 0
+            })
+            .map(|row| row.weapon_id);
+        let mut descriptors = rows.to_vec();
+        for index in masked.iter() {
+            let row = &mut descriptors[*index];
+            if let Some(stand_in) = own_weapon.or_else(|| custom_articles::custom_weapon_source_kind(row.weapon_id)) {
+                row.weapon_id = stand_in;
+            }
+            row.max_count = 0;
+        }
+        let count = descriptors.len();
+        let article_info = Box::leak(Box::new(custom_articles::StaticArticleData {
+            descriptors: Vec::leak(descriptors).as_ptr(),
+            count,
+        }));
+        let mut patched = *blob;
+        patched.static_article_info = article_info as *const _ as *const u8;
+        Box::leak(Box::new(patched)) as *const StaticFighterData
+    };
+    dbg_log_public(&format!(
+        "[article] fighter kind {kind}{}: {} Smashline-numbered article(s) kept, {} emptied",
+        if vanilla { " (vanilla)" } else { "" },
+        kept.len(),
+        masked.len()
+    ));
+    blobs.push((kind, blob as usize, masked, result as usize));
+    result
+}
+
+fn masked_article_blobs() -> &'static Mutex<Vec<(i32, usize, Vec<usize>, usize)>> {
+    static BLOBS: OnceLock<Mutex<Vec<(i32, usize, Vec<usize>, usize)>>> = OnceLock::new();
+    BLOBS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn patched_article_blobs() -> &'static Mutex<Vec<(i32, usize, Vec<i32>, usize)>> {
@@ -4707,6 +4842,13 @@ mod hud_grafts;
 #[cfg(feature = "css_slot")]
 mod hud_layouts;
 #[cfg(feature = "css_slot")]
+mod move_list;
+mod mii_parts;
+#[cfg(feature = "css_slot")]
+mod boss_gauge;
+#[cfg(feature = "css_slot")]
+mod fighter_change;
+#[cfg(feature = "css_slot")]
 mod final_grafts;
 #[cfg(feature = "css_slot")]
 mod tether;
@@ -4736,6 +4878,7 @@ mod article_probes;
 use article_probes::*;
 
 mod smashline_names;
+mod smashline_articles;
 
 fn smashline_bridge_version() -> u32 {
     let version = SMASHLINE_BRIDGE_VERSION.load(core::sync::atomic::Ordering::Acquire);
@@ -4799,6 +4942,16 @@ pub fn main() {
     item_ui_probe::install();
 
     #[cfg(feature = "item_clone_backend")]
+    item_spawn::install();
+    #[cfg(feature = "item_clone_backend")]
+    enemy_spawn::install();
+    #[cfg(feature = "item_clone_backend")]
+    enemy_clones::install();
+    #[cfg(feature = "item_clone_backend")]
+    enemy_drivers::install();
+    #[cfg(feature = "item_clone_backend")]
+    enemy_params::install();
+    #[cfg(feature = "item_clone_backend")]
     item_slots::install();
     #[cfg(feature = "item_clone_backend")]
     item_clones::install();
@@ -4821,6 +4974,12 @@ pub fn main() {
     #[cfg(feature = "css_slot")]
     hud_layouts::install();
     #[cfg(feature = "css_slot")]
+    move_list::install();
+    #[cfg(feature = "css_slot")]
+    boss_gauge::install();
+    #[cfg(feature = "css_slot")]
+    fighter_change::install();
+    #[cfg(feature = "css_slot")]
     final_grafts::install_hooks();
     #[cfg(feature = "css_slot")]
     tether::install();
@@ -4841,6 +5000,11 @@ pub fn main() {
 
     #[cfg(feature = "item_clone_backend")]
     item_packs::load_all();
+
+    mii_parts::load_all();
+
+    #[cfg(feature = "item_clone_backend")]
+    enemy_packs::load_all();
 
     #[cfg(feature = "item_clone_backend")]
     item_params::install();
@@ -4877,6 +5041,9 @@ pub fn main() {
 
     #[cfg(feature = "stage_mint")]
     stage_packs::load_all();
+
+    #[cfg(feature = "css_slot")]
+    menu_sequences::load_all();
 
     #[cfg(feature = "css_slot")]
     costume_slots::scan_mods();

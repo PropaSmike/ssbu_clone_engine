@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmsbt>
+  <entry label="pop_pause_template_exit">
+    <text>Give up the gauntlet?</text>
+  </entry>
+</xmsbt>

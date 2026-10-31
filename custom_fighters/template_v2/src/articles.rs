@@ -1,7 +1,6 @@
 
 use crate::smash;
 use crate::TEMPLATE;
-use clone_engine_api::v2::Line;
 use smash::{
     app::{lua_bind::*, sv_animcmd::*},
     lib::{lua_const::*, L2CValue},
@@ -9,7 +8,7 @@ use smash::{
     phx::Hash40,
 };
 use smash_script::macros;
-use smashline::{Agent, Priority};
+use smashline::{Agent, Exec, Priority};
 
 unsafe extern "C" fn fireball_exec(_weapon: &mut L2CWeaponCommon) -> L2CValue {
     0.into()
@@ -29,14 +28,10 @@ unsafe extern "C" fn fireball_game(agent: &mut L2CAgentBase) {
 }
 
 pub fn install(kind: i32) {
-    TEMPLATE
-        .article("template_fireball") // the article declared in the manifest
-        .status(Line::Exec, *WEAPON_MARIO_FIREBALL_STATUS_KIND_REGULAR, fireball_exec) // status line, a status kind of the source weapon, function
-        .install();
-
-    // An article's scripts go on "<fighter>_<article>", with the source weapon's script names.
+    // An article's scripts and statuses go on "<fighter>_<article>", with the source weapon's script names.
     Agent::new("template_fighter_template_fireball")
         .game_acmd("game_regular", fireball_game, Priority::Default)
+        .status(Exec, *WEAPON_MARIO_FIREBALL_STATUS_KIND_REGULAR, fireball_exec) // status line, a status kind of the source weapon or a new number, function
         .install();
 
     // How other fighters treat it, through ParamConfig: (kind, costumes, weapon kind, behaviour).

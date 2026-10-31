@@ -37,7 +37,7 @@ A pack with no plugin writes the same as `fighter.toml` beside `config.json`
 | `Agent::new("mario").set_costume(vec![8, 9])` | `Agent::new("wawa")` |
 | `if !is_my_slot(boma) { return original }` inside a script | nothing; the name is the check |
 | `Agent::new("mario_fireball")` for an article | `Agent::new("wawa_fireball")` after `.article("fireball", "mario/fireball")` |
-| `smashline::clone_weapon("mario", "fireball", ...)` | `.article("fireball", "mario/fireball")` on the manifest (`[[article]]` in `fighter.toml`) |
+| `smashline::clone_weapon("mario", "fireball", ...)` | `.article("fireball", "mario/fireball")` on the manifest (`[[article]]` in `fighter.toml`); under Smashline 2.0 the engine calls `clone_weapon` for you |
 | `whitelist_kirby_copy_article` | `.kirby_article("fireball", "mario/fireball")` and `.kirby(N)` (`kirby = true` on the article, `[kirby] statuses = N`) |
 
 ```rust

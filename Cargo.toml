@@ -1,6 +1,6 @@
 [package]
 name = "ssbu_clone_engine"
-version = "0.1.0-beta.1"
+version = "0.7.0-beta.1"
 authors = ["PropaSmike"]
 edition = "2021"
 license = "GPL-3.0-only"

@@ -142,6 +142,7 @@ Replacement: `#[hook(offset = 0x..., me = ...)]`.
 | `shared_hook(offset, callback)` | Register on an allowlisted address, no fingerprint. |
 | `shared_hook_status()` | Readiness and failure flags. |
 | `shared_hook_original(offset, &[u64; 6])` | Run the original once. |
+| `shared_hook_words(offset)` | The four instruction words recorded at `offset` when its hook went in. |
 
 Callbacks: `x0..x5` in, `x0` out; return `HOOK_DECLINED` or `HOOK_HANDLED`.
 

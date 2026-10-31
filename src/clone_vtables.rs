@@ -118,8 +118,7 @@ fn fighter_slot(kind: i32) -> Option<&'static AtomicUsize> {
 }
 
 fn weapon_slot(kind: i32) -> Option<&'static AtomicUsize> {
-    let index = usize::try_from(kind.checked_sub(FIRST_CUSTOM_WEAPON_KIND)?).ok()?;
-    WEAPON_CLASSES.get(index)
+    WEAPON_CLASSES.get(custom_articles::row_of(kind)?)
 }
 
 fn item_slot(kind: i32) -> Option<&'static AtomicUsize> {
@@ -518,26 +517,30 @@ pub(crate) unsafe fn recache_weapon_class(asked: i32, object: usize, answered: u
     corrected.then_some(private)
 }
 
+fn fighter_kind_of_index(index: usize) -> Option<i32> {
+    Some(FIRST_CUSTOM_KIND + index as i32)
+}
+
 pub(crate) fn fighter_kind_of_class(class: usize) -> Option<i32> {
-    private_owner(&FIGHTER_CLASSES, FIRST_CUSTOM_KIND, class)
+    private_owner(&FIGHTER_CLASSES, fighter_kind_of_index, class)
 }
 
 pub(crate) fn weapon_kind_of_class(class: usize) -> Option<i32> {
-    private_owner(&WEAPON_CLASSES, FIRST_CUSTOM_WEAPON_KIND, class)
+    private_owner(&WEAPON_CLASSES, custom_articles::kind_of_row, class)
 }
 
 pub(crate) fn minted_kind_of_object(object: usize) -> Option<i32> {
     minted_kind_of(object)
 }
 
-fn private_owner(classes: &[AtomicUsize], first_kind: i32, class: usize) -> Option<i32> {
+fn private_owner(classes: &[AtomicUsize], kind_of: fn(usize) -> Option<i32>, class: usize) -> Option<i32> {
     if class == 0 {
         return None;
     }
     classes
         .iter()
         .position(|slot| slot.load(Ordering::Acquire) == class)
-        .map(|index| first_kind + index as i32)
+        .and_then(kind_of)
 }
 
 unsafe fn report_vanilla(
@@ -549,7 +552,7 @@ unsafe fn report_vanilla(
     held: usize,
     own: usize,
     classes: &[AtomicUsize],
-    first_kind: i32,
+    kind_of: fn(usize) -> Option<i32>,
 ) {
     if object == 0 {
         return;
@@ -560,7 +563,7 @@ unsafe fn report_vanilla(
     }
     let verdict = if held == own {
         "its own image class".to_string()
-    } else if let Some(clone) = private_owner(classes, first_kind, held) {
+    } else if let Some(clone) = private_owner(classes, kind_of, held) {
         format!("clone {clone}'s PRIVATE class, not its own")
     } else if held == 0 {
         "unset yet".to_string()
@@ -578,7 +581,7 @@ pub(crate) unsafe fn report_vanilla_fighter_construction(kind: i32, object: usiz
     }
     let own = *((crate::game::addr(FIGHTER_CLASS_TABLE) + kind as usize * 8) as *const usize);
     let held = core::ptr::read_volatile((object + FIGHTER_CLASS_FIELD) as *const usize);
-    report_vanilla("fighter", "holds", kind, object, FIGHTER_CLASS_FIELD, held, own, &FIGHTER_CLASSES, FIRST_CUSTOM_KIND);
+    report_vanilla("fighter", "holds", kind, object, FIGHTER_CLASS_FIELD, held, own, &FIGHTER_CLASSES, fighter_kind_of_index);
 }
 
 pub(crate) unsafe fn report_vanilla_weapon_construction(kind: i32, object: usize, class: usize) {
@@ -586,7 +589,7 @@ pub(crate) unsafe fn report_vanilla_weapon_construction(kind: i32, object: usize
         return;
     }
     let own = vanilla_weapon_class(kind);
-    report_vanilla("weapon", "caches", kind, object, WEAPON_CLASS_FIELD, class, own, &WEAPON_CLASSES, FIRST_CUSTOM_WEAPON_KIND);
+    report_vanilla("weapon", "caches", kind, object, WEAPON_CLASS_FIELD, class, own, &WEAPON_CLASSES, custom_articles::kind_of_row);
 }
 
 pub(crate) unsafe fn set_entry(

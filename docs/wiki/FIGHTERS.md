@@ -132,7 +132,7 @@ Manifest::new("my_fighter", "mario")
 [[grab]]
 status = "SPECIAL_S"        # the grabber status the CATCH box is out in
 victim = "CATCHED_GANON"    # the status the box gives the victim; any if left out
-then = 0x1e2                # the grabber status once caught
+then = "own 0"              # the grabber status once caught: your fighter's first own status
 ```
 
 - The victim is held at the `throw` joint. `node = "hip"` picks another,
@@ -264,6 +264,19 @@ charge.bflyt\0charge_in\0gauge\0\0\0\0
   `Play` does not.
 - A missing file, part or animation returns false and is logged.
 
+### On every player's card
+
+A plugin that is not a fighter can draw one layout on every player's damage
+card, vanilla fighters included, and drive it by player slot:
+
+```rust
+clone_engine_api::hud_layout_every("ui/layout/hud/my_mode/layout.arc")?; // before the battle
+unsafe { clone_engine_api::hud_entry(0, &HudAction::Show("gauge", true)) }?;
+```
+
+- A fighter with a layout of its own keeps it.
+- Same file format and calls as above; the slot is the match entry, from 0.
+
 ## Packs written before `fighter.toml`
 
 They register with `CloneRegistration` and `allocate`, and check `is_kind`
@@ -389,7 +402,7 @@ Peach's float on any base, with her rules and values.
 ```rust
 use clone_engine_api::float::{self, Float};
 
-let start = *FIGHTER_MARIO_STATUS_KIND_NUM; // the base's status count
+let start = MY_FIGHTER.own_status(0); // the first status number past the base's own
 float::register("my_fighter", Float::PEACH, start);
 let mut agent = Agent::new("my_fighter");
 agent.on_start(float::on_start);
@@ -409,10 +422,8 @@ agent.install();
 - Hold jump past the top of a jump, or hold down and jump on the ground.
   Letting go falls. Aerials keep the float going. Landing gives it back; a
   hit or a ledge does not.
-- `start` is the constant the base's status table is sized with:
-  `FIGHTER_<BASE>_STATUS_KIND_NUM`, or `_MAX` for Donkey Kong, Bowser, Peach
-  and Pit; an echo uses its original's (Lucina uses Marth's). Your own
-  statuses start at `start + 2`.
+- The float takes your first two own statuses, so yours start at
+  `MY_FIGHTER.own_status(2)`. Call `own_status` after `register`.
 - `Float::PEACH` takes `.frames(n)` (150), `.start_y(y)` (ground float
   height, 1.5), `.water_height(h)` (14), `.motions(start, hover)`
   (`fuwafuwa_start`, `fuwafuwa`; `fall` without them) and `.item(kind)` (the
@@ -644,6 +655,34 @@ Isabelle, Mega Man, Piranha Plant, Steve).
   match.
 - Kirby's copy has its own bank: [Copy sounds](ARTICLES_AND_KIRBY.md#copy-sounds).
 
+## Move list pages
+
+The move list shows extra pages below a fighter's specials; the game stops
+at four. Up to 32:
+
+```toml
+[move_list]
+pages = 6              # extra pages below the specials
+image_pages = [1, 4]   # the ones that show a picture, counted from 0
+```
+
+```rust
+Manifest::new("my_fighter", "captain").move_list(6).move_list_images(&[1, 4])
+```
+
+- A page's title and text are `nam_peculiar_NN_<your name>` and
+  `nam_peculiar_help_NN_<your name>` in `ui/message/msg_name.xmsbt`, NN from
+  `00`.
+- A picture page shows
+  `ui/replace/skill/skill_1/skill_1_<your name>_extra_page_<N>.bntx`, N from
+  `0`. Without `image_pages`, the first three pages take your base's choice
+  and the rest are text.
+- Players turn pages with up and down. Past the fourth page the four panels
+  refill as they turn.
+- A vanilla fighter with `ext_skill_page_num` above 4 in `ui_chara_db` pages
+  the same way.
+- Check `runtime_capabilities() & CAP_MOVE_LIST_PAGES` for older engines.
+
 ## Final Smash backgrounds and movies
 
 Any fighter can ship its own; your Final Smash statuses start them.
@@ -654,7 +693,7 @@ Any fighter can ship its own; your Final Smash statuses start them.
 | Movies | `prebuilt:/movie/fighter/<your name>/cNN/<file>.h264`; the pack folder is `prebuilt;` | `FighterManager::prepare_movie(manager, Hash40::new(path))`, then `start_movie` once `is_prepared_movie`, `exit_movie` once `is_end_movie` |
 
 ```rust
-let manager = singletons::FighterManager();
+let manager = clone_engine_api::fighter_manager();
 let kind = MY_FIGHTER.kind().get().unwrap();
 FighterManager::start_finalbg(manager, kind, 1.0);
 FighterManager::prepare_movie(manager, Hash40::new("prebuilt:/movie/fighter/my_fighter/c00/final_00.h264"));

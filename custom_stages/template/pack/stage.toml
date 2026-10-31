@@ -12,3 +12,54 @@ resource_place = "dk_jungle"
 bgm = "dk"
 bgm_setting_no = 0
 bgm_selector = false
+
+# The keys below need model sets and positions of your own stage: uncomment
+# them and fill them in. See docs/wiki/STAGES.md.
+
+# Collisions that follow a bone of these model sets, which play their motion.
+# dynamic_collisions = ["platform_set"]
+
+# Model sets whose motion waits for the plugin (src/door.rs starts the door's).
+# paused_motions = ["gdor_00_set"]
+
+# [[ladder]]                # Ultimate's own ladder, climbed with up and down
+# x = 625                   # the foot of the ladder
+# y = -50
+# height = 80
+# width = 10                # optional, 10 by default
+
+# [[barrel]]                # a barrel cannon: fighters enter it and are shot out
+# x = 1165                  # centre
+# y = 190
+# model = "gbc_00_set"      # optional: a model set drawn and turned with the barrel
+# rotation = 0              # degrees, counter-clockwise from facing right
+# rotation_max = 90         # the other end of the sweep
+# rotation_speed = 1.08     # degrees per frame; 0 keeps it still
+# always_rotate = true      # turn even when empty
+# full_rotate = false       # spin all the way round instead of sweeping
+# auto_fire = false         # fire by itself at fire_rotation, otherwise on the attack button
+# fire_rotation = 0
+# fire_delay = 0            # frames between the fire and the shot
+# speed = 5                 # shot: speed, decrease per frame, gravity, speed at which it ends
+# decrease = 0.075
+# gravity = 0.025
+# fall_speed = 0.25
+# width = 20                # entry area
+# height = 15
+
+# [[spring]]                # launches a fighter that lands on it
+# x = 155
+# y = -30
+# model = "gspr_00_set"     # optional: a model set drawn and tilted with the spring
+# rotation = 0              # degrees; negative leans right, positive leans left
+# speed = 4                 # launch speed
+# width = 10
+# height = 8
+
+# [[door]]                  # stick up in the area: FIGHTER_STATUS_KIND_GIMMICK_DOOR (src/door.rs)
+# x = 1770                  # where the fighter walks to
+# y = 75
+# width = 15                # entry area
+# height = 20
+# offset_y = 10
+# air = false               # true: entered while airborne

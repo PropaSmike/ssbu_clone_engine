@@ -175,12 +175,7 @@ pub(crate) unsafe fn hold_clone_weapon_names(
     source_kind: i32,
     minted_kind: i32,
 ) -> WeaponNameHold {
-    if crate::custom_articles::is_kirby_copy_weapon(minted_kind) {
-        return WeaponNameHold::inactive();
-    }
-    let name = crate::custom_articles::custom_weapon_name(minted_kind);
-    let owner = crate::custom_articles::custom_weapon_owner_name(minted_kind);
-    let (Some(name), Some(owner)) = (name, owner) else {
+    let Some((owner, name)) = crate::custom_articles::agent_names(minted_kind) else {
         return WeaponNameHold::inactive();
     };
     let name_guard = hold_weapon_name(source_kind, name);

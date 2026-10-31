@@ -32,6 +32,7 @@ pub struct RegisteredStage {
     pub owns_stdat: bool,
     pub music: crate::stage_music::MusicRequest,
     pub dynamic_collisions: Vec<u64>,
+    pub paused_motions: Vec<u64>,
 }
 
 impl RegisteredStage {
@@ -40,6 +41,10 @@ impl RegisteredStage {
             .iter()
             .find(|(_, minted)| *minted == form)
             .map(|(stage_id, _)| *stage_id)
+    }
+
+    pub fn normal_stage_id(&self) -> Option<u32> {
+        self.stage_id_for(Form::Normal)
     }
 }
 
@@ -144,6 +149,25 @@ impl Registry {
         }
     }
 
+    pub fn set_paused_motions(&mut self, place_name: &str, model_sets: Vec<u64>) -> bool {
+        let name = place_name.to_ascii_lowercase();
+        match self.by_name.get(&name).copied() {
+            Some(index) => {
+                self.stages[index].paused_motions = model_sets;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn paused_motions_for(&self, stage_id: u32) -> &[u64] {
+        self.stages
+            .iter()
+            .find(|stage| stage.forms.iter().any(|(id, _)| *id == stage_id))
+            .map(|stage| stage.paused_motions.as_slice())
+            .unwrap_or(&[])
+    }
+
     pub fn dynamic_collisions_for(&self, stage_id: u32) -> &[u64] {
         self.stages
             .iter()
@@ -202,6 +226,7 @@ impl Registry {
             owns_stdat: false,
             music: crate::stage_music::MusicRequest::default(),
             dynamic_collisions: Vec::new(),
+            paused_motions: Vec::new(),
         });
         Ok(&self.stages[index])
     }

@@ -4,18 +4,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use clone_engine_core::hud::{HudAction, MenuCommand};
 
+pub mod enemy;
 #[cfg(feature = "smash")]
 pub mod fight;
 #[cfg(feature = "smash")]
 pub mod float;
 #[cfg(feature = "smash")]
 pub mod glide;
+pub mod item;
 #[cfg(feature = "smash")]
 pub mod partner;
 #[cfg(feature = "smash")]
 pub mod switch;
 pub mod manifest;
+pub mod menu;
 pub mod slot;
+pub mod stage;
 pub mod v2;
 
 pub const API_VERSION_V1: u32 = 1;
@@ -122,6 +126,8 @@ pub const CAP_ENTRY_GROUPS: u64 = 1 << 21;
 pub const CAP_ANY_BASE_GROUPS: u64 = 1 << 22;
 pub const CAP_PARTNER_SWAP: u64 = 1 << 23;
 pub const CAP_COMMAND_INPUTS: u64 = 1 << 24;
+pub const CAP_MOVE_LIST_PAGES: u64 = 1 << 25;
+pub const CAP_MII_PARTS: u64 = 1 << 26;
 pub const CAP_RESEARCH_ITEM_FAMILIES: u64 = 1 << 32;
 pub const CAP_RESEARCH_ITEM_MULTIBASE_STATUS_RESERVED: u64 = 1 << 33;
 
@@ -568,6 +574,7 @@ static SMASHLINE_BRIDGE_VERSION_FN: AtomicUsize = AtomicUsize::new(0);
 static NATIVE_BACKEND_STATUS_FN: AtomicUsize = AtomicUsize::new(0);
 static REGISTER_V1_FN: AtomicUsize = AtomicUsize::new(0);
 static BASE_KIND_FN: AtomicUsize = AtomicUsize::new(0);
+static FIGHTER_MANAGER_FN: AtomicUsize = AtomicUsize::new(0);
 static ENTRY_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static FIGHTER_KIND_FN: AtomicUsize = AtomicUsize::new(0);
 static IDENTITY_KIND_FN: AtomicUsize = AtomicUsize::new(0);
@@ -628,6 +635,14 @@ static STAGE_MUSIC_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_ID_FN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_REGISTER_FN: AtomicUsize = AtomicUsize::new(0);
 static HUD_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_LAYOUT_EVERY_FN: AtomicUsize = AtomicUsize::new(0);
+static BOSS_GAUGE_ADD_FN: AtomicUsize = AtomicUsize::new(0);
+static BOSS_GAUGE_NAME_FN: AtomicUsize = AtomicUsize::new(0);
+static BOSS_GAUGE_BATTLE_FN: AtomicUsize = AtomicUsize::new(0);
+static BOSS_GAUGE_HIDE_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_ENTRY_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_SCREEN_LAYOUT_FN: AtomicUsize = AtomicUsize::new(0);
+static HUD_SCREEN_FN: AtomicUsize = AtomicUsize::new(0);
 
 fn resolve(slot: &AtomicUsize, symbol: &'static [u8]) -> Option<usize> {
     let cached = slot.load(Ordering::Acquire);
@@ -967,6 +982,7 @@ pub const HUD_PLAY: u32 = 9;
 pub const HUD_FRAME: u32 = 10;
 pub const HUD_SHOW: u32 = 11;
 pub const HUD_TEXT: u32 = 12;
+pub const HUD_WIDTH: u32 = 13;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -1062,6 +1078,10 @@ impl CloneHudV1 {
                 request.text = text.as_ptr();
                 request.text_len = text.len();
             }
+            HudAction::Width(_, width) => {
+                request.action = HUD_WIDTH;
+                request.value = width;
+            }
         }
         request
     }
@@ -1088,6 +1108,89 @@ pub unsafe fn hud(module_accessor: *const c_void, action: &HudAction) -> Result<
         std::mem::transmute(address);
     let request = CloneHudV1::new(action);
     let result = function(module_accessor, &request);
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn hud_layout_every(path: &str) -> Result<(), Error> {
+    let address = resolve(&HUD_LAYOUT_EVERY_FN, b"clone_engine_hud_layout_every_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(*const u8, usize) -> i32 = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(path.as_ptr(), path.len()) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn boss_gauge_battle() -> Result<(), Error> {
+    let address = resolve(&BOSS_GAUGE_BATTLE_FN, b"clone_engine_boss_gauge_battle_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn() -> i32 = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function() };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn boss_gauge_hide(hide: bool) -> Result<(), Error> {
+    let address = resolve(&BOSS_GAUGE_HIDE_FN, b"clone_engine_boss_gauge_hide_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(u32) -> i32 = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(u32::from(hide)) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub unsafe fn boss_gauge(module_accessor: *const c_void, name: &str) -> Result<u32, Error> {
+    let address = resolve(&BOSS_GAUGE_ADD_FN, b"clone_engine_boss_gauge_add_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(u64, *const u8, usize) -> i32 = std::mem::transmute(address);
+    let result = function(module_accessor as u64, name.as_ptr(), name.len());
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(result as u32)
+}
+
+pub fn boss_gauge_name(row: u32, name: &str) -> Result<(), Error> {
+    let address = resolve(&BOSS_GAUGE_NAME_FN, b"clone_engine_boss_gauge_name_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(u32, *const u8, usize) -> i32 = unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(row, name.as_ptr(), name.len()) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub fn hud_screen_layout(name: &str, path: &str, x: f32, y: f32, scale: f32) -> Result<(), Error> {
+    let address = resolve(&HUD_SCREEN_LAYOUT_FN, b"clone_engine_hud_screen_layout_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(*const u8, usize, *const u8, usize, f32, f32, f32) -> i32 =
+        unsafe { std::mem::transmute(address) };
+    let result = unsafe { function(name.as_ptr(), name.len(), path.as_ptr(), path.len(), x, y, scale) };
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub unsafe fn hud_screen(name: &str, action: &HudAction) -> Result<(), Error> {
+    let address = resolve(&HUD_SCREEN_FN, b"clone_engine_hud_screen_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(*const u8, usize, *const CloneHudV1) -> i32 = std::mem::transmute(address);
+    let request = CloneHudV1::new(action);
+    let result = function(name.as_ptr(), name.len(), &request);
+    if result < 0 {
+        return Err(Error::Engine(result));
+    }
+    Ok(())
+}
+
+pub unsafe fn hud_entry(entry: u32, action: &HudAction) -> Result<(), Error> {
+    let address = resolve(&HUD_ENTRY_FN, b"clone_engine_hud_entry_v1\0").ok_or(Error::EngineUnavailable)?;
+    let function: unsafe extern "C" fn(u32, *const CloneHudV1) -> i32 = std::mem::transmute(address);
+    let request = CloneHudV1::new(action);
+    let result = function(entry, &request);
     if result < 0 {
         return Err(Error::Engine(result));
     }
@@ -1532,6 +1635,15 @@ pub fn capacity_committed() -> bool {
     };
     let function: CapacityCommittedFn = unsafe { std::mem::transmute(address) };
     unsafe { function() != 0 }
+}
+
+#[cfg(feature = "smash")]
+pub fn fighter_manager() -> *mut smash::app::FighterManager {
+    let Some(address) = resolve(&FIGHTER_MANAGER_FN, b"clone_engine_fighter_manager_v1\0") else {
+        return core::ptr::null_mut();
+    };
+    let function: unsafe extern "C" fn() -> usize = unsafe { std::mem::transmute(address) };
+    unsafe { function() as *mut smash::app::FighterManager }
 }
 
 pub fn base_kind(custom_kind: i32) -> i32 {

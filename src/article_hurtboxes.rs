@@ -5,7 +5,7 @@ use clone_engine_core::article_hurtbox::{
 };
 
 use crate::clone_vtables::{self, Space};
-use crate::custom_articles::{FIRST_CUSTOM_WEAPON_KIND, MAX_CUSTOM_ARTICLES};
+use crate::custom_articles::MAX_CUSTOM_ARTICLES;
 use crate::dbg_log_public;
 
 #[repr(C)]
@@ -33,8 +33,7 @@ pub(crate) fn wants_hit_module(kind: i32) -> bool {
 }
 
 fn row(kind: i32) -> Option<usize> {
-    let row = usize::try_from(kind.checked_sub(FIRST_CUSTOM_WEAPON_KIND)?).ok()?;
-    (row < MAX_CUSTOM_ARTICLES).then_some(row)
+    crate::custom_articles::row_of(kind)
 }
 
 pub(crate) fn register(kind: i32, hurtboxes: &[Hurtbox]) -> Result<usize, String> {

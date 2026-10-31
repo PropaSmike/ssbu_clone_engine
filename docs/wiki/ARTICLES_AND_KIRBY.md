@@ -25,16 +25,22 @@ Its scripts go under the name `<fighter>_<article>`:
 ```rust
 smashline::Agent::new("my_fighter_beam")                              // the article's own name
     .game_acmd("game_fly", game_fly, smashline::Priority::Default)     // script name, function, priority
-    .install();
-
-MY_FIGHTER.article("beam")
-    .status(Line::Main, *WEAPON_SAMUS_CSHOT_STATUS_KIND_FLY, beam_main) // status line, a status kind of the source weapon, function
+    .status(smashline::Main, *WEAPON_SAMUS_CSHOT_STATUS_KIND_FLY, beam_main) // status line, status kind, function
     .install();
 ```
+
+Statuses may use numbers past the source weapon's own. A `kirby_article`'s
+scripts and statuses go under `kirby_<name>`. `MY_FIGHTER.article("beam").status(...)`
+from earlier releases still works; it installs through Smashline the same way.
 
 Each article needs a folder of its own. Read
 `MY_FIGHTER.article("beam").index()` right before you use it, never earlier,
 and never fall back to 0. `MY_FIGHTER.article("beam").spawn(boma)` does both.
+
+The weapon kind is assigned at boot. With Smashline 2.0, Smashline numbers
+it, shared with other mods' `clone_weapon` calls; otherwise the engine does.
+Read `MY_FIGHTER.article("beam").weapon_kind()`; never assume `615 + n`.
+Under Smashline 2.0 a base fighter of kind 94 or above takes no articles.
 
 ## Articles with collision
 

@@ -141,6 +141,14 @@ mod tests {
         assert_eq!(UNWIDENED_BOUNDS, 4);
     }
 
+    fn expanded(name: &str) -> u32 {
+        STAGE_TABLES
+            .iter()
+            .find(|table| table.name == name)
+            .unwrap()
+            .expanded_length as u32
+    }
+
     #[test]
     fn the_stage_id_clamp_is_widened() {
         let bound = STAGE_BOUNDS
@@ -149,12 +157,12 @@ mod tests {
             .expect("the StageID clamp must be widened");
         assert_eq!(bound.table, "stage_id");
         assert_eq!(bound.old_value, 363);
-        assert_eq!(bound.new_value, 511);
+        assert_eq!(bound.new_value, expanded("stage_id") - 1);
         assert_eq!(
             bound.old_opcode & 0xFF80_03FF,
             bound.new_opcode & 0xFF80_03FF
         );
-        assert_eq!((bound.new_opcode >> 10) & 0xFFF, 511);
+        assert_eq!((bound.new_opcode >> 10) & 0xFFF, expanded("stage_id") - 1);
     }
 
     #[test]
@@ -162,13 +170,17 @@ mod tests {
         let unrolled: Vec<_> = STAGE_BOUNDS
             .iter()
             .filter(|bound| bound.table == "stage_place" && bound.old_value == 138)
-            .filter(|bound| bound.new_value == 190)
             .collect();
-        assert_eq!(unrolled.len(), 4);
         let place = STAGE_TABLES
             .iter()
             .find(|table| table.name == "stage_place")
             .unwrap();
+        let residue = place.expanded_length - ((place.expanded_length - place.native_length) % 4);
+        let unrolled: Vec<_> = unrolled
+            .into_iter()
+            .filter(|bound| bound.new_value as usize == residue)
+            .collect();
+        assert_eq!(unrolled.len(), 4);
         for bound in &unrolled {
             assert_eq!(
                 bound.new_value % 4,
@@ -192,11 +204,11 @@ mod tests {
         assert_eq!(byte_length.len(), 13);
         for bound in &byte_length {
             assert_eq!(bound.table, "stage_id");
-            assert_eq!(bound.new_value, 512 * 0x48);
+            assert_eq!(bound.new_value, expanded("stage_id") * 0x48);
             assert_eq!(bound.old_opcode & 0x7F80_0000, 0x5280_0000);
             assert_eq!(bound.new_opcode & 0x7F80_0000, 0x5280_0000);
             assert_eq!(bound.old_opcode & 0x1F, bound.new_opcode & 0x1F);
-            assert_eq!((bound.new_opcode >> 5) & 0xFFFF, 512 * 0x48);
+            assert_eq!((bound.new_opcode >> 5) & 0xFFFF, expanded("stage_id") * 0x48);
         }
         assert!(byte_length.iter().any(|bound| bound.address == 0x1739ec8));
     }
@@ -209,7 +221,7 @@ mod tests {
             .expect("the stage-name scan bound must be qualified");
         assert_eq!(bound.table, "stage_id");
         assert_eq!(bound.old_value, 364);
-        assert_eq!(bound.new_value, 512);
+        assert_eq!(bound.new_value, expanded("stage_id"));
     }
 
     #[test]
@@ -245,7 +257,7 @@ mod tests {
             .expect("the resolver's scan bound must be qualified");
         assert_eq!(bound.table, "stage_place");
         assert_eq!(bound.old_value, 138);
-        assert_eq!(bound.new_value, 192);
+        assert_eq!(bound.new_value, expanded("stage_place"));
     }
 
     #[test]

@@ -104,6 +104,7 @@ pub struct FighterDeclaration {
     pub params: Vec<ParamDeclaration>,
     pub command_settings: crate::command_input::Settings,
     pub commands: Vec<crate::command_input::Command>,
+    pub move_list: Option<crate::move_list::MoveList>,
 }
 
 pub const DEFAULT_COLOR_COUNT: u32 = 8;
@@ -182,6 +183,7 @@ enum Section {
     PartnerParams,
     Commands,
     Command,
+    MoveList,
     Params { slot: Option<i32>, op: ParamOp },
 }
 
@@ -297,6 +299,7 @@ fn section_for(name: &str, array: bool, line: usize) -> Result<Section, ParseErr
         ("partner_params", false) => Ok(Section::PartnerParams),
         ("commands", false) => Ok(Section::Commands),
         ("command", true) => Ok(Section::Command),
+        ("move_list", false) => Ok(Section::MoveList),
         ("params", false) => Ok(Section::Params {
             slot: None,
             op: ParamOp::Set,
@@ -376,6 +379,9 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                 Section::Command => declaration.commands.push(crate::command_input::Command::new("", "")),
                 Section::Tether => {
                     declaration.tether.get_or_insert_with(Default::default);
+                }
+                Section::MoveList => {
+                    declaration.move_list.get_or_insert_with(Default::default);
                 }
                 Section::TetherBox => declaration
                     .tether
@@ -576,6 +582,21 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
                 value,
                 line_number,
             )?,
+            Section::MoveList => {
+                let list = declaration.move_list.as_mut().expect("inserted at header");
+                match key {
+                    "pages" => list.pages = Some(parse_int(value, line_number, key)?),
+                    "image_pages" => {
+                        list.image_pages = Some(
+                            parse_list(value, line_number, key)?
+                                .iter()
+                                .map(|page| parse_int(page, line_number, "an image page"))
+                                .collect::<Result<Vec<u8>, _>>()?,
+                        )
+                    }
+                    _ => return Err(error(line_number, format!("unknown move_list key {key}"))),
+                }
+            }
             Section::PartnerParams => declaration.partner_params.push(
                 crate::partner_params::resolve(key, value).map_err(|message| error(line_number, message))?,
             ),
@@ -604,7 +625,7 @@ pub fn parse(text: &str) -> Result<FighterDeclaration, ParseError> {
     finish(declaration, saw_costumes)
 }
 
-fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<FighterDeclaration, ParseError> {
+fn finish(mut declaration: FighterDeclaration, saw_costumes: bool) -> Result<FighterDeclaration, ParseError> {
     if declaration.name.is_empty() {
         return Err(error(0, "name is required"));
     }
@@ -693,6 +714,22 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
             ));
         }
     }
+    let start = crate::status_starts::status_start(&declaration.base);
+    let base = declaration.base.clone();
+    let own = |status: i32| -> Result<i32, ParseError> {
+        if status < 0 || status & crate::status_starts::OWN_STATUS == 0 {
+            return Ok(status);
+        }
+        start
+            .map(|start| start + (status & !crate::status_starts::OWN_STATUS))
+            .ok_or_else(|| error(0, format!("own statuses need a vanilla base; {base} has no status table the engine knows")))
+    };
+    for grab in &mut declaration.grabs {
+        grab.status = own(grab.status)?;
+        if let Some(then) = grab.then {
+            grab.then = Some(own(then)?);
+        }
+    }
     for grab in &declaration.grabs {
         if grab.status < 0 {
             return Err(error(0, "a grab needs status, the grabber status its CATCH box belongs to"));
@@ -700,6 +737,9 @@ fn finish(declaration: FighterDeclaration, saw_costumes: bool) -> Result<Fighter
     }
     if let Some(tether) = &declaration.tether {
         tether.check().map_err(|message| error(0, message))?;
+    }
+    if let Some(list) = &declaration.move_list {
+        list.check().map_err(|message| error(0, message))?;
     }
     check_commands(&declaration)?;
     if declaration.switch_with.len() > 2 {
@@ -755,8 +795,17 @@ fn parse_status(value: &str, line: usize, key: &str) -> Result<i32, ParseError> 
     let value = value.trim();
     let status = if value.starts_with('"') {
         let name = unquote(value, line)?;
+        if let Some(index) = crate::status_starts::own_status(&name) {
+            if key == "victim" {
+                return Err(error(line, "victim is a status of the fighter caught; own N is for status and then"));
+            }
+            return Ok(crate::status_starts::OWN_STATUS | index);
+        }
         status_kind(&name).ok_or_else(|| {
-            error(line, format!("{key}: {name:?} is not a known status name; write its number"))
+            error(
+                line,
+                format!("{key}: {name:?} is not a known status name; write own N for one of your own, or its number"),
+            )
         })?
     } else {
         parse_int::<i32>(value, line, key)?
@@ -1217,6 +1266,21 @@ scale = 0.95
     }
 
     #[test]
+    fn a_move_list_names_its_pages_and_which_show_pictures() {
+        let head = "name = \"wawa\"\nbase = \"demon\"\n";
+        let fighter = parse(&format!("{head}[move_list]\npages = 6\nimage_pages = [0, 5]\n")).unwrap();
+        let list = fighter.move_list.unwrap();
+        assert_eq!((list.pages, list.image_pages), (Some(6), Some(vec![0, 5])));
+        assert_eq!(parse(head).unwrap().move_list, None);
+        let past = parse(&format!("{head}[move_list]\npages = 2\nimage_pages = [2]\n")).unwrap_err();
+        assert!(past.message.contains("past the last page"), "{}", past.message);
+        let none = parse(&format!("{head}[move_list]\nimage_pages = [0]\n")).unwrap_err();
+        assert!(none.message.contains("needs pages"), "{}", none.message);
+        let stray = parse(&format!("{head}[move_list]\ncount = 3\n")).unwrap_err();
+        assert!(stray.message.contains("unknown move_list key count"), "{}", stray.message);
+    }
+
+    #[test]
     fn a_hud_names_a_donor_the_engine_drives() {
         let head = "name = \"wawa\"\nbase = \"samus\"\n";
         let fighter = parse(&format!("{head}[hud]\nfrom = \"pickel\"\n")).unwrap();
@@ -1500,12 +1564,27 @@ switch = [\"wawab\"]
     }
 
     #[test]
+    fn own_statuses_count_from_the_end_of_the_bases_table() {
+        let fighter = parse(
+            "name = \"a\"\nbase = \"mario\"\n[[grab]]\nstatus = \"own 0\"\nvictim = \"CATCHED_GANON\"\nthen = \"own 2\"\n",
+        )
+        .unwrap();
+        assert_eq!((fighter.grabs[0].status, fighter.grabs[0].then), (0x1e3, Some(0x1e5)));
+        let lucina = parse("name = \"a\"\nbase = \"lucina\"\n[[grab]]\nstatus = \"SPECIAL_S\"\nthen = \"own 1\"\n").unwrap();
+        assert_eq!(lucina.grabs[0].then, crate::status_starts::status_start("marth").map(|start| Some(start + 1)).unwrap());
+        let victim = parse("name = \"a\"\nbase = \"mario\"\n[[grab]]\nstatus = 1\nvictim = \"own 0\"\n").unwrap_err();
+        assert!(victim.message.contains("victim"));
+        let unknown = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = \"own 0\"\n").unwrap_err();
+        assert!(unknown.message.contains("vanilla base"));
+    }
+
+    #[test]
     fn a_grab_needs_a_status_and_refuses_what_it_cannot_read() {
         let missing = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nvictim = 0xbe\n").unwrap_err();
         assert!(missing.message.contains("status"));
         let unknown = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = \"SPECIAL_Q\"\n").unwrap_err();
         assert_eq!(unknown.line, 4);
-        assert!(unknown.message.contains("write its number"));
+        assert!(unknown.message.contains("own N"));
         let bad_key = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = 1\nhold = true\n").unwrap_err();
         assert_eq!(bad_key.line, 5);
         let short = parse("name = \"a\"\nbase = \"b\"\n[[grab]]\nstatus = 1\noffset = [1.0, 2.0]\n").unwrap_err();

@@ -12,6 +12,7 @@ pub struct ItemPackDeclaration {
     pub spawn_min: i32,
     pub spawn_max: i32,
     pub spawn_from: Vec<String>,
+    pub members: Vec<String>,
     pub common: Vec<(String, ItemPackValue)>,
     pub owner_params: Vec<(String, String, ItemPackValue)>,
 }
@@ -31,6 +32,17 @@ enum ItemPackSection {
     OwnerParams,
 }
 
+fn names(value: &str) -> Vec<String> {
+    value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .split(',')
+        .map(|name| name.trim().trim_matches('"').trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
 fn parse_number(value: &str) -> Option<ItemPackValue> {
     let value = value.trim();
     if value.contains('.') || value.contains('e') {
@@ -48,6 +60,7 @@ pub enum ItemPackError {
     BadValue { line: usize, key: String },
     MissingResourceName,
     MissingBaseKind,
+    UnknownBaseItem { name: String },
 }
 
 pub const SPAWN_COUNT_DEFAULT: i32 = 1;
@@ -153,21 +166,20 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
             "spawn_per" => declaration.spawn_per = Some(value.parse::<i32>().map_err(|_| bad())?),
             "spawn_min" => declaration.spawn_min = value.parse::<i32>().map_err(|_| bad())?,
             "spawn_max" => declaration.spawn_max = value.parse::<i32>().map_err(|_| bad())?,
-            "spawn_from" => {
-                declaration.spawn_from = unquoted
-                    .split(',')
-                    .map(|name| name.trim().to_string())
-                    .filter(|name| !name.is_empty())
-                    .collect()
-            }
+            "spawn_from" => declaration.spawn_from = names(value),
+            "members" => declaration.members = names(value),
             _ => {}
         }
     }
     if declaration.resource_name.is_empty() {
         return Err(ItemPackError::MissingResourceName);
     }
-    if !saw_base {
-        return Err(ItemPackError::MissingBaseKind);
+    let named = declaration.base_item.as_deref().and_then(clone_engine_core::item_kinds::item_kind);
+    match (named, saw_base, declaration.base_item.as_deref()) {
+        (Some(kind), _, _) => declaration.base_kind = kind,
+        (None, true, _) => {}
+        (None, false, Some(name)) => return Err(ItemPackError::UnknownBaseItem { name: name.to_string() }),
+        (None, false, None) => return Err(ItemPackError::MissingBaseKind),
     }
     Ok(declaration)
 }
@@ -196,7 +208,8 @@ pub fn parse_all(text: &str) -> Result<Vec<ItemPackDeclaration>, ItemPackError> 
 mod live {
     use super::*;
     use clone_engine_api::{
-        CloneItemRegistrationV1, CloneItemUiRegistrationV1, API_VERSION_V1, ITEM_UI_FLAG_TRAINING,
+        CloneItemFamilyMemberV2, CloneItemFamilyRegistrationV2, CloneItemRegistrationV1,
+        CloneItemUiRegistrationV1, API_VERSION_V1, API_VERSION_V2, ITEM_UI_FLAG_TRAINING, KIND_AUTO,
     };
     use std::ffi::CString;
 
@@ -208,6 +221,9 @@ mod live {
         core::sync::atomic::AtomicI32::new(crate::item_clones::FIRST_SPARSE_ITEM_KIND);
 
     fn register_probing(directory: &str, declaration: &ItemPackDeclaration) -> Option<i32> {
+        if !declaration.members.is_empty() {
+            return register_family(directory, declaration);
+        }
         for attempt in 0..MAX_KIND_PROBES {
             let kind = NEXT_KIND.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             match register(directory, declaration, kind) {
@@ -378,6 +394,60 @@ mod live {
         RegisterOutcome::Registered
     }
 
+    fn register_family(directory: &str, declaration: &ItemPackDeclaration) -> Option<i32> {
+        let mut listed: Vec<&str> = declaration.members.iter().map(String::as_str).collect();
+        if listed.first() != Some(&declaration.resource_name.as_str()) {
+            listed.insert(0, declaration.resource_name.as_str());
+        }
+        let base = declaration.base_item.clone().unwrap_or_else(|| declaration.base_kind.to_string());
+        let Ok(strings) = listed.iter().map(|name| CString::new(*name)).collect::<Result<Vec<_>, _>>() else {
+            skyline::println!("[itempack] {directory}: names must not contain NUL; skipped");
+            return None;
+        };
+        let members: Vec<CloneItemFamilyMemberV2> = strings
+            .iter()
+            .map(|name| CloneItemFamilyMemberV2 {
+                item_kind: KIND_AUTO,
+                flags: 0,
+                resource_name: name.as_ptr(),
+                agent_name: name.as_ptr(),
+                reserved: [0; 2],
+            })
+            .collect();
+        let registration = CloneItemFamilyRegistrationV2 {
+            api_version: API_VERSION_V2,
+            struct_size: core::mem::size_of::<CloneItemFamilyRegistrationV2>() as u32,
+            base_owner_kind: declaration.base_kind,
+            member_count: members.len() as u32,
+            member_struct_size: core::mem::size_of::<CloneItemFamilyMemberV2>() as u32,
+            flags: 0,
+            members: members.as_ptr(),
+            reserved: [0; 4],
+        };
+        let result = unsafe { crate::item_clones::clone_engine_register_item_family_v2(&registration) };
+        if result != 0 {
+            let expected = unsafe { crate::item_clones::native_family_len(declaration.base_kind) };
+            match expected {
+                Some(count) if count != listed.len() => skyline::println!(
+                    "[itempack] {directory}: family on {base} REFUSED: its family has {count} members, members names {}",
+                    listed.len()
+                ),
+                _ => skyline::println!("[itempack] {directory}: family on {base} REFUSED result={result}"),
+            }
+            return None;
+        }
+        let kind = crate::item_clones::item_kind_for_identity(&declaration.resource_name)?;
+        skyline::println!(
+            "[itempack] {directory}: family on {base} ({}) first kind {kind:#x}",
+            listed.join(", ")
+        );
+        if declaration.spawn_per.is_some() {
+            skyline::println!("[itempack] {directory}: spawn keys are for single items; the family appears as its base does");
+        }
+        register_tables(directory, declaration, kind);
+        Some(kind)
+    }
+
     fn register_tables(directory: &str, declaration: &ItemPackDeclaration, public_kind: i32) {
         for (field, value) in &declaration.common {
             let hash = clone_engine_core::hash40(field);
@@ -519,6 +589,31 @@ resource_name = "wawa"
             parse("resource_name = \"wawa\"\n"),
             Err(ItemPackError::MissingBaseKind)
         );
+    }
+
+    #[test]
+    fn the_base_item_alone_names_the_base() {
+        let declaration = parse("base_item = \"pickelobject\"\nresource_name = \"wawa\"\n").unwrap();
+        assert_eq!(declaration.base_kind, 0x1ae);
+        assert_eq!(
+            parse("base_item = \"nothing\"\nresource_name = \"wawa\"\n"),
+            Err(ItemPackError::UnknownBaseItem { name: "nothing".to_string() })
+        );
+        let declaration = parse("base_kind = 64\nbase_item = \"killsword\"\nresource_name = \"wawa\"\n").unwrap();
+        assert_eq!(declaration.base_kind, 63);
+        let declaration = parse("base_kind = 64\nbase_item = \"a label\"\nresource_name = \"wawa\"\n").unwrap();
+        assert_eq!(declaration.base_kind, 64);
+    }
+
+    #[test]
+    fn a_family_lists_its_members() {
+        let declaration =
+            parse("base_item = \"galleom\"\nresource_name = \"boss\"\nmembers = [\"boss\", \"boss_missile\", \"boss_wave\"]\n")
+                .unwrap();
+        assert_eq!(declaration.base_kind, 367);
+        assert_eq!(declaration.members, ["boss", "boss_missile", "boss_wave"]);
+        let plain = parse("base_item = \"galleom\"\nresource_name = \"boss\"\nmembers = \"boss_missile, boss_wave\"\n").unwrap();
+        assert_eq!(plain.members, ["boss_missile", "boss_wave"]);
     }
 
     #[test]
