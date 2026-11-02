@@ -631,7 +631,7 @@ unsafe fn handle_destroy(handle: *mut usize) -> u64 {
 }
 
 #[skyline::hook(offset = crate::game::rel(HUD_UPDATE))]
-unsafe fn hud_update(manager: usize) -> u64 {
+unsafe fn engine_hud_update(manager: usize) -> u64 {
     let result = original!()(manager);
     crate::menu_movie::battle_frame();
     crate::menu_battle::count_frame();
@@ -741,7 +741,7 @@ pub(crate) fn install() {
         layout_show,
         renderer_remove,
         handle_destroy,
-        hud_update
+        engine_hud_update
     );
     ARMED.store(true, Ordering::Release);
 }
