@@ -13,6 +13,7 @@ const MAX_COSTUMES: usize = 256;
 const LOG_BUDGET: u32 = 48;
 const REPLACE_COSTUME: &[u8] = b"smashline_replace_fighter_vtable_costume\0";
 const GET_ORIGINAL: &[u8] = b"smashline_get_original_fighter_vtable\0";
+const REPLACE_WEAPON: &[u8] = b"smashline_replace_weapon_vtable\0";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -47,11 +48,14 @@ struct Variant {
 }
 
 type ReplaceFn = unsafe extern "C" fn(i32, Costume, usize, usize);
+type ReplaceWeaponFn = unsafe extern "C" fn(i32, usize, usize);
 
 static UPDATES: Mutex<Vec<Update>> = Mutex::new(Vec::new());
 static VARIANTS: Mutex<Vec<Variant>> = Mutex::new(Vec::new());
 static GENERATION: AtomicU32 = AtomicU32::new(0);
 static REPLACE_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static REPLACE_WEAPON_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static INSTALLED: Mutex<bool> = Mutex::new(false);
 static LOG: AtomicU32 = AtomicU32::new(0);
 
 thread_local! {
@@ -240,6 +244,24 @@ unsafe extern "C" fn original_bridge(kind: i32, slot: usize) -> usize {
     crate::clone_vtables::vanilla_fighter_entry(kind, slot as u32).map_or(0, |(_, entry)| entry)
 }
 
+unsafe extern "C" fn replace_weapon_bridge(kind: i32, slot: usize, function: usize) {
+    if crate::custom_articles::custom_weapon_source_kind(kind).is_some() {
+        let written = u32::try_from(slot)
+            .ok()
+            .and_then(|slot| crate::clone_vtables::set_entry(kind, slot, Space::Weapon, function, 0));
+        if written.is_none() {
+            log(format!(
+                "[slvtable] article kind {kind}: Smashline replacement of slot {slot} with {function:#x} refused"
+            ));
+        }
+        return;
+    }
+    let original = REPLACE_WEAPON_ORIGINAL.load(Ordering::Acquire);
+    if original != 0 {
+        core::mem::transmute::<usize, ReplaceWeaponFn>(original)(kind, slot, function);
+    }
+}
+
 unsafe fn symbol(name: &[u8]) -> usize {
     let mut address = 0usize;
     if skyline::nn::ro::LookupSymbol(&mut address, name.as_ptr()) == 0 {
@@ -250,9 +272,30 @@ unsafe fn symbol(name: &[u8]) -> usize {
 }
 
 pub(crate) unsafe fn install() {
+    let Ok(mut installed) = INSTALLED.lock() else {
+        return;
+    };
+    if *installed {
+        return;
+    }
     let replace = symbol(REPLACE_COSTUME);
     if replace == 0 {
         return;
+    }
+    *installed = true;
+    let replace_weapon = symbol(REPLACE_WEAPON);
+    if replace_weapon != 0 {
+        let mut trampoline: *mut libc::c_void = core::ptr::null_mut();
+        skyline::hooks::A64HookFunction(
+            replace_weapon as *const libc::c_void,
+            replace_weapon_bridge as *const () as *const libc::c_void,
+            &mut trampoline,
+        );
+        if trampoline.is_null() {
+            crate::dbg_log_public("[slvtable] hooking smashline_replace_weapon_vtable failed; Smashline's weapon vtable replacements do not reach articles");
+        } else {
+            REPLACE_WEAPON_ORIGINAL.store(trampoline as usize, Ordering::Release);
+        }
     }
     let mut trampoline: *mut libc::c_void = core::ptr::null_mut();
     skyline::hooks::A64HookFunction(
@@ -274,7 +317,7 @@ pub(crate) unsafe fn install() {
         );
     }
     crate::dbg_log_public(&format!(
-        "[slvtable] armed: Smashline 2.0 fighter vtable replacements for clone kinds go into the clone's own vtable, per costume; get_original_fighter_vtable answers {}",
+        "[slvtable] armed: Smashline 2.0 fighter vtable replacements for clone kinds go into the clone's own vtable, per costume, weapon ones into the article's; get_original_fighter_vtable answers {}",
         if original != 0 {
             "a clone's own entry"
         } else {

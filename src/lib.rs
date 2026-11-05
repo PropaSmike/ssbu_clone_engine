@@ -963,6 +963,8 @@ pub(crate) unsafe fn register_v1_with(
         return ERROR_REGISTRATION_CLOSED;
     }
 
+    smashline_vtables::install();
+
     #[cfg(feature = "native_table_backend")]
     if native_tables::status() & BACKEND_STATUS_STATIC_TABLES_READY == 0 {
         let waited = native_tables::ensure_static_tables(REGISTRATION_INIT_WAIT_MILLIS);

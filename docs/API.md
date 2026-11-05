@@ -271,7 +271,11 @@ Smashline 2.0's `replace_fighter_vtable`, `replace_fighter_vtable_costume` and
 `_costume` call runs only the entries that list it; the others run only the
 entries with no list. `get_original_fighter_vtable` answers the clone's own
 entry, `#[hook(slot = ...)]` included. Only these vtable calls claim a costume
-here: `set_costume` on a script agent does not.
+here: `set_costume` on a script agent does not. Call them after `register`.
+
+`replace_weapon_vtable` takes an article's kind (`article("name").weapon_kind()`)
+and writes the article's own copy. `get_original_weapon_vtable` answers the
+source weapon's entry.
 
 ### Mount event
 

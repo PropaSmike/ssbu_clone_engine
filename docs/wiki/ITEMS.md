@@ -143,9 +143,9 @@ item/wawa/script/animcmd/body/sound.lc
 ```
 
 In `config.json`, key every `new-dir-files` group by the folder that directly
-holds the files (`item/wawa/model/body/c00`), and keep the model folders out
-of `new-dir-infos-base`. Otherwise the files never load and the log says
-nothing.
+holds the files (`item/wawa/model/body/c00`). Otherwise the files never load
+and the log says nothing. Leave `new-dir-infos-base` empty: a base link on a
+folder whose children you also add corrupts the base item's files.
 
 `motion_list.bin` names its own folder: the u64 at offset 8 is
 `hash40("item/wawa/motion/body/c00")`. An item loads every animation from the
