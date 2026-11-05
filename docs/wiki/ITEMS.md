@@ -99,8 +99,9 @@ members       = ["my_boss", "my_boss_missile", "my_boss_shockwave"]
 
 - `members` follows the base family's order, this item first. Galleom's is
   `galleom`, `galleommissile`, `galleomshockwave`.
-- Each member takes a free kind and loads its own files: `item/<member>/`,
-  or `assist/<member>/` for an Assist Trophy (see API.md, Items).
+- Each member takes a free kind and loads its own files from the top folder
+  its base lives in: `assist/<member>/`, `pokemon/<member>/`, `boss/<member>/`,
+  or `item/<member>/` for an item that fires shots (see API.md, Items).
 - A wrong count is refused, and the log says how many members the base
   family has.
 - In code: `ItemManifest::new("my_boss", "galleom").members(&[...])`.

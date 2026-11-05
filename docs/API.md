@@ -686,13 +686,14 @@ family with no other code. Item families (`register_item_family`,
 `item_spawn_source`, `item_parent_kind`) clone
 Assist Trophies, Pokemon and bosses with their members. Give each member
 `KIND_AUTO` and read its kind back with `item_kind_for_identity(name)`; the
-item template registers one. An Assist member ships its files under
-`assist/<resource>/` with every folder in `config.json`'s `new-dir-infos` and
-`new-dir-files`, as an item does under `item/`; without them it plays with the
-base's model and motions. Its `motion_list.bin` names its own folder at offset 8
-(`hash40("assist/<resource>/motion/body/c00")`); a copy of the base's list
-plays the base's animations. It loads into the second assist resource container
-when the base holds the first. `item::spawn` loads a clone's own resources
+item template registers one. A member ships its files under its base's top
+folder, `<root>/<resource>/` with `<root>` being `assist`, `pokemon` or `boss`,
+with every folder in `config.json`'s `new-dir-infos` and `new-dir-files`, as an
+item does under `item/`; without them it plays with the base's model and motions.
+Its `motion_list.bin` names its own folder at offset 8
+(`hash40("<root>/<resource>/motion/body/c00")`); a copy of the base's list
+plays the base's animations. An Assist loads into the second assist resource
+container when the base holds the first. `item::spawn` loads a clone's own resources
 before creating it; the game alone loads them only while creating the first
 item of the kind, which then plays with the base's motions.
 
