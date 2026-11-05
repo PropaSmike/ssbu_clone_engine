@@ -266,6 +266,13 @@ smashline::Agent::new("wawa")                                            // the 
     .install();
 ```
 
+Smashline 2.0's `replace_fighter_vtable`, `replace_fighter_vtable_costume` and
+`get_original_fighter_vtable` take a clone's kind. A costume listed by a
+`_costume` call runs only the entries that list it; the others run only the
+entries with no list. `get_original_fighter_vtable` answers the clone's own
+entry, `#[hook(slot = ...)]` included. Only these vtable calls claim a costume
+here: `set_costume` on a script agent does not.
+
 ### Mount event
 
 `v2::on_mods_mounted(callback)`: runs once ARCropolis has mounted the mods.

@@ -13,7 +13,7 @@ pub(crate) const FIGHTER_SLOTS: usize = 147;
 pub(crate) const WEAPON_SLOTS: usize = 104;
 pub(crate) const ITEM_SLOTS: usize = 181;
 pub(crate) const ITEM_OBJECT_VTABLE: usize = 0x5070488;
-const HEADER: usize = 3;
+pub(crate) const HEADER: usize = 3;
 const ITEM_HEADER: usize = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -226,6 +226,7 @@ unsafe fn sync(kind: i32, space: Space, table: usize, vanilla: usize) {
     if drifts.is_empty() {
         return;
     }
+    crate::smashline_vtables::invalidate();
     let records = RECORDS.lock().ok();
     for drift in drifts {
         core::ptr::write_volatile((table as *mut usize).add(slots + drift.index), drift.now);
@@ -485,8 +486,12 @@ pub(crate) unsafe fn report_fighter_construction(kind: i32, object: usize) {
     if object == 0 {
         return;
     }
-    let private = fighter_slot(kind).map(|slot| slot.load(Ordering::Acquire)).filter(|class| *class != 0);
     let held = core::ptr::read_volatile((object + FIGHTER_CLASS_FIELD) as *const usize);
+    let private = if crate::smashline_vtables::kind_of_variant(held) == Some(kind) {
+        Some(held)
+    } else {
+        fighter_slot(kind).map(|slot| slot.load(Ordering::Acquire)).filter(|class| *class != 0)
+    };
     report_construction("fighter", "holds", kind, object, FIGHTER_CLASS_FIELD, held, private);
 }
 
@@ -523,6 +528,7 @@ fn fighter_kind_of_index(index: usize) -> Option<i32> {
 
 pub(crate) fn fighter_kind_of_class(class: usize) -> Option<i32> {
     private_owner(&FIGHTER_CLASSES, fighter_kind_of_index, class)
+        .or_else(|| crate::smashline_vtables::kind_of_variant(class))
 }
 
 pub(crate) fn weapon_kind_of_class(class: usize) -> Option<i32> {
@@ -644,6 +650,7 @@ pub(crate) unsafe fn set_entry(
         });
     }
     write_original(original_out, previous);
+    crate::smashline_vtables::invalidate();
     dbg_log_public(&format!(
         "[vtable] {} kind {kind} slot {index}: {previous:#x} -> {function:#x}{}",
         space.label(),

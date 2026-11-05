@@ -848,8 +848,11 @@ pub(crate) unsafe fn fighter_init_kind_bridge(
         let outer_index = INIT_MEMBER_INDEX.try_with(|cell| cell.replace(member_index)).ok().flatten();
         let row = crate::fighter_param_rows::enter(kind, base);
         let params = crate::fighter_params::enter_clone_window(kind, base, entry_id);
+        let costume = crate::smashline_vtables::entry_costume(entry_id);
         with_construction_context(kind, || {
-            call_original!(object, id, base, entry_id, spoof_hash)
+            crate::smashline_vtables::with_costume(costume, || {
+                call_original!(object, id, base, entry_id, spoof_hash)
+            })
         });
         let _ = INIT_MEMBER_INDEX.try_with(|cell| cell.set(outer_index));
         crate::clone_vtables::report_fighter_construction(kind, object as usize);

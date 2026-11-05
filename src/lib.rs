@@ -165,6 +165,7 @@ mod stage_transaction;
 mod text_patch;
 mod thread_context;
 mod clone_vtables;
+mod smashline_vtables;
 mod article_hurtboxes;
 mod article_lvds;
 mod weapon_records;
@@ -3413,7 +3414,7 @@ unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
         Some(base) => {
             diag_reroute_log!(fighter_class_resolver_hook, kind, base);
             if let Some(class) = clone_vtables::fighter_class_for(kind, base) {
-                return class as u64;
+                return smashline_vtables::class_for(kind, class) as u64;
             }
             base
         }
@@ -3423,7 +3424,7 @@ unsafe fn fighter_class_resolver_hook(kind: i32) -> u64 {
                 if let Some(clone) = active_construction_kind() {
                     if clone_base(clone) == Some(kind) {
                         if let Some(class) = clone_vtables::fighter_class_for(clone, kind) {
-                            return class as u64;
+                            return smashline_vtables::class_for(clone, class) as u64;
                         }
                     }
                 }
@@ -4925,6 +4926,7 @@ pub fn main() {
     skyline::println!("[clone_engine] init (SSBU {} create_agent clone engine)", game::version().name());
     report_smashline_name_support();
     common_vtables::note_smashline();
+    unsafe { smashline_vtables::install() };
 
     #[cfg(feature = "stage_relocate")]
     stage_transaction::apply_select_cap("early");
