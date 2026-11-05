@@ -37,6 +37,9 @@ unsafe extern "C" fn glide_exec(fighter: &mut L2CFighterCommon) -> L2CValue {
 
 #[allow(dead_code)]
 pub fn install() {
+    if !glide::enabled() {
+        return; // the player's settings.toml says gliding = false: another mod's glide is left alone
+    }
     Agent::new("template_fighter")
         .on_line(Main, glide_entry) // the way in, checked every frame
         .status(Init, *FIGHTER_STATUS_KIND_GLIDE_START, glide_start_init) // the game's own glide statuses

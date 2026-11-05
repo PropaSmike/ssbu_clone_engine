@@ -7,6 +7,28 @@ use smash::lib::lua_const::*;
 use smash::lib::L2CValue;
 use smash::lua2cpp::L2CFighterCommon;
 use smash::phx::{Hash40, Vector2f, Vector3f};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+
+use crate::resolve;
+
+type GlidingFn = unsafe extern "C" fn() -> bool;
+
+static GLIDING_FN: AtomicUsize = AtomicUsize::new(0);
+static GLIDING: AtomicU8 = AtomicU8::new(0);
+
+pub fn enabled() -> bool {
+    match GLIDING.load(Ordering::Acquire) {
+        1 => return true,
+        2 => return false,
+        _ => {}
+    }
+    let on = match resolve(&GLIDING_FN, b"clone_engine_gliding_v1\0") {
+        Some(address) => unsafe { core::mem::transmute::<usize, GlidingFn>(address)() },
+        None => true,
+    };
+    GLIDING.store(if on { 1 } else { 2 }, Ordering::Release);
+    on
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glide {
@@ -89,6 +111,9 @@ unsafe fn grounded(boma: *mut BattleObjectModuleAccessor) -> bool {
 }
 
 pub unsafe fn frame(fighter: &mut L2CFighterCommon, glide: &Glide) -> bool {
+    if !enabled() {
+        return false;
+    }
     let boma = boma(fighter);
     if grounded(boma) {
         WorkModule::off_flag(boma, *FIGHTER_INSTANCE_WORK_ID_FLAG_NO_GLIDE);

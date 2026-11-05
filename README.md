@@ -45,6 +45,15 @@ Every mod pack goes in its own folder under `ultimate/mods/`. If a pack has
 code, that code is a `plugin.nro` inside the pack's own folder, never in the
 global plugin folder.
 
+The first boot writes `sd:/ultimate/clone_engine/settings.toml`:
+
+```toml
+gliding = true
+```
+
+`false` turns off the glide that packs get from the engine, for use with
+another glide mod.
+
 ## A fighter
 
 The plugin registers the fighter, then keeps its CSK, ParamConfig and

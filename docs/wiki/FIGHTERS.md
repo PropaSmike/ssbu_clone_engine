@@ -375,12 +375,19 @@ unsafe extern "C" fn glide_exec(fighter: &mut L2CFighterCommon) -> L2CValue {
 }
 // glide_start_init / glide_start_exec the same way
 
-agent.on_line(Main, glide_entry);
-agent.status(Init, *FIGHTER_STATUS_KIND_GLIDE_START, glide_start_init);
-agent.status(Exec, *FIGHTER_STATUS_KIND_GLIDE_START, glide_start_exec);
-agent.status(Init, *FIGHTER_STATUS_KIND_GLIDE, glide_init);
-agent.status(Exec, *FIGHTER_STATUS_KIND_GLIDE, glide_exec);
+if glide::enabled() {
+    agent.on_line(Main, glide_entry);
+    agent.status(Init, *FIGHTER_STATUS_KIND_GLIDE_START, glide_start_init);
+    agent.status(Exec, *FIGHTER_STATUS_KIND_GLIDE_START, glide_start_exec);
+    agent.status(Init, *FIGHTER_STATUS_KIND_GLIDE, glide_init);
+    agent.status(Exec, *FIGHTER_STATUS_KIND_GLIDE, glide_exec);
+}
 ```
+
+- Players with another glide mod set `gliding = false` in
+  `sd:/ultimate/clone_engine/settings.toml`, which the engine writes on its
+  first boot (`gliding = true`). `glide::enabled()` is then false, so install
+  nothing glide-related; `glide::frame` does nothing either way.
 
 - Hold jump through the top of your midair jump. Forward or down dives and
   gains speed, back or up climbs and loses it; out of speed the glide ends.

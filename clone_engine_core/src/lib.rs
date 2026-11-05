@@ -33,6 +33,7 @@ pub mod owner_param_words;
 pub mod param_swap;
 pub mod partner_params;
 pub mod prc;
+pub mod settings;
 pub mod slots;
 pub mod stage_gimmicks;
 pub mod status_starts;

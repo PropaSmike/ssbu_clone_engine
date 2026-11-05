@@ -166,6 +166,7 @@ mod text_patch;
 mod thread_context;
 mod clone_vtables;
 mod smashline_vtables;
+mod settings;
 mod article_hurtboxes;
 mod article_lvds;
 mod weapon_records;
@@ -4929,6 +4930,7 @@ pub fn main() {
     report_smashline_name_support();
     common_vtables::note_smashline();
     unsafe { smashline_vtables::install() };
+    settings::get();
 
     #[cfg(feature = "stage_relocate")]
     stage_transaction::apply_select_cap("early");
