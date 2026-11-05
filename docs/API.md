@@ -175,6 +175,11 @@ Without `own_css()` the engine publishes an entry itself from `name_label`,
 `series`, `disp_order`, `save_no`, `exhibit_year` and `narration`. Do not do
 both; CSK keeps the last one written.
 
+A player's `disp_order` for a clone in any `mods:/database/*.json`
+(`character_database_entries`) wins over the pack's, whichever loads first.
+The engine merges that partial entry into the clone's full row; CSK alone
+would rebuild the row from it and blank the fighter.
+
 ### `fighter.toml`
 
 The same declaration as a file beside `config.json`, read at boot. The plugin

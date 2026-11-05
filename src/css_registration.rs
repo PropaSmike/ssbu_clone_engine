@@ -562,7 +562,9 @@ pub(crate) unsafe fn register_one_csk_css_slot(
         is_img_ext_skill_page0: BoolType::Overwrite(false),
         is_img_ext_skill_page1: BoolType::Overwrite(false),
         is_img_ext_skill_page2: BoolType::Overwrite(false),
-        disp_order: SignedByteType::Overwrite(css.disp_order),
+        disp_order: SignedByteType::Overwrite(
+            crate::chara_orders::player_disp_order(ui_chara).unwrap_or(css.disp_order),
+        ),
         save_no: SignedByteType::Overwrite(css.save_no),
         skill_list_order: SignedByteType::Overwrite(css.disp_order),
         chara_count: SignedByteType::Overwrite(1),

@@ -3,6 +3,7 @@ pub mod article_literals;
 pub mod article_lvd;
 pub mod command_input;
 pub mod common_vtable;
+pub mod csk_database;
 pub mod csk_stage_vec;
 pub mod fighter_common_copies;
 pub mod fighter_toml;

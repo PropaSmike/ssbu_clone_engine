@@ -5,6 +5,7 @@ const MOD_FILESYSTEM_MOUNTED: u32 = 1;
 
 static SUBSCRIBED: AtomicBool = AtomicBool::new(false);
 static MOUNTED: AtomicBool = AtomicBool::new(false);
+static MODS_FS: AtomicBool = AtomicBool::new(false);
 
 fn listeners() -> &'static Mutex<Vec<usize>> {
     static LISTENERS: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
@@ -13,6 +14,10 @@ fn listeners() -> &'static Mutex<Vec<usize>> {
 
 pub(crate) fn mounted() -> bool {
     MOUNTED.load(Ordering::Acquire)
+}
+
+pub(crate) fn mods_fs_mounted() -> bool {
+    MODS_FS.load(Ordering::Acquire)
 }
 
 fn run(address: usize) {
@@ -24,6 +29,11 @@ fn run(address: usize) {
 }
 
 extern "C" fn on_mod_filesystem_mounted(_event: u32) {
+    MODS_FS.store(true, Ordering::Release);
+    mounted_now();
+}
+
+fn mounted_now() {
     MOUNTED.store(true, Ordering::Release);
     crate::fighter_packs::apply_params();
     let pending = listeners()
@@ -59,7 +69,7 @@ pub(crate) fn subscribe() {
             skyline::println!(
                 "[mount] arcrop_register_event_callback is not exported; fighter.toml [params] and pack mount listeners run now"
             );
-            on_mod_filesystem_mounted(MOD_FILESYSTEM_MOUNTED);
+            mounted_now();
         }
     }
 }

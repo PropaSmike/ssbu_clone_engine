@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use the_csk_collection_api::{
-    BoolType, CharacterDatabaseEntry, Hash40Map, Hash40Type, IntType, ShortType, SignedByteType,
-    StringType, UnsignedByteMap, UnsignedByteType,
+    BoolType, CStrCSK, CharacterDatabaseEntry, Hash40Map, Hash40Type, IntType, ShortType,
+    SignedByteType, StringType, UnsignedByteMap, UnsignedByteType,
 };
 
 const PLAYABLE_ROWS: &[&str] = &[
@@ -34,6 +34,15 @@ static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static LOG: AtomicU32 = AtomicU32::new(0);
 static COSTUME_LOG: AtomicU32 = AtomicU32::new(0);
 static COLOR_STARTS: RwLock<Vec<(u64, u8)>> = RwLock::new(Vec::new());
+static KEPT: RwLock<Vec<KeptRow>> = RwLock::new(Vec::new());
+
+struct KeptRow {
+    entry: CharacterDatabaseEntry,
+    name: Option<String>,
+}
+
+unsafe impl Send for KeptRow {}
+unsafe impl Sync for KeptRow {}
 
 type AddCharaFn = unsafe extern "C" fn(*const CharacterDatabaseEntry);
 
@@ -149,7 +158,6 @@ fn based_entry(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry>
         is_img_ext_skill_page1 as BoolType,
         is_img_ext_skill_page2 as BoolType,
         skill_list_order as SignedByteType,
-        disp_order as SignedByteType,
         chara_count as SignedByteType,
         can_select as BoolType,
         is_usable_soundtest as BoolType,
@@ -170,6 +178,7 @@ fn based_entry(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry>
         color_num as UnsignedByteType,
         shop_item_tag as Hash40Type,
     );
+    based.disp_order = placed(entry, true);
     based.save_no = SignedByteType::Optional(None);
     let mut indices = kept_index_map(&entry.extra_index_maps);
     let color_start = set_byte(indices.get(&hash40("color_start_index"))).unwrap_or(0) as u16;
@@ -193,6 +202,163 @@ fn based_entry(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry>
         entry.ui_chara_id
     ));
     Some(based)
+}
+
+macro_rules! take_set_values {
+    ($into:ident <- $from:ident: $($field:ident as $kind:ident),* $(,)?) => {
+        $(
+            match &$from.$field {
+                $kind::Overwrite(value) | $kind::Optional(Some(value)) => {
+                    $into.$field = $kind::Overwrite(value.clone());
+                }
+                $kind::Optional(None) => {}
+            }
+        )*
+    };
+}
+
+fn name_text(value: &StringType) -> Option<String> {
+    let text = match value {
+        StringType::Overwrite(text) | StringType::Optional(Some(text)) => text,
+        StringType::Optional(None) => return None,
+    };
+    if text.ptr.is_null() {
+        return None;
+    }
+    unsafe { core::ffi::CStr::from_ptr(text.ptr as *const core::ffi::c_char) }
+        .to_str()
+        .ok()
+        .map(str::to_string)
+}
+
+fn is_full_custom_row(entry: &CharacterDatabaseEntry) -> bool {
+    !is_playable_row(entry.ui_chara_id)
+        && (entry.clone_from_ui_chara_id.is_some() || set_hash(&entry.fighter_kind).is_some())
+}
+
+fn is_partial_custom_row(entry: &CharacterDatabaseEntry) -> bool {
+    !is_playable_row(entry.ui_chara_id)
+        && entry.clone_from_ui_chara_id.is_none()
+        && set_hash(&entry.fighter_kind).is_none()
+}
+
+fn remember(entry: &CharacterDatabaseEntry) {
+    if !is_full_custom_row(entry) {
+        return;
+    }
+    let kept = KeptRow {
+        entry: entry.clone(),
+        name: name_text(&entry.name_id),
+    };
+    if let Ok(mut rows) = KEPT.write() {
+        rows.retain(|row| row.entry.ui_chara_id != entry.ui_chara_id);
+        rows.push(kept);
+    }
+}
+
+fn merged_partial(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry> {
+    if !is_partial_custom_row(entry) {
+        return None;
+    }
+    let (mut merged, kept_name) = KEPT
+        .read()
+        .ok()?
+        .iter()
+        .find(|row| row.entry.ui_chara_id == entry.ui_chara_id)
+        .map(|row| (row.entry.clone(), row.name.clone()))?;
+    merged.name_id = match name_text(&entry.name_id).or(kept_name) {
+        Some(text) => StringType::Overwrite(CStrCSK::new(&text)),
+        None => StringType::Optional(None),
+    };
+    take_set_values!(merged <- entry:
+        fighter_kind_corps as Hash40Type,
+        ui_series_id as Hash40Type,
+        fighter_type as Hash40Type,
+        alt_chara_id as Hash40Type,
+        exhibit_year as ShortType,
+        exhibit_day_order as IntType,
+        ext_skill_page_num as SignedByteType,
+        is_img_ext_skill_page0 as BoolType,
+        is_img_ext_skill_page1 as BoolType,
+        is_img_ext_skill_page2 as BoolType,
+        skill_list_order as SignedByteType,
+        disp_order as SignedByteType,
+        save_no as SignedByteType,
+        chara_count as SignedByteType,
+        can_select as BoolType,
+        is_usable_soundtest as BoolType,
+        is_called_pokemon as BoolType,
+        is_mii as BoolType,
+        is_boss as BoolType,
+        is_hidden_boss as BoolType,
+        is_dlc as BoolType,
+        is_patch as BoolType,
+        is_plural_message as BoolType,
+        is_plural_narration as BoolType,
+        is_article as BoolType,
+        extra_flags as IntType,
+        has_multiple_face as BoolType,
+        result_pf0 as BoolType,
+        result_pf1 as BoolType,
+        result_pf2 as BoolType,
+        color_num as UnsignedByteType,
+        shop_item_tag as Hash40Type,
+    );
+    let added_indices = kept_index_map(&entry.extra_index_maps);
+    if !added_indices.is_empty() {
+        let mut indices = kept_index_map(&merged.extra_index_maps);
+        indices.extend(added_indices);
+        merged.extra_index_maps = UnsignedByteMap::Overwrite(indices);
+    }
+    let added_hashes = kept_hash_map(&entry.extra_hash_maps);
+    if !added_hashes.is_empty() {
+        let mut hashes = kept_hash_map(&merged.extra_hash_maps);
+        hashes.extend(added_hashes);
+        merged.extra_hash_maps = Hash40Map::Overwrite(hashes);
+    }
+    log(format!(
+        "[cskrow] {:#x}: an entry without clone_from or fighter_kind (a database JSON edit) would rebuild the row from nothing; merged into the full row instead, disp_order {:?}",
+        entry.ui_chara_id, merged.disp_order
+    ));
+    Some(merged)
+}
+
+fn pack_order(value: &SignedByteType) -> Option<i8> {
+    match value {
+        SignedByteType::Overwrite(order) | SignedByteType::Optional(Some(order)) => Some(*order),
+        SignedByteType::Optional(None) => None,
+    }
+}
+
+fn placed(entry: &CharacterDatabaseEntry, cloned: bool) -> SignedByteType {
+    match crate::chara_orders::player_disp_order(entry.ui_chara_id) {
+        Some(order) => {
+            if pack_order(&entry.disp_order) != Some(order) {
+                log(format!(
+                    "[cskrow] {:#x} disp_order {order} from mods:/database replaces the pack's {:?}",
+                    entry.ui_chara_id, entry.disp_order
+                ));
+            }
+            SignedByteType::Overwrite(order)
+        }
+        None => match &entry.disp_order {
+            SignedByteType::Optional(Some(order)) if cloned => SignedByteType::Overwrite(*order),
+            other => other.clone(),
+        },
+    }
+}
+
+fn reordered(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry> {
+    if is_playable_row(entry.ui_chara_id) {
+        return None;
+    }
+    let order = crate::chara_orders::player_disp_order(entry.ui_chara_id)?;
+    if matches!(entry.disp_order, SignedByteType::Overwrite(current) if current == order) {
+        return None;
+    }
+    let mut moved = entry.clone();
+    moved.disp_order = placed(entry, false);
+    Some(moved)
 }
 
 fn remember_color_start(entry: &CharacterDatabaseEntry) {
@@ -224,13 +390,17 @@ unsafe extern "C" fn add_chara_bridge(entry: *const CharacterDatabaseEntry) {
         return;
     }
     let original: AddCharaFn = core::mem::transmute(original);
-    if let Some(entry) = entry.as_ref() {
-        remember_color_start(entry);
-    }
-    match entry.as_ref().and_then(based_entry) {
-        Some(based) => original(&based),
-        None => original(entry),
-    }
+    let Some(given) = entry.as_ref() else {
+        original(entry);
+        return;
+    };
+    remember_color_start(given);
+    let rewritten = based_entry(given)
+        .or_else(|| merged_partial(given))
+        .or_else(|| reordered(given));
+    let sent = rewritten.as_ref().unwrap_or(given);
+    remember(sent);
+    original(sent);
 }
 
 #[skyline::hook(offset = crate::game::rel(crate::OFF_PLAYER_INFO_COSTUME_STORED), inline)]
