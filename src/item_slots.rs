@@ -361,8 +361,7 @@ const ITEM_KIND_CONFIG_ON_DEMAND: u8 = 2;
 const OFF_ITEM_ACQUIRE: usize = 0x1607FC0;
 const ITEM_MANAGER_GLOBAL: usize = 0x52C3498;
 const ITEM_RESOURCE_MANAGER_GLOBAL: usize = 0x5323680;
-const ITEM_RESOURCE_CONTAINER_OFFSET: usize = 0x78;
-const ITEM_RESOURCE_ASSIST_CONTAINERS: [usize; 2] = [0x88, 0x90];
+const ITEM_RESOURCE_CONTAINERS: [usize; 7] = [0x78, 0x88, 0x90, 0x98, 0xA0, 0xA8, 0xB0];
 const MATCH_LOAD_TAIL: usize = 0x15D5604;
 const MATCH_LOAD_TAIL_EXPECTED: u32 = 0xF106C27F;
 const POST_ACQUIRE: usize = 0x15DB790;
@@ -771,17 +770,12 @@ fn container_listed(container: usize, live: &[usize]) -> bool {
     container != 0 && live.contains(&container)
 }
 
-unsafe fn live_containers() -> [usize; 3] {
+unsafe fn live_containers() -> [usize; ITEM_RESOURCE_CONTAINERS.len()] {
     let manager = core::ptr::read_volatile(crate::game::addr(ITEM_RESOURCE_MANAGER_GLOBAL) as *const usize);
     if manager == 0 {
-        return [0; 3];
+        return [0; ITEM_RESOURCE_CONTAINERS.len()];
     }
-    let at = |offset: usize| core::ptr::read_volatile((manager + offset) as *const usize);
-    [
-        at(ITEM_RESOURCE_CONTAINER_OFFSET),
-        at(ITEM_RESOURCE_ASSIST_CONTAINERS[0]),
-        at(ITEM_RESOURCE_ASSIST_CONTAINERS[1]),
-    ]
+    ITEM_RESOURCE_CONTAINERS.map(|offset| core::ptr::read_volatile((manager + offset) as *const usize))
 }
 
 unsafe fn slot_is_populated(slot: usize, native_slot: usize) -> bool {
@@ -1058,7 +1052,7 @@ fn report_decision(public_kind: i32, slot: usize, native_slot: usize, populated:
     ));
 }
 
-const DECISION_LOG_LIMIT: usize = 24;
+const DECISION_LOG_LIMIT: usize = 128;
 
 static BASE_RELOAD_ACTIVE: crate::thread_context::ThreadReentrancyFlag =
     crate::thread_context::ThreadReentrancyFlag::new("base_slot_reload");
