@@ -34,6 +34,6 @@ Never write one into a file name or a config file.
 
 ## 4. Read the log
 
-The engine reports what it did in Skyline's log. Look for lines starting with
+The engine reports what it did in Ozone's log. Look for lines starting with
 `[fighterpack]`, `[itempack]`, `[stagepack]` and `[clone_engine]`. A line
 saying `refused` or `REFUSED` names the reason a pack did not load.

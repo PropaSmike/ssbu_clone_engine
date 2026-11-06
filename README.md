@@ -22,7 +22,7 @@ a 2.0 boot until they are rebuilt.
 
 ## What you need
 
-- Skyline and ARCropolis, the usual mod loaders
+- Ozone and ARCropolis
 - Smashline
 - NRO Hook
 - The CSK Collection, which adds the character and stage select entries
@@ -190,7 +190,8 @@ modding community. People are not always kind to those who put in the hardest
 work, so please show them the respect they deserve.
 
 **Runtime dependencies**
-- [Skyline](https://github.com/skyline-dev/skyline): shadowninja108, jam1garner, 3096, Raytwo, Genwald, blu-dev, jugeeya, Sammi-Husky
+- [Ozone](https://github.com/WuBoytH/ozone): WuBoytH, Shadów, blujay, Raytwo
+- [Skyline](https://github.com/skyline-dev/skyline), which came before it: shadowninja108, jam1garner, 3096, Raytwo, Genwald, blu-dev, jugeeya, Sammi-Husky
 - [ARCropolis](https://github.com/Raytwo/arcropolis): Raytwo, blu-dev, Coolsonickirby, jam1garner, jozz024, WuBoytH, itsmeft24, Genwald
 - [Smashline](https://github.com/HDR-Development/smashline): WuBoytH, blu-dev, FatherOfEgg, moklmaru, plyrthn, Moydow
 - [NRO Hook](https://github.com/ultimate-research/nro-hook-plugin): jam1garner, jugeeya, blu-dev
