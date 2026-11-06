@@ -1,6 +1,6 @@
 -- The modes page: one row per [[mode]] the packs' menu.toml declare, opened
 -- from any main menu page by the modes button (modes_button in
--- sd:/ultimate/clone_engine/config.toml). It is drawn on the game's own Mob
+-- sd:/ultimate/dionysus/config.toml). It is drawn on the game's own Mob
 -- Smash popup: three rows that scroll through every installed mode, the
 -- selected mode's art where the popup shows its picture, and its description
 -- in the footer. Choosing a row starts the mode's sequence, or runs the mode

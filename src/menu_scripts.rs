@@ -1,4 +1,4 @@
-use clone_engine_core::menu::{self, Patch, Registry, ScriptRoot};
+use dionysus_core::menu::{self, Patch, Registry, ScriptRoot};
 use core::ffi::{c_char, CStr};
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::cell::RefCell;

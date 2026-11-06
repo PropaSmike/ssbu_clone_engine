@@ -86,7 +86,7 @@ unsafe fn fireball_hit(class: u64, weapon: *mut smash::app::Weapon, log: u32) ->
 
 The first parameter is the class object; the fighter or weapon comes second,
 as in the one-slot signature. `get_agent_virtual_function` is in
-`clone_engine_api::v2` with the tutorials' signature, and
+`dionysus_api::v2` with the tutorials' signature, and
 `WAWA.set_vtable_entry(index, f)` writes an entry by hand.
 
 The agent vtable that every fighter shares is `common_slot` rather than

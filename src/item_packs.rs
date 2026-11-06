@@ -174,7 +174,7 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
     if declaration.resource_name.is_empty() {
         return Err(ItemPackError::MissingResourceName);
     }
-    let named = declaration.base_item.as_deref().and_then(clone_engine_core::item_kinds::item_kind);
+    let named = declaration.base_item.as_deref().and_then(dionysus_core::item_kinds::item_kind);
     match (named, saw_base, declaration.base_item.as_deref()) {
         (Some(kind), _, _) => declaration.base_kind = kind,
         (None, true, _) => {}
@@ -185,7 +185,7 @@ pub fn parse(text: &str) -> Result<ItemPackDeclaration, ItemPackError> {
 }
 
 pub fn parse_all(text: &str) -> Result<Vec<ItemPackDeclaration>, ItemPackError> {
-    let blocks = clone_engine_core::manifest::blocks(text, "item")
+    let blocks = dionysus_core::manifest::blocks(text, "item")
         .map_err(|line| ItemPackError::Malformed { line })?;
     blocks
         .iter()
@@ -207,7 +207,7 @@ pub fn parse_all(text: &str) -> Result<Vec<ItemPackDeclaration>, ItemPackError> 
 #[cfg(all(not(test), feature = "item_clone_backend"))]
 mod live {
     use super::*;
-    use clone_engine_api::{
+    use dionysus_api::{
         CloneItemFamilyMemberV2, CloneItemFamilyRegistrationV2, CloneItemRegistrationV1,
         CloneItemUiRegistrationV1, API_VERSION_V1, API_VERSION_V2, ITEM_UI_FLAG_TRAINING, KIND_AUTO,
     };
@@ -247,10 +247,10 @@ mod live {
             Ok(parsed) => parsed,
             Err(error) => {
                 skyline::println!("[itempack] {label} (plugin manifest) is not readable: {error:?}");
-                return clone_engine_api::ERROR_MANIFEST;
+                return dionysus_api::ERROR_MANIFEST;
             }
         };
-        let mut first = clone_engine_api::ERROR_MANIFEST;
+        let mut first = dionysus_api::ERROR_MANIFEST;
         for declaration in &parsed {
             if let Some(kind) = register_probing(label, declaration) {
                 if first < 0 {
@@ -357,7 +357,7 @@ mod live {
                 "[itempack] {directory}: REFUSED public={public_kind:#x} base={} result={result}",
                 declaration.base_kind
             );
-            return if result == clone_engine_api::ERROR_DUPLICATE {
+            return if result == dionysus_api::ERROR_DUPLICATE {
                 RegisterOutcome::KindTaken
             } else {
                 RegisterOutcome::Refused
@@ -450,7 +450,7 @@ mod live {
 
     fn register_tables(directory: &str, declaration: &ItemPackDeclaration, public_kind: i32) {
         for (field, value) in &declaration.common {
-            let hash = clone_engine_core::hash40(field);
+            let hash = dionysus_core::hash40(field);
             let result = match value {
                 ItemPackValue::Float(value) => {
                     crate::item_clones::clone_engine_item_common_set(public_kind, hash, *value as f32)
@@ -468,7 +468,7 @@ mod live {
                 );
                 continue;
             };
-            let Some(word) = clone_engine_core::owner_param_words::words_of(owner_kind)
+            let Some(word) = dionysus_core::owner_param_words::words_of(owner_kind)
                 .iter()
                 .find(|word| word.path() == *field || word.field_name() == field)
             else {
@@ -479,10 +479,10 @@ mod live {
             };
             let offset = u32::from(word.offset);
             let result = match (word.kind, value) {
-                (clone_engine_core::owner_param_words::WordKind::F32, ItemPackValue::Float(value)) => {
+                (dionysus_core::owner_param_words::WordKind::F32, ItemPackValue::Float(value)) => {
                     crate::item_clones::clone_engine_item_owner_param_set_f32(public_kind, owner_kind, offset, *value as f32)
                 }
-                (clone_engine_core::owner_param_words::WordKind::F32, ItemPackValue::Int(value)) => {
+                (dionysus_core::owner_param_words::WordKind::F32, ItemPackValue::Int(value)) => {
                     crate::item_clones::clone_engine_item_owner_param_set_f32(public_kind, owner_kind, offset, *value as f32)
                 }
                 (_, ItemPackValue::Int(value)) => {
@@ -513,11 +513,11 @@ mod live {
         for generator in generators {
             let result = crate::item_generate::register(
                 public_kind,
-                clone_engine_core::hash40(&generator),
+                dionysus_core::hash40(&generator),
                 per,
                 min,
                 max,
-                clone_engine_core::item_generate::VARIATION_AUTO,
+                dionysus_core::item_generate::VARIATION_AUTO,
             );
             skyline::println!(
                 "[itempack] {directory}: spawn in {generator} per={per} count={min}..{max} result={result}"
@@ -541,7 +541,7 @@ pub(crate) fn register_text(label: &str, text: &str) -> i32 {
 
 #[cfg(not(all(not(test), feature = "item_clone_backend")))]
 pub(crate) fn register_text(_label: &str, _text: &str) -> i32 {
-    clone_engine_api::ERROR_UNSUPPORTED
+    dionysus_api::ERROR_UNSUPPORTED
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use clone_engine_core::enemy_toml;
+use dionysus_core::enemy_toml;
 
 const MOD_ROOT: &str = "sd:/ultimate/mods";
 

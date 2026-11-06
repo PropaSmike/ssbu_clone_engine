@@ -7,7 +7,7 @@
 //! family's first kind and one member per member of that family. Their files
 //! go under assist/<resource name>/ and pokemon/<resource name>/.
 
-use clone_engine_api::{
+use dionysus_api::{
     item_category, item_family_member_index, item_family_owner, item_kind_for_identity,
     register_item_family, ItemFamilyMember, ItemFamilyRegistration, KIND_AUTO,
 };

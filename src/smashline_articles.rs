@@ -96,23 +96,23 @@ pub(crate) fn agent_name(weapon_kind: i32) -> Option<String> {
 
 pub(crate) fn install_status(weapon_kind: i32, line: i32, status_kind: i32, function: *const ()) -> i32 {
     if !(0..STATUS_LINES).contains(&line) || function.is_null() {
-        return clone_engine_api::ERROR_ARTICLE_SOURCE;
+        return dionysus_api::ERROR_ARTICLE_SOURCE;
     }
     let Some(agent) = agent_name(weapon_kind) else {
-        return clone_engine_api::ERROR_ARTICLE_SOURCE;
+        return dionysus_api::ERROR_ARTICLE_SOURCE;
     };
     let Some(install) = install_status_fn() else {
         skyline::println!("[articlestatus] {agent}: Smashline is not loaded; status {status_kind} is not installed");
-        return clone_engine_api::ERROR_SMASHLINE_REQUIRED;
+        return dionysus_api::ERROR_SMASHLINE_REQUIRED;
     };
-    unsafe { install(clone_engine_core::hash40(&agent), status_kind, line, function) };
+    unsafe { install(dionysus_core::hash40(&agent), status_kind, line, function) };
     if let Ok(mut announced) = ANNOUNCED.lock() {
         if !announced.contains(&weapon_kind) {
             announced.push(weapon_kind);
             skyline::println!("[articlestatus] weapon kind {weapon_kind}: statuses go to Smashline on {agent}");
         }
     }
-    clone_engine_api::RESULT_OK
+    dionysus_api::RESULT_OK
 }
 
 pub(crate) fn numbering_shared() -> bool {

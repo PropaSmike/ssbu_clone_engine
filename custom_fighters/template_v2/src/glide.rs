@@ -1,11 +1,11 @@
-//! Brawl's glide (`clone_engine_api::glide`): hold jump through the top of the
+//! Brawl's glide (`dionysus_api::glide`): hold jump through the top of the
 //! midair jump. It starts from the same input as the float, so lib.rs installs
 //! float.rs and leaves this one commented out; swap the two to glide instead.
 //! The motion list then needs `glide_start`, `glide`, `glide_attack`,
 //! `glide_end` and `glide_landing`, and `game_glideattack` scripts the attack.
 
 use crate::smash;
-use clone_engine_api::glide::{self, Glide};
+use dionysus_api::glide::{self, Glide};
 use smash::lib::{lua_const::*, L2CValue};
 use smash::lua2cpp::L2CFighterCommon;
 use smashline::{Agent, Exec, Init, Main};

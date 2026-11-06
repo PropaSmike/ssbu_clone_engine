@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::smash;
-use clone_engine_api::v2::{hook, slot};
+use dionysus_api::v2::{hook, slot};
 use smash::lib::L2CValue;
 
 static SEEN: AtomicBool = AtomicBool::new(false);
@@ -16,7 +16,7 @@ static OFFSET_SEEN: AtomicBool = AtomicBool::new(false);
 #[hook(slot = slot::fighter::ON_LINK_EVENT)]
 unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event: u64) -> u64 {
     if !SEEN.swap(true, Ordering::Relaxed) {
-        clone_engine_api::elog!("[template_v2] the fighter's own vtable entry ran");
+        dionysus_api::elog!("[template_v2] the fighter's own vtable entry ran");
     }
     call_original!(class, object, event) // the base's entry, same arguments
 }
@@ -27,7 +27,7 @@ unsafe fn on_link_event(class: u64, object: *mut smash::app::BattleObject, event
 #[hook(offset = 0x33bd9c0, me = weapon)]
 unsafe fn weapon_hit(vtable: u64, weapon: *mut smash::app::Weapon, log: u32) -> u32 {
     if !OFFSET_SEEN.swap(true, Ordering::Relaxed) {
-        clone_engine_api::elog!("[template_v2] the shared offset hook ran for this fighter");
+        dionysus_api::elog!("[template_v2] the shared offset hook ran for this fighter");
     }
     call_original!(vtable, weapon, log)
 }
@@ -40,7 +40,7 @@ unsafe fn weapon_hit(vtable: u64, weapon: *mut smash::app::Weapon, log: u32) -> 
 #[hook(common_slot = slot::common::SYS_LINE_SYSTEM_INIT)]
 unsafe fn system_init(agent: u64) -> L2CValue {
     if !COMMON_SEEN.swap(true, Ordering::Relaxed) {
-        clone_engine_api::elog!("[template_v2] the clone's own common vtable entry ran");
+        dionysus_api::elog!("[template_v2] the clone's own common vtable entry ran");
     }
     call_original!(agent) // the entry this replaced, vanilla or another pack's
 }
@@ -49,7 +49,7 @@ unsafe fn system_init(agent: u64) -> L2CValue {
 #[hook(common_slot = slot::common::SUB_BEGIN_ADDED_LINES, article = "template_fireball")]
 unsafe fn fireball_added_lines(agent: u64, lines: L2CValue) -> u64 {
     if !FIREBALL_SEEN.swap(true, Ordering::Relaxed) {
-        clone_engine_api::elog!("[template_v2] the article's own common vtable entry ran");
+        dionysus_api::elog!("[template_v2] the article's own common vtable entry ran");
     }
     call_original!(agent, lines)
 }
@@ -62,14 +62,14 @@ unsafe fn fireball_added_lines(agent: u64, lines: L2CValue) -> u64 {
 #[hook(copy_slot = slot::common::SYS_LINE_STATUS_END_CONTROL)]
 unsafe fn kirby_status_end(agent: u64) -> L2CValue {
     if !COPY_SEEN.swap(true, Ordering::Relaxed) {
-        clone_engine_api::elog!("[template_v2] the copy entry ran on Kirby");
+        dionysus_api::elog!("[template_v2] the copy entry ran on Kirby");
     }
     call_original!(agent) // Kirby's own entry, also when he holds no copy
 }
 
 pub fn install() {
     // every #[hook] in the crate, after registration
-    clone_engine_api::install_hooks!(
+    dionysus_api::install_hooks!(
         on_link_event,
         weapon_hit,
         system_init,

@@ -153,9 +153,9 @@ entrance skipped too, the battle simply starts once it has loaded.
 
 A `[[mode]]` puts a mode of yours on the modes page. The engine's modes
 button opens that page from any main menu page: X, unless `modes_button` in
-`sd:/ultimate/clone_engine/config.toml` names another (`x`, `zl`, `zr`,
+`sd:/ultimate/dionysus/config.toml` names another (`x`, `zl`, `zr`,
 `plus`, `minus`, `lstick`, `rstick`, or `none` for no button). The page itself
-is the `Clone Engine Modes` pack that comes with the engine; it draws on the
+is the `Dionysus Modes` pack that comes with Dionysus; it draws on the
 game's Mob Smash popup. Its three rows scroll through every installed mode
 (L and R jump three), the selected mode's picture shows on the left and its
 description in the footer. Every pack's modes get a row of their own and
@@ -511,7 +511,7 @@ The menu template (`custom_menus/template`) is a complete pack with a plugin:
 every call below is in it.
 
 ```rust
-use clone_engine_api::menu;
+use dionysus_api::menu;
 
 unsafe extern "C" fn level_count(_args: *const i64, _count: usize) -> i64 {
     40

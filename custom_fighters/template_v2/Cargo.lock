@@ -88,41 +88,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "clone_engine_api"
-version = "0.7.0-beta.1"
-dependencies = [
- "clone_engine_core",
- "clone_engine_macros",
- "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
- "skyline_smash",
-]
-
-[[package]]
-name = "clone_engine_core"
-version = "0.7.0-beta.1"
-
-[[package]]
-name = "clone_engine_macros"
-version = "0.7.0-beta.1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "clone_engine_moveset_template_v2"
-version = "0.1.0"
-dependencies = [
- "clone_engine_api",
- "param_config",
- "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
- "smash_script 0.1.0 (git+https://github.com/WuBoytH/smash-script.git?rev=24c5b69b79c7d7b041c3993ecd766ceccf950c2b)",
- "smashline",
- "the_csk_collection_api",
-]
-
-[[package]]
 name = "compile-time-lua-bind-hash"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -152,6 +117,41 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "dionysus_api"
+version = "0.7.0-beta.1"
+dependencies = [
+ "dionysus_core",
+ "dionysus_macros",
+ "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
+ "skyline_smash",
+]
+
+[[package]]
+name = "dionysus_core"
+version = "0.7.0-beta.1"
+
+[[package]]
+name = "dionysus_macros"
+version = "0.7.0-beta.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "dionysus_moveset_template_v2"
+version = "0.1.0"
+dependencies = [
+ "dionysus_api",
+ "param_config",
+ "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
+ "smash_script 0.1.0 (git+https://github.com/WuBoytH/smash-script.git?rev=24c5b69b79c7d7b041c3993ecd766ceccf950c2b)",
+ "smashline",
+ "the_csk_collection_api",
 ]
 
 [[package]]

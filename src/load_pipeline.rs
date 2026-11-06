@@ -1144,7 +1144,7 @@ unsafe fn return_into_main(lr: usize) -> usize {
         core::ptr::read_volatile(at.add(2)),
         core::ptr::read_volatile(at.add(3)),
     ];
-    match clone_engine_core::hook_site::trampoline_return(&words) {
+    match dionysus_core::hook_site::trampoline_return(&words) {
         Some(target) if text.contains(&target) => target,
         _ => lr,
     }

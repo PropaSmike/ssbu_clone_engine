@@ -1,4 +1,4 @@
-use clone_engine_core::menu::{self, Registry, SceneName, Sequence};
+use dionysus_core::menu::{self, Registry, SceneName, Sequence};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 

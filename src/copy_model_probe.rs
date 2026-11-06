@@ -239,7 +239,7 @@ pub(crate) unsafe fn model_build_probe(
 pub(crate) fn install() {
     skyline::install_hooks!(model_build_probe);
     let site = crate::game::addr(CHECKS_FAILED);
-    let wanted = clone_engine_core::hook_site::branch(crate::game::rel(CHECKS_FAILED), crate::game::rel(EMPTY_AND_RELEASE));
+    let wanted = dionysus_core::hook_site::branch(crate::game::rel(CHECKS_FAILED), crate::game::rel(EMPTY_AND_RELEASE));
     let live = unsafe { core::ptr::read_volatile(site as *const u32) };
     let armed = live == wanted
         || (live == CHECKS_FAILED_WORD && unsafe { crate::text_patch::write_word(site, wanted) });

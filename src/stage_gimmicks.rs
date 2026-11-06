@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use clone_engine_core::stage_gimmicks::{
+use dionysus_core::stage_gimmicks::{
     Barrel, BarrelEvent, BarrelMotion, Door, Ladder, Spring, BARREL_EVENT_END_PATH, BARREL_EVENT_SET_PATH,
     DOOR_EVENT_IN, DOOR_INPUT_STICK_UP,
 };
@@ -212,7 +212,7 @@ fn declared_for(stage_id: u32) -> Declared {
 #[cfg(all(not(test), feature = "stage_config_bridge"))]
 mod live {
     use super::*;
-    use clone_engine_core::stage_gimmicks::{AreaParam, BarrelData, Vector4};
+    use dionysus_core::stage_gimmicks::{AreaParam, BarrelData, Vector4};
     use core::sync::atomic::{AtomicBool, Ordering};
 
     static INSTALLED: AtomicBool = AtomicBool::new(false);

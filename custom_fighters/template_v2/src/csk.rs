@@ -61,5 +61,5 @@ pub fn publish() {
         });
     }
 
-    clone_engine_api::elog!("[template_v2] CSK entry published for {} costumes", crate::COSTUMES);
+    dionysus_api::elog!("[template_v2] CSK entry published for {} costumes", crate::COSTUMES);
 }

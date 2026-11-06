@@ -1,4 +1,4 @@
-use clone_engine_core::hud::{check_layout, check_part, HudAction};
+use dionysus_core::hud::{check_layout, check_part, HudAction};
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::ffi::CString;
 use std::sync::{Mutex, RwLock};
@@ -164,7 +164,7 @@ pub(crate) fn register(kind: i32, path: &str) -> Result<(), String> {
     if layouts.iter().any(|layout| layout.kind == kind) {
         return Err(format!("kind {kind} already has a HUD layout"));
     }
-    let hash = clone_engine_core::hash40(path) & HASH_MASK;
+    let hash = dionysus_core::hash40(path) & HASH_MASK;
     layouts.push(Layout {
         kind,
         path: path.to_string(),
@@ -183,7 +183,7 @@ pub(crate) fn register_screen(name: &str, path: &str, x: f32, y: f32, scale: f32
         return Err("the place and scale must be numbers, the scale above 0".to_string());
     }
     let mut screens = SCREENS.write().map_err(|_| "the screen layout table is poisoned".to_string())?;
-    let hash = clone_engine_core::hash40(path) & HASH_MASK;
+    let hash = dionysus_core::hash40(path) & HASH_MASK;
     if let Some(screen) = screens.iter_mut().find(|screen| screen.name == name) {
         if screen.path != path {
             screen.path = path.to_string();

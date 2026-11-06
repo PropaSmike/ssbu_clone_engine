@@ -1,5 +1,5 @@
 [package]
-name = "clone_engine_stage_template"
+name = "dionysus_stage_template"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 [dependencies]
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
 smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
-clone_engine_api = { path = "../../clone_engine_api" }
+dionysus_api = { path = "../../dionysus_api" }
 
 [profile.dev]
 panic = "abort"

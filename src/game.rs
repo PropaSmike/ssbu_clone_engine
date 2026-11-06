@@ -2,8 +2,8 @@ use crate::game_reloc_13_0_5::{OPCODES, TEXT_RANGES};
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 
-const CONFIG_DIRECTORY: &str = "sd:/ultimate/clone_engine";
-const CONFIG_PATH: &str = "sd:/ultimate/clone_engine/config.toml";
+const CONFIG_DIRECTORY: &str = "sd:/ultimate/dionysus";
+const CONFIG_PATH: &str = "sd:/ultimate/dionysus/config.toml";
 const DEFAULT_CONFIG: &str = "game_version = \"auto\"\nmodes_button = \"x\"\n";
 const OLD_TEXT_END: usize = 0x39c_7e90;
 const OLD_DATA_START: usize = 0x39c_8000;
@@ -88,6 +88,7 @@ fn parse_setting(text: &str) -> Option<Setting> {
 }
 
 fn configured() -> Setting {
+    crate::upgrade::carry_old_folder();
     match std::fs::read_to_string(CONFIG_PATH) {
         Ok(text) => parse_setting(&text).unwrap_or_else(|| {
             skyline::println!(

@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
-use clone_engine_core::final_smash::{self, Donor, FINAL};
-use clone_engine_core::motion_list::{self, MotionList};
+use dionysus_core::final_smash::{self, Donor, FINAL};
+use dionysus_core::motion_list::{self, MotionList};
 
 const STATUS_CHANGE: usize = 0x4D_EBE0;
 const STATUS_CHANGE_WORD: u32 = 0xD102_03FF;

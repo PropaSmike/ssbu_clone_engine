@@ -1,4 +1,4 @@
-use clone_engine_core::item_common_row::Table;
+use dionysus_core::item_common_row::Table;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
@@ -1210,12 +1210,12 @@ unsafe fn apply_owner_overrides(scope: usize, public_kind: i32) {
                 "[ownerparam] applied public={public_kind:#x} owner={} +{:#x}: {} -> {}",
                 entry.owner_kind,
                 entry.offset,
-                clone_engine_core::owner_param_words::describe(
+                dionysus_core::owner_param_words::describe(
                     entry.owner_kind,
                     entry.offset,
                     before
                 ),
-                clone_engine_core::owner_param_words::word_at(entry.owner_kind, entry.offset)
+                dionysus_core::owner_param_words::word_at(entry.owner_kind, entry.offset)
                     .map(|word| word.shown(entry.bits))
                     .unwrap_or_else(|| format!("{:#x}", entry.bits))
             ));

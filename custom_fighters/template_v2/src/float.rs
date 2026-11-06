@@ -2,11 +2,11 @@
 //! jump, or hold down and jump on the ground. This fighter ships no
 //! `fuwafuwa_start` or `fuwafuwa` animation, so it floats in its fall.
 //!
-//! Brawl's glide (`clone_engine_api::glide`) starts from the same input, so a
+//! Brawl's glide (`dionysus_api::glide`) starts from the same input, so a
 //! fighter takes one or the other.
 
 use crate::smash;
-use clone_engine_api::float::{self, Float};
+use dionysus_api::float::{self, Float};
 use smash::lib::lua_const::*;
 use smashline::{Agent, End, Init, Main, Pre};
 

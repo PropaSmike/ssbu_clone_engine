@@ -1,9 +1,9 @@
-use clone_engine_core::menu::Mode;
+use dionysus_core::menu::Mode;
 use core::ffi::c_char;
 use core::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-const CONFIG_PATH: &str = "sd:/ultimate/clone_engine/config.toml";
+const CONFIG_PATH: &str = "sd:/ultimate/dionysus/config.toml";
 const BUTTON_KEY: &str = "modes_button";
 const DEFAULT_BUTTON: &str = "x";
 const HUB_BUTTONS: [(&str, u64); 7] = [
@@ -44,6 +44,7 @@ fn entry(index: i64) -> Option<&'static Entry> {
 }
 
 fn configured_button() -> u64 {
+    crate::upgrade::carry_old_folder();
     let text = std::fs::read_to_string(CONFIG_PATH).unwrap_or_default();
     let value = text
         .lines()
@@ -187,7 +188,7 @@ pub(crate) fn text(name: &str, index: i64) -> Option<String> {
 
 pub(crate) fn sequence_of(id: &str) -> u32 {
     modes().iter().find(|entry| entry.mode.id == id).map_or_else(
-        || crate::menu_sequences::code_of(clone_engine_core::menu::call_hash(id) as u64).unwrap_or(0),
+        || crate::menu_sequences::code_of(dionysus_core::menu::call_hash(id) as u64).unwrap_or(0),
         |entry| entry.code,
     )
 }

@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::RwLock;
 
-use clone_engine_core::article_hurtbox::OBJECT_MODULE_ACCESSOR;
-use clone_engine_core::article_lvd::{
+use dionysus_core::article_hurtbox::OBJECT_MODULE_ACCESSOR;
+use dionysus_core::article_lvd::{
     nearest_costume, ArticleLvd, ACCESSOR_GROUND_MODULE, COSTUMES, GROUND_DESCRIPTOR,
     GROUND_FILE_INDEX, GROUND_FIRST_CONTROL, GROUND_FIRST_GROUP, GROUND_FOLLOW_SLOT,
     GROUND_SECOND_CONTROL, GROUND_SECOND_GROUP, GROUP_BODY, GROUP_VERTEX_COUNT, SETUP_SLOT,

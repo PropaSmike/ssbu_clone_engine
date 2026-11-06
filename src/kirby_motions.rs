@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-pub(crate) use clone_engine_core::motion_append::MotionRecord as CopyMotionRecord;
-use clone_engine_core::motion_append::{apply_copy, Rejected, BYTES_PER_MOTION};
-use clone_engine_core::motion_list::{hash40, parse, serialize};
+pub(crate) use dionysus_core::motion_append::MotionRecord as CopyMotionRecord;
+use dionysus_core::motion_append::{apply_copy, Rejected, BYTES_PER_MOTION};
+use dionysus_core::motion_list::{hash40, parse, serialize};
 use std::collections::HashSet;
 use std::sync::{OnceLock, RwLock};
 
@@ -121,7 +121,7 @@ pub(crate) use live::{clone_engine_clone_copy_motion_v1, motion_record};
 #[cfg(not(test))]
 mod live {
     use super::*;
-    use clone_engine_api::{
+    use dionysus_api::{
         CloneCopyMotionV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA, COPY_MOTION_SET_ANIMATION_UNK,
         COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME, COPY_MOTION_SET_FLAGS,
         COPY_MOTION_SET_GAME_SCRIPT, COPY_MOTION_SET_NO_STOP_INTP, COPY_MOTION_SET_SCRIPTS,
@@ -284,7 +284,7 @@ pub(crate) fn install() {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clone_engine_core::motion_list::{Animation, Extra, Motion, MotionList};
+    use dionysus_core::motion_list::{Animation, Extra, Motion, MotionList};
 
     fn empty_list() -> MotionList {
         MotionList {

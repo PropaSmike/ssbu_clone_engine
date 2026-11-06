@@ -1,4 +1,4 @@
-use clone_engine_core::menu::{self, FlowHost};
+use dionysus_core::menu::{self, FlowHost};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 const OFF_SMASH_UPDATE: usize = 0x2337060;

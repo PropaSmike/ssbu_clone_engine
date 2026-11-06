@@ -4,7 +4,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Mutex, OnceLock, RwLock};
 
-use clone_engine_api::{
+use dionysus_api::{
     CloneItemFamilyMemberV2, CloneItemFamilyRegistrationV2, CloneItemRegistrationV1, ItemCategory,
     ItemSpawnSource, API_VERSION_V1, API_VERSION_V2, ERROR_BACKEND_UNAVAILABLE, ERROR_BASE_KIND,
     ERROR_CUSTOM_KIND, ERROR_DUPLICATE, ERROR_ITEM_AGENT_UNAVAILABLE, ERROR_ITEM_CATEGORY,
@@ -2134,7 +2134,7 @@ pub(crate) fn item_kind_for_hash(hash: i64) -> Option<i32> {
             known
                 .resource_name
                 .to_str()
-                .map_or(false, |name| clone_engine_core::menu::call_hash(name) == hash)
+                .map_or(false, |name| dionysus_core::menu::call_hash(name) == hash)
         })
         .map(|known| known.public_kind)
 }
@@ -2633,7 +2633,7 @@ fn clone_engine_item_owner_param_set_bits(
             log(format!(
                 "[itemclone] item_owner_param_set public={item_kind:#x} owner={owner_kind} \
                  +{offset:#x} = {bits:#x}: {} ({} override(s) for this item)",
-                clone_engine_core::owner_param_words::describe(owner_kind, offset, bits),
+                dionysus_core::owner_param_words::describe(owner_kind, offset, bits),
                 crate::item_params::owner_override_count(item_kind)
             ));
             RESULT_OK
@@ -2642,8 +2642,8 @@ fn clone_engine_item_owner_param_set_bits(
     }
 }
 
-fn common_word_refusal(field: u64, reject: clone_engine_core::item_common_row::Reject) -> i32 {
-    use clone_engine_core::item_common_row::Reject;
+fn common_word_refusal(field: u64, reject: dionysus_core::item_common_row::Reject) -> i32 {
+    use dionysus_core::item_common_row::Reject;
     let why = match reject {
         Reject::UnknownField => "not one of the 43 word fields (bools, ints, kinds) of the common row",
         Reject::NotABool => "a bool takes 0 or 1",
@@ -2675,7 +2675,7 @@ fn register_common_word(item_kind: i32, field: u64, name: &str, offset: u32, bit
 
 #[no_mangle]
 pub extern "C" fn clone_engine_item_common_set_i32(item_kind: i32, field: u64, value: i32) -> i32 {
-    use clone_engine_core::item_common_row as row;
+    use dionysus_core::item_common_row as row;
     if definition(item_kind).is_none() {
         return ERROR_CUSTOM_KIND;
     }
@@ -2690,7 +2690,7 @@ pub extern "C" fn clone_engine_item_common_set_i32(item_kind: i32, field: u64, v
 
 #[no_mangle]
 pub extern "C" fn clone_engine_item_common_set_label(item_kind: i32, field: u64, label: u64) -> i32 {
-    use clone_engine_core::item_common_row as row;
+    use dionysus_core::item_common_row as row;
     if definition(item_kind).is_none() {
         return ERROR_CUSTOM_KIND;
     }
@@ -2705,7 +2705,7 @@ pub extern "C" fn clone_engine_item_common_set_label(item_kind: i32, field: u64,
 
 #[no_mangle]
 pub extern "C" fn clone_engine_item_common_set_hash(item_kind: i32, field: u64, value: u64) -> i32 {
-    use clone_engine_core::item_common_row as row;
+    use dionysus_core::item_common_row as row;
     if definition(item_kind).is_none() {
         return ERROR_CUSTOM_KIND;
     }
@@ -2735,7 +2735,7 @@ pub extern "C" fn clone_engine_item_common_set_hash(item_kind: i32, field: u64, 
 #[no_mangle]
 pub extern "C" fn clone_engine_item_common_has(field: u64) -> i32 {
     (crate::item_params::common_field_offset(field).is_some()
-        || clone_engine_core::item_common_row::describe(field).is_some()) as i32
+        || dionysus_core::item_common_row::describe(field).is_some()) as i32
 }
 
 #[no_mangle]

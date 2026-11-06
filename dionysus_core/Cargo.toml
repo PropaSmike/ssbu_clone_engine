@@ -1,9 +1,9 @@
 [package]
-name = "clone_engine_core"
+name = "dionysus_core"
 version = "0.7.0-beta.1"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Host-testable logic shared by the SSBU Clone Engine, with no skyline dependency"
+description = "Host-testable logic shared by Dionysus, with no skyline dependency"
 
 [lib]
 crate-type = ["rlib"]

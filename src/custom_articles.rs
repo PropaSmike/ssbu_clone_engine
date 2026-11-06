@@ -4,7 +4,7 @@ use std::os::raw::c_char;
 use std::sync::{Mutex, RwLock};
 
 use crate::RESULT_OK;
-use clone_engine_api::{
+use dionysus_api::{
     ERROR_ARTICLE_CAPACITY, ERROR_ARTICLE_OWNER, ERROR_ARTICLE_RESOURCE_CONFLICT,
     ERROR_ARTICLE_SOURCE, ERROR_CUSTOM_KIND, ERROR_REGISTRATION_CLOSED,
 };
@@ -925,7 +925,7 @@ unsafe fn register_inner(
     placement: ArticlePlacement,
 ) -> i32 {
     if source_owner.is_null() || destination_owner.is_null() || name.is_null() {
-        return clone_engine_api::ERROR_NULL;
+        return dionysus_api::ERROR_NULL;
     }
     let source_owner = CStr::from_ptr(source_owner);
     let destination_owner = CStr::from_ptr(destination_owner);

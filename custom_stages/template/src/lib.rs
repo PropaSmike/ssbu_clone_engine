@@ -4,7 +4,7 @@ use smashline::{Agent, Main};
 
 mod door;
 
-use clone_engine_api::{
+use dionysus_api::{
     allocate_stage, compiled_capabilities, register_stage, runtime_capabilities,
     set_stage_behaviour, set_stage_music, stage_capacity, stage_id_for, StageAllocation, StageForm,
     StageMusic, StageRegistration, CAP_STAGE_CONFIG, CAP_STAGE_CSK, CAP_STAGE_MINT,
@@ -71,7 +71,7 @@ fn install() -> Result<(), String> {
     Ok(())
 }
 
-#[skyline::main(name = "clone_engine_stage_template")]
+#[skyline::main(name = "dionysus_stage_template")]
 pub fn main() {
     if let Err(error) = install() {
         println!("[{PLACE}] disabled: {error}");

@@ -1,6 +1,6 @@
-use clone_engine_core::grab_rule::{EVENT_SENDER_ID, ON_LINK_EVENT_SLOT};
-use clone_engine_core::tether::{Capsule, Tether, TetherBox, FIRST_BOX};
-use clone_engine_core::{clone_row, CLONE_SLOTS};
+use dionysus_core::grab_rule::{EVENT_SENDER_ID, ON_LINK_EVENT_SLOT};
+use dionysus_core::tether::{Capsule, Tether, TetherBox, FIRST_BOX};
+use dionysus_core::{clone_row, CLONE_SLOTS};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 

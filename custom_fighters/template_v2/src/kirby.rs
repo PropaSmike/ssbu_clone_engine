@@ -143,6 +143,6 @@ pub fn install() {
         .expression_acmd("expression_templatefighterspecialairn", copy_special_expression, Priority::Default)
         .install();
     if !TEMPLATE.arm_kirby() { // after the statuses above are installed
-        clone_engine_api::elog!("[template_v2] the Kirby copy family could not be armed");
+        dionysus_api::elog!("[template_v2] the Kirby copy family could not be armed");
     }
 }

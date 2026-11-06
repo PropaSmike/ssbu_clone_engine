@@ -14,7 +14,7 @@ way. The [stage](../custom_stages/template/) template still uses these calls.
 Replacement: `Manifest` + `NAME.register`, or `fighter.toml`.
 
 ```rust
-use clone_engine_api::{CloneKind, CloneRegistration, KIND_AUTO};
+use dionysus_api::{CloneKind, CloneRegistration, KIND_AUTO};
 
 static KIND: CloneKind = CloneKind::new("fighter_kind_wawa"); // holds the kind against the permanent name
 
@@ -28,7 +28,7 @@ let mut fighter = CloneRegistration::new(
 );
 fighter.color_count = 8;  // costumes; color_start defaults to 0
 
-KIND.store(clone_engine_api::allocate(&fighter)?); // register, keep the kind
+KIND.store(dionysus_api::allocate(&fighter)?); // register, keep the kind
 ```
 
 | Field | Meaning |
@@ -99,7 +99,7 @@ param_override_full(kind, ANY_SLOT, "common", "shield_max", ParamOp::Set, 20.0);
 Replacement: `Manifest::article`, `NAME.article("x")`.
 
 ```rust
-let barrel = clone_engine_api::clone_article_handle(
+let barrel = dionysus_api::clone_article_handle(
     "koopajr",                        // source owner: the vanilla fighter the weapon belongs to
     WEAPON_KIND_KOOPAJR_CANNONBALL,   // source weapon kind
     "wawa",                           // destination owner: your resource name
@@ -151,11 +151,11 @@ Callbacks: `x0..x5` in, `x0` out; return `HOOK_DECLINED` or `HOOK_HANDLED`.
 Replacement: `ItemManifest` + `ITEM.register`, or `item.toml`.
 
 ```rust
-use clone_engine_api::{CloneItemKind, ItemCloneRegistration, ItemStatusLine, KIND_AUTO};
+use dionysus_api::{CloneItemKind, ItemCloneRegistration, ItemStatusLine, KIND_AUTO};
 
 static MY_ITEM: CloneItemKind = CloneItemKind::new("my_item"); // holds the kind against the resource name
 
-let kind = clone_engine_api::allocate_item(&ItemCloneRegistration::new(
+let kind = dionysus_api::allocate_item(&ItemCloneRegistration::new(
     KIND_AUTO, // let the engine pick the kind
     0x32,      // base kind: the vanilla item
     "my_item", // resource name: files under item/my_item
@@ -163,7 +163,7 @@ let kind = clone_engine_api::allocate_item(&ItemCloneRegistration::new(
 ))?;
 MY_ITEM.store(kind);
 // (kind, status line, status name of the base item, function)
-clone_engine_api::item_status_named(kind, ItemStatusLine::Update, "WAIT", my_wait_update as *const ())?;
+dionysus_api::item_status_named(kind, ItemStatusLine::Update, "WAIT", my_wait_update as *const ())?;
 // (fighter, the kind wrapped in the game's type, the game's own arguments)
 ItemModule::have_item(boma, smash::app::ItemKind(MY_ITEM.raw()), 0, 0, false, false);
 ```
@@ -183,9 +183,9 @@ ItemModule::have_item(boma, smash::app::ItemKind(MY_ITEM.raw()), 0, 0, false, fa
 
 ```rust
 // (item kind, owner fighter kind (0x58 = Steve), byte offset of the field in its vl.prc (0x518 = life), value)
-clone_engine_api::item_owner_param_set_i32(MY_ITEM.raw(), 0x58, 0x518, 600)?;
+dionysus_api::item_owner_param_set_i32(MY_ITEM.raw(), 0x58, 0x518, 600)?;
 // (item kind, generator, weight, min at once, max at once, variation)
-clone_engine_api::item_generate_add(MY_ITEM.raw(), hash40("item_genid_random"), 30, 1, 1, ITEM_VARIATION_AUTO)?;
+dionysus_api::item_generate_add(MY_ITEM.raw(), hash40("item_genid_random"), 30, 1, 1, ITEM_VARIATION_AUTO)?;
 ```
 
 ## Stages

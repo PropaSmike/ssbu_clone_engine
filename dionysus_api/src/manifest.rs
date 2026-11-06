@@ -2,9 +2,9 @@ use crate::{resolve, Error};
 use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
 
-pub use clone_engine_core::article_hurtbox::Hurtbox;
-pub use clone_engine_core::article_lvd::{ArticleLvd, LvdVertex};
-pub use clone_engine_core::manifest_builder::{Grab, ItemManifest, Manifest, Motion};
+pub use dionysus_core::article_hurtbox::Hurtbox;
+pub use dionysus_core::article_lvd::{ArticleLvd, LvdVertex};
+pub use dionysus_core::manifest_builder::{Grab, ItemManifest, Manifest, Motion};
 
 type ManifestRegisterFn = unsafe extern "C" fn(*const std::os::raw::c_char, *const std::os::raw::c_char) -> i32;
 static FIGHTER_MANIFEST_FN: AtomicUsize = AtomicUsize::new(0);

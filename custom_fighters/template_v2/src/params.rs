@@ -35,6 +35,6 @@ pub fn install(kind: i32) {
     // where a fighter this clone throws sits: forward throw, Y
     let applied = applied & TEMPLATE.param("param_thrown").sub("offset_f_y").set(8.0);
     if !applied {
-        clone_engine_api::elog!("[template_v2] a param was refused; ParamConfig missing, or see the log");
+        dionysus_api::elog!("[template_v2] a param was refused; ParamConfig missing, or see the log");
     }
 }

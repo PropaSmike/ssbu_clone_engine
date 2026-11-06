@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use clone_engine_core::slots::CLONE_SLOTS;
-use clone_engine_core::vtable_copy;
+use dionysus_core::slots::CLONE_SLOTS;
+use dionysus_core::vtable_copy;
 
 use crate::custom_articles::{self, FIRST_CUSTOM_WEAPON_KIND, MAX_CUSTOM_ARTICLES};
 use crate::item_clones::FIRST_SPARSE_ITEM_KIND;

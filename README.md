@@ -1,11 +1,12 @@
-# SSBU Clone Engine
+# Dionysus
 
-Clone Engine lets a Smash Ultimate mod add a fighter, item or stage of its
-own, built on a vanilla one, instead of replacing a slot. Mii hats and
-outfits are added the same way.
+Dionysus is a Smash Ultimate plugin that adds content instead of replacing a
+slot. Its Clone Engine adds fighters, items, stages and enemies of their own,
+each built on a vanilla one. Dionysus also adds modes and menus, and Mii hats
+and outfits.
 
-Game version 13.0.4 or 13.0.5. The engine detects the version at boot.
-`sd:/ultimate/clone_engine/config.toml` can name it instead:
+Game version 13.0.4 or 13.0.5. Dionysus detects the version at boot.
+`sd:/ultimate/dionysus/config.toml` can name it instead:
 
 ```toml
 game_version = "auto"
@@ -29,15 +30,20 @@ a 2.0 boot until they are rebuilt.
 
 ## Install
 
-Put the engine in the global plugin folder of your SD card:
+Put Dionysus in the global plugin folder of your SD card:
 
 ```text
-atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_clone_engine.nro
+atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_dionysus.nro
 ```
 
 Smashline (`libsmashline_plugin.nro`) goes in the same folder.
 
-The `Clone Engine Modes` folder from the release goes under `ultimate/mods/`:
+Updating from Clone Engine: delete `libssbu_clone_engine.nro` from that
+folder. The two cannot run together: with both installed, Dionysus says so and
+closes the game. Its settings move from `sd:/ultimate/clone_engine/` to
+`sd:/ultimate/dionysus/` on the first boot; the old folder is left as it was.
+
+The `Dionysus Modes` folder from the release goes under `ultimate/mods/`:
 it is the modes page, where packs that add modes of their own list them (X
 on the main menu; see docs/wiki/MENUS.md).
 
@@ -45,7 +51,7 @@ Every mod pack goes in its own folder under `ultimate/mods/`. If a pack has
 code, that code is a `plugin.nro` inside the pack's own folder, never in the
 global plugin folder.
 
-The first boot writes `sd:/ultimate/clone_engine/settings.toml`:
+The first boot writes `sd:/ultimate/dionysus/settings.toml`:
 
 ```toml
 gliding = true
@@ -60,7 +66,7 @@ The plugin registers the fighter, then keeps its CSK, ParamConfig and
 Smashline calls as they were; only the names change:
 
 ```rust
-use clone_engine_api::v2::{fighter, Manifest};
+use dionysus_api::v2::{fighter, Manifest};
 
 fighter!(MY_FIGHTER, "my_fighter"); // the handle, and the identity
 
@@ -130,7 +136,7 @@ pack without code.
 The long-form API is in [DEPRECATED.md](docs/DEPRECATED.md). Its templates
 are retired; the ones above show everything they did.
 
-## What the engine handles
+## What Dionysus handles
 
 - fighters: identity, files, character select entry, colours, effects,
   sounds, camera, CPU behaviour, stats, Final Smash backgrounds
@@ -162,12 +168,13 @@ are retired; the ones above show everything they did.
 
 ```toml
 [dependencies]
-clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.2.1-beta.1" }
+dionysus_api = { git = "https://github.com/PropaSmike/ssbu_dionysus", tag = "<release>" }
 ```
 
-Use the tag of the engine release you installed.
+Use the tag of the Dionysus release you installed. Releases from before the
+rename name the crate `clone_engine_api`.
 
-## Building the engine
+## Building Dionysus
 
 ```sh
 cargo skyline build --release
@@ -178,7 +185,7 @@ builds.
 
 ## Credits
 
-Clone Engine exists thanks to the work and research of the Smash Ultimate
+Dionysus exists thanks to the work and research of the Smash Ultimate
 modding community. People are not always kind to those who put in the hardest
 work, so please show them the respect they deserve.
 
@@ -201,5 +208,5 @@ work, so please show them the respect they deserve.
 
 ## License
 
-Clone Engine is free software under the GNU General Public License version 3.
+Dionysus is free software under the GNU General Public License version 3.
 It comes with no warranty. See [LICENSE](LICENSE).

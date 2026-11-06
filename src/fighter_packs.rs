@@ -1,5 +1,5 @@
-use clone_engine_core::fighter_toml::{FighterDeclaration, ParamDeclaration, ParamOp, ParamValue};
-use clone_engine_core::tether::Lasso;
+use dionysus_core::fighter_toml::{FighterDeclaration, ParamDeclaration, ParamOp, ParamValue};
+use dionysus_core::tether::Lasso;
 use std::sync::{Mutex, OnceLock};
 
 pub(crate) const MOD_ROOT: &str = "sd:/ultimate/mods";
@@ -69,7 +69,7 @@ pub(crate) fn loaded_kinds() -> Vec<i32> {
 mod live {
     use super::*;
     use crate::{ManifestCss, ManifestRegistration};
-    use clone_engine_api::{
+    use dionysus_api::{
         CloneArticleRegistrationV1, CloneCopyMeshV1, CloneCopyModelV1, CloneCopyMotionV1,
         CloneGrabRuleV1, CloneRegistrationV1, API_VERSION_V1, COPY_MOTION_NO_EXTRA,
         COPY_MOTION_SET_ANIMATION_UNK, COPY_MOTION_SET_BLEND_FRAMES, COPY_MOTION_SET_CANCEL_FRAME,
@@ -77,10 +77,10 @@ mod live {
         COPY_MOTION_SET_SCRIPTS, COPY_MOTION_SET_XLU, COPY_MOTION_VICTIM, FLAG_KIRBY_COPY_FULL_MODEL,
         FLAG_OWNS_PARAM_RESOURCES, GRAB_CATCH, GRAB_SET_THEN, GRAB_SET_VICTIM, KIND_AUTO,
     };
-    use clone_engine_core::fighter_toml::{
+    use dionysus_core::fighter_toml::{
         parse_all, ArticleDeclaration, KirbyDeclaration, MotionDeclaration,
     };
-    use clone_engine_core::grab_rule::GrabRule;
+    use dionysus_core::grab_rule::GrabRule;
     use std::ffi::CString;
 
     fn leak(text: &str) -> &'static str {
@@ -168,13 +168,13 @@ mod live {
                     error.line,
                     error.message
                 );
-                return clone_engine_api::ERROR_MANIFEST;
+                return dionysus_api::ERROR_MANIFEST;
             }
         };
         if parsed.is_empty() {
-            return clone_engine_api::ERROR_MANIFEST;
+            return dionysus_api::ERROR_MANIFEST;
         }
-        let mut first = clone_engine_api::ERROR_MANIFEST;
+        let mut first = dionysus_api::ERROR_MANIFEST;
         for declaration in parsed {
             let directory = directory_shipping(&declaration.resource_name()).unwrap_or_else(|| leak(label));
             if let Some(kind) = register(directory, declaration) {
@@ -708,31 +708,31 @@ mod live {
             let mut applied = 0;
             for param in &params {
                 let (name, sub) = match param.name.split_once('.') {
-                    Some((name, sub)) => (name, clone_engine_core::hash40(sub)),
+                    Some((name, sub)) => (name, dionysus_core::hash40(sub)),
                     None => (param.name.as_str(), 0),
                 };
                 let slot = param.slot.unwrap_or(crate::param_overrides::ANY_SLOT);
                 let result = match (&param.value, param.op) {
-                    (clone_engine_core::fighter_toml::ParamValue::Int(value), _) => {
+                    (dionysus_core::fighter_toml::ParamValue::Int(value), _) => {
                         crate::clone_engine_param_int_override_v1(
                             kind,
                             slot,
-                            clone_engine_core::hash40(name),
+                            dionysus_core::hash40(name),
                             sub,
                             *value,
                         )
                     }
-                    (clone_engine_core::fighter_toml::ParamValue::Float(value), op) => {
+                    (dionysus_core::fighter_toml::ParamValue::Float(value), op) => {
                         crate::clone_engine_param_override_v1(
                             kind,
                             slot,
-                            clone_engine_core::hash40(name),
+                            dionysus_core::hash40(name),
                             sub,
                             match op {
-                                clone_engine_core::fighter_toml::ParamOp::Set => {
+                                dionysus_core::fighter_toml::ParamOp::Set => {
                                     crate::param_overrides::OP_SET
                                 }
-                                clone_engine_core::fighter_toml::ParamOp::Mul => {
+                                dionysus_core::fighter_toml::ParamOp::Mul => {
                                     crate::param_overrides::OP_MUL
                                 }
                             },
@@ -774,7 +774,7 @@ pub(crate) fn register_text(label: &str, text: &str) -> i32 {
 
 #[cfg(not(all(not(test), feature = "native_relocate", feature = "css_slot")))]
 pub(crate) fn register_text(_label: &str, _text: &str) -> i32 {
-    clone_engine_api::ERROR_UNSUPPORTED
+    dionysus_api::ERROR_UNSUPPORTED
 }
 
 #[cfg(not(all(not(test), feature = "native_relocate", feature = "css_slot")))]

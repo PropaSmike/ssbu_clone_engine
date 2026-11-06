@@ -7,7 +7,7 @@ use crate::{
 use std::ffi::{c_void, CString};
 use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
-pub use clone_engine_macros::hook;
+pub use dionysus_macros::hook;
 pub use crate::manifest::{
     register_fighter_manifest, register_item_manifest, ArticleLvd, Grab, Hurtbox, ItemManifest,
     LvdVertex, Manifest, Motion,
@@ -326,7 +326,7 @@ impl Fighter {
             .kind()
             .get()
             .map(crate::base_kind)
-            .and_then(clone_engine_core::status_starts::status_start_of_kind);
+            .and_then(dionysus_core::status_starts::status_start_of_kind);
         match start {
             Some(start) if index >= 0 => start + index,
             _ => {
@@ -1050,7 +1050,7 @@ impl Hook {
             None => {
                 let live = self.live_words(offset).ok_or(Error::EngineUnavailable)?;
                 let shared = crate::shared_hook_words(offset);
-                let Some(words) = clone_engine_core::hook_site::entry_words(&live, shared) else {
+                let Some(words) = dionysus_core::hook_site::entry_words(&live, shared) else {
                     elog!(
                         "[clone_engine] hook {} at {:#x} ({}): the site is not an untouched function entry ({:#010x} {:#010x}) and no other pack shares it through the engine; another plugin hooked it exclusively, or the offset is wrong",
                         self.name,
@@ -1213,10 +1213,10 @@ pub struct OwnerParam<'a> {
 }
 
 impl OwnerParam<'_> {
-    fn resolve(&self) -> Option<(i32, i32, &'static clone_engine_core::owner_param_words::Word)> {
+    fn resolve(&self) -> Option<(i32, i32, &'static dionysus_core::owner_param_words::Word)> {
         let item_kind = self.item.kind().get()?;
         let owner_kind = fighter_kind_by_name(&self.owner)?;
-        let word = clone_engine_core::owner_param_words::words_of(owner_kind)
+        let word = dionysus_core::owner_param_words::words_of(owner_kind)
             .iter()
             .find(|word| word.path() == self.field || word.field_name() == self.field)?;
         Some((item_kind, owner_kind, word))
@@ -1233,7 +1233,7 @@ impl OwnerParam<'_> {
             return false;
         };
         let result = match word.kind {
-            clone_engine_core::owner_param_words::WordKind::F32 => {
+            dionysus_core::owner_param_words::WordKind::F32 => {
                 crate::item_owner_param_set_f32(item_kind, owner_kind, u32::from(word.offset), value as f32)
             }
             _ => crate::item_owner_param_set_i32(item_kind, owner_kind, u32::from(word.offset), value as i32),

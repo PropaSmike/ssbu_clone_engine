@@ -1,11 +1,11 @@
 use super::*;
 
-use clone_engine_core::fighter_common_copies::{
+use dionysus_core::fighter_common_copies::{
     self as copies, Copy, ACCESSOR_PARAM_OBJECT, COPIES, PARAM_OBJECT_POWER_UP_CLONE,
     PARAM_OBJECT_SIZE, POWER_UP,
 };
-use clone_engine_core::fighter_param_row::{Op, Reject, RowOverride};
-use clone_engine_core::slots::{clone_row, CLONE_SLOTS};
+use dionysus_core::fighter_param_row::{Op, Reject, RowOverride};
+use dionysus_core::slots::{clone_row, CLONE_SLOTS};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
 use std::sync::RwLock;

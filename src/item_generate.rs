@@ -1,9 +1,9 @@
 use super::*;
 
-use clone_engine_api::{
+use dionysus_api::{
     ItemCategory, ERROR_BACKEND_UNAVAILABLE, ERROR_CUSTOM_KIND, ERROR_UNSUPPORTED, RESULT_OK,
 };
-use clone_engine_core::item_generate::{self as generate, Entry, Family, Reject, Rule};
+use dionysus_core::item_generate::{self as generate, Entry, Family, Reject, Rule};
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
 

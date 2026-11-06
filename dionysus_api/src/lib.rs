@@ -2,7 +2,7 @@ use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub use clone_engine_core::hud::{HudAction, MenuCommand};
+pub use dionysus_core::hud::{HudAction, MenuCommand};
 
 pub mod enemy;
 #[cfg(feature = "smash")]

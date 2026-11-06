@@ -1,5 +1,5 @@
-use clone_engine_core::motion_append::{apply_global, MotionRecord, Outcome, Rejected};
-use clone_engine_core::motion_list::{parse, serialize};
+use dionysus_core::motion_append::{apply_global, MotionRecord, Outcome, Rejected};
+use dionysus_core::motion_list::{parse, serialize};
 use std::sync::{OnceLock, RwLock};
 
 pub(crate) const MAX_MOTIONS: usize = 128;
@@ -32,7 +32,7 @@ pub(crate) fn rebuild_with(
     original: &[u8],
     records: &[MotionRecord],
     has_animation: impl Fn(&str) -> bool,
-    graft: impl FnOnce(&mut clone_engine_core::motion_list::MotionList, &dyn Fn(&str) -> bool) -> Option<String>,
+    graft: impl FnOnce(&mut dionysus_core::motion_list::MotionList, &dyn Fn(&str) -> bool) -> Option<String>,
 ) -> Option<(Vec<u8>, Outcome, Option<String>)> {
     let mut list = parse(original).ok()?;
     let outcome = apply_global(&mut list, records, &has_animation);
@@ -88,11 +88,11 @@ pub(crate) fn arc_file_size(_path: &str) -> Option<usize> {
 #[cfg(not(test))]
 mod live {
     use super::*;
-    use clone_engine_api::{CloneCopyMotionV1, ERROR_NAME, ERROR_UNSUPPORTED};
-    use clone_engine_core::motion_append::{
+    use dionysus_api::{CloneCopyMotionV1, ERROR_NAME, ERROR_UNSUPPORTED};
+    use dionysus_core::motion_append::{
         body_motion_directory, body_motion_list_path, BYTES_PER_MOTION, VANILLA_BODY_MOTION_OWNERS,
     };
-    use clone_engine_core::motion_list::hash40;
+    use dionysus_core::motion_list::hash40;
     use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
 

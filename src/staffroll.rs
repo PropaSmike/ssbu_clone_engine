@@ -79,7 +79,7 @@ pub(crate) fn install(kind: i32, directory: &str, resource_name: &str, base_reso
     };
     let size = metadata.len() as usize;
     let base_path = texture_path(base_resource_name);
-    let base_path_hash = clone_engine_core::hash40(&base_path);
+    let base_path_hash = dionysus_core::hash40(&base_path);
     let register = served()
         .lock()
         .map(|entries| !entries.iter().any(|entry| entry.base_path_hash == base_path_hash))

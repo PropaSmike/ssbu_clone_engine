@@ -1,4 +1,4 @@
-# Clone Engine API
+# Dionysus API
 
 Reference for packs that ship code. File-only packs use `fighter.toml`,
 `item.toml` and `stage.toml`; see the [wiki](wiki/GETTING_STARTED.md). The
@@ -9,18 +9,19 @@ Templates: [fighter](../custom_fighters/template_v2/),
 
 ```toml
 [dependencies]
-clone_engine_api = { git = "https://github.com/PropaSmike/ssbu_clone_engine", tag = "0.2.1-beta.1" }
+dionysus_api = { git = "https://github.com/PropaSmike/ssbu_dionysus", tag = "<release>" }
 ```
 
-Use the tag of the engine release you installed. Without the engine every
-call returns `Error::EngineUnavailable`.
+Use the tag of the Dionysus release you installed; releases from before the
+rename name the crate `clone_engine_api`. Without Dionysus every call returns
+`Error::EngineUnavailable`.
 
 ## Fighters
 
 ### Registration by code
 
 ```rust
-use clone_engine_api::v2::{fighter, hook, slot, Manifest};
+use dionysus_api::v2::{fighter, hook, slot, Manifest};
 use smash::hash40;
 use smashline::{Agent, Main, Priority};
 
@@ -67,7 +68,7 @@ pub fn main() {
         .status(Main, WAWA.kirby_status(0), kirby_special_n) // kirby_status(0): the first reserved number
         .install();
     WAWA.arm_kirby(); // after the Kirby statuses are installed
-    clone_engine_api::install_hooks!(on_link_event); // every #[hook] in the crate
+    dionysus_api::install_hooks!(on_link_event); // every #[hook] in the crate
 }
 
 // slot: which vtable entry. class: the class object the game passes first;
@@ -514,7 +515,7 @@ param_config::set_article_use_type(beam, *ARTICLE_USETYPE_FINAL);
 
 Behaviours: `POCKET_BEHAVIOR_ORIGINAL`, `IGNORE`, `DELETE`, `MISFIRE`.
 
-`clone_engine_api::param_*` send the same keys to ParamConfig, for a pack
+`dionysus_api::param_*` send the same keys to ParamConfig, for a pack
 without the `param_config` crate: `param_disable_kirby_copy(kind)`,
 `param_kirby_inhale_behavior(kind, weapon_kind, behavior)`,
 `param_villager_pocket_behavior`, `param_disable_villager_pocket`,
@@ -583,8 +584,8 @@ be changed per clone.
 ### Registration by code
 
 ```rust
-use clone_engine_api::v2::{item, ItemManifest};
-use clone_engine_api::ItemStatusLine;
+use dionysus_api::v2::{item, ItemManifest};
+use dionysus_api::ItemStatusLine;
 
 // WAWA: the handle. "wawa": the resource name, same as ItemManifest::new's.
 item!(WAWA, "wawa");
@@ -710,10 +711,10 @@ item of the kind, which then plays with the base's motions.
 
 Ultimate's stage enemies (Yellow Devil, Dark Emperor, Flying Men, Metal Face,
 Nabbit) on any stage, and new enemy kinds made from them:
-`clone_engine_api::enemy`. The enemy template is a complete pack.
+`dionysus_api::enemy`. The enemy template is a complete pack.
 
 ```rust
-use clone_engine_api::enemy;
+use dionysus_api::enemy;
 
 let kind = enemy::clone(enemy::NABBIT, "my_enemy").unwrap();      // base, name: files under enemy/my_enemy
 enemy::drive(kind, Some(my_driver), enemy::statuses(&[0])).unwrap(); // your driver runs its statuses; status 0 stays the base's
@@ -855,7 +856,7 @@ Registration closes when the roster is built: `ERROR_REGISTRATION_CLOSED`.
 | `ERROR_MANIFEST` | Manifest did not parse or registered nothing. |
 | `ERROR_SMASHLINE_REQUIRED` | Retired. |
 
-Other constants in `clone_engine_api`.
+Other constants in `dionysus_api`.
 
 ## C ABI
 

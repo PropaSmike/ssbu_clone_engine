@@ -80,19 +80,19 @@ pub(crate) fn subscribe() {
 
 pub(crate) fn add_listener(address: usize) -> i32 {
     if address == 0 {
-        return clone_engine_api::ERROR_NULL;
+        return dionysus_api::ERROR_NULL;
     }
     if mounted() {
         run(address);
-        return clone_engine_api::RESULT_OK;
+        return dionysus_api::RESULT_OK;
     }
     match listeners().lock() {
         Ok(mut list) => {
             if !list.contains(&address) {
                 list.push(address);
             }
-            clone_engine_api::RESULT_OK
+            dionysus_api::RESULT_OK
         }
-        Err(_) => clone_engine_api::ERROR_UNSUPPORTED,
+        Err(_) => dionysus_api::ERROR_UNSUPPORTED,
     }
 }

@@ -1,4 +1,4 @@
-use clone_engine_api::{ERROR_BACKEND_UNAVAILABLE, ERROR_NULL, ERROR_UNSUPPORTED};
+use dionysus_api::{ERROR_BACKEND_UNAVAILABLE, ERROR_NULL, ERROR_UNSUPPORTED};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::ffi::CString;
 use std::sync::Mutex;

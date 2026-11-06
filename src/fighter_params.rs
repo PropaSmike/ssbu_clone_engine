@@ -1,6 +1,6 @@
 use super::*;
 
-use clone_engine_core::param_swap::{BaseState, CloneState};
+use dionysus_core::param_swap::{BaseState, CloneState};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
 const PARAM_SINGLETON: usize = 0x52bb3b0;
@@ -22,8 +22,8 @@ const PARAM_FILE_RELEASE: usize = 0x3540560;
 const PARAM_PATH_TYPE_A: i32 = 12;
 const PARAM_PATH_TYPE_B: i32 = 13;
 
-pub(crate) use clone_engine_core::param_swap::{GuardMode, Instance, LockOutcome, SwapRegistry};
-pub(crate) use clone_engine_core::slots::{CLONE_SLOTS, PARAM_NATIVE_KINDS};
+pub(crate) use dionysus_core::param_swap::{GuardMode, Instance, LockOutcome, SwapRegistry};
+pub(crate) use dionysus_core::slots::{CLONE_SLOTS, PARAM_NATIVE_KINDS};
 
 type ParamLoader = unsafe extern "C" fn(usize, i32, *const i32);
 
@@ -1220,7 +1220,7 @@ unsafe fn report_owner_fields(kind: i32, payload: usize) {
         return;
     }
     let targets = crate::item_params::owner_targets(kind);
-    let known = clone_engine_core::owner_param_words::words_of(kind).len();
+    let known = dionysus_core::owner_param_words::words_of(kind).len();
     if targets.is_empty() {
         crate::dbg_log_public(&format!(
             "[ownerparam] {kind} loaded for a clone item, {known} known word(s), none overridden"
@@ -1234,8 +1234,8 @@ unsafe fn report_owner_fields(kind: i32, payload: usize) {
         let raw = core::ptr::read_volatile((payload + offset as usize) as *const u32);
         crate::dbg_log_public(&format!(
             "[ownerparam] {kind} loaded for public={public_kind:#x}: +{offset:#x} holds {raw:#x}, {}, override {}",
-            clone_engine_core::owner_param_words::describe(kind, offset, raw),
-            clone_engine_core::owner_param_words::word_at(kind, offset)
+            dionysus_core::owner_param_words::describe(kind, offset, raw),
+            dionysus_core::owner_param_words::word_at(kind, offset)
                 .map(|word| word.shown(bits))
                 .unwrap_or_else(|| format!("{bits:#x}"))
         ));

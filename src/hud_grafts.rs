@@ -1,10 +1,10 @@
-use clone_engine_api::{
+use dionysus_api::{
     CloneHudV1, API_VERSION_V1, ERROR_BACKEND_UNAVAILABLE, ERROR_CUSTOM_KIND, ERROR_NULL,
     ERROR_STRUCT_SIZE, ERROR_UNSUPPORTED, ERROR_VERSION, HUD_FRAME, HUD_GAUGE, HUD_MENU_CLOSE,
     HUD_MENU_CURSOR, HUD_MENU_DECIDE, HUD_MENU_OPEN, HUD_PLAY, HUD_SELECT, HUD_SHOW, HUD_SLOT,
     HUD_STATE, HUD_TEXT, HUD_WIDTH, RESULT_OK,
 };
-use clone_engine_core::hud::{donor_name, plan, HudAction, MenuCommand, Message, MENU_ROWS, NO_SELECTION};
+use dionysus_core::hud::{donor_name, plan, HudAction, MenuCommand, Message, MENU_ROWS, NO_SELECTION};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use smash::app::lua_bind::WorkModule;
 use smash::app::BattleObjectModuleAccessor;
@@ -85,8 +85,8 @@ static POSTS: AtomicUsize = AtomicUsize::new(0);
 static REFUSALS: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) fn register(kind: i32, ui_chara: &str, donor: &str) -> Result<(), String> {
-    let donor_kind = clone_engine_core::hud::check(donor)?;
-    let ui_hash = clone_engine_core::hash40(ui_chara) & UI_HASH_MASK;
+    let donor_kind = dionysus_core::hud::check(donor)?;
+    let ui_hash = dionysus_core::hash40(ui_chara) & UI_HASH_MASK;
     let mut grafts = GRAFTS.write().map_err(|_| "the HUD table is poisoned".to_string())?;
     if grafts.iter().any(|graft| graft.kind == kind) {
         return Err(format!("kind {kind} already borrows a HUD"));

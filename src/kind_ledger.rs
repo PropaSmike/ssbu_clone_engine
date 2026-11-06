@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-const LEDGER_DIRECTORY: &str = "sd:/ultimate/clone_engine";
-const LEDGER_PATH: &str = "sd:/ultimate/clone_engine/kinds.txt";
+const LEDGER_DIRECTORY: &str = "sd:/ultimate/dionysus";
+const LEDGER_PATH: &str = "sd:/ultimate/dionysus/kinds.txt";
 
 const MAX_ENTRIES: usize = 512;
 
@@ -55,7 +55,7 @@ fn serialise(reserved: &HashMap<String, i32>) -> String {
     let mut entries = reserved.iter().collect::<Vec<_>>();
     entries.sort_by_key(|(identity, kind)| (**kind, (*identity).clone()));
     let mut out = String::from(
-        "# SSBU clone engine kind ledger.\n\
+        "# Dionysus kind ledger.\n\
          # <kind> <identity>, one per line. Edit to pin a moveset to a number;\n\
          # a line is ignored when that kind is already taken this boot.\n",
     );
@@ -66,6 +66,7 @@ fn serialise(reserved: &HashMap<String, i32>) -> String {
 }
 
 fn load_locked(ledger: &mut Ledger) {
+    crate::upgrade::carry_old_folder();
     if ledger.loaded {
         return;
     }

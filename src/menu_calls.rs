@@ -1,4 +1,4 @@
-use clone_engine_core::menu;
+use dionysus_core::menu;
 use core::ffi::c_char;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::ffi::CString;

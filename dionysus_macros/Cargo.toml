@@ -1,9 +1,9 @@
 [package]
-name = "clone_engine_macros"
+name = "dionysus_macros"
 version = "0.7.0-beta.1"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Attribute macros for SSBU Clone Engine packs"
+description = "Attribute macros for Dionysus packs"
 
 [lib]
 proc-macro = true

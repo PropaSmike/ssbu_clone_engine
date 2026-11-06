@@ -3,13 +3,15 @@
 Converting a moveset that sits on a vanilla slot:
 [From a one-slot moveset](FROM_A_ONE_SLOT_MOVESET.md).
 
-## 1. Install the engine
+## 1. Install Dionysus
 
-The engine goes in the global plugin folder:
+Dionysus goes in the global plugin folder:
 
 ```text
-atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_clone_engine.nro
+atmosphere/contents/01006A800016E000/romfs/skyline/plugins/libssbu_dionysus.nro
 ```
+
+It replaces `libssbu_clone_engine.nro`; delete that file if it is there.
 
 A pack's own code goes inside that pack's mod folder as `plugin.nro`, never in
 the global folder. A pack made of files only has no `plugin.nro` at all.

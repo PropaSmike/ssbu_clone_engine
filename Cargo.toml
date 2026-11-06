@@ -1,5 +1,6 @@
 [package]
-name = "ssbu_clone_engine"
+# The file must keep sorting after libsmashline_plugin.nro: plugins load in name order and Dionysus hooks over Smashline.
+name = "ssbu_dionysus"
 version = "0.7.0-beta.1"
 authors = ["PropaSmike"]
 edition = "2021"
@@ -63,8 +64,8 @@ diag_pathtrace = []
 diag_load_barrier = []
 
 [dependencies]
-clone_engine_api = { path = "clone_engine_api", default-features = false }
-clone_engine_core = { path = "clone_engine_core" }
+dionysus_api = { path = "dionysus_api", default-features = false }
+dionysus_core = { path = "dionysus_core" }
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
 skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash.git", rev = "58aee32a5838379cadd120c8e62fd0e0ea9e5ad7" }
 libc = "0.2"

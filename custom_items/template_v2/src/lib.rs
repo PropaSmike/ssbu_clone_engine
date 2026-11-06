@@ -1,5 +1,5 @@
-use clone_engine_api::v2::{hook, item, slot, ItemManifest};
-use clone_engine_api::ItemStatusLine;
+use dionysus_api::v2::{hook, item, slot, ItemManifest};
+use dionysus_api::ItemStatusLine;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 mod family;
@@ -12,14 +12,14 @@ item!(TEMPLATE_ITEM, "template_item");
 
 /// The engine features this pack uses. `runtime_capabilities()` is what the
 /// installed engine has AND passed its checks for on this boot.
-const NEEDED: u64 = clone_engine_api::CAP_ITEM_IDENTITY
-    | clone_engine_api::CAP_ITEM_RESOURCES
-    | clone_engine_api::CAP_ITEM_PARAMS
-    | clone_engine_api::CAP_ITEM_ANIMCMD
-    | clone_engine_api::CAP_ITEM_TRAINING_UI;
+const NEEDED: u64 = dionysus_api::CAP_ITEM_IDENTITY
+    | dionysus_api::CAP_ITEM_RESOURCES
+    | dionysus_api::CAP_ITEM_PARAMS
+    | dionysus_api::CAP_ITEM_ANIMCMD
+    | dionysus_api::CAP_ITEM_TRAINING_UI;
 /// Ready only once lua2cpp_item.nro loads in a match, so at startup it can
 /// only be checked as built in.
-const NEEDED_LATER: u64 = clone_engine_api::CAP_ITEM_STATUS;
+const NEEDED_LATER: u64 = dionysus_api::CAP_ITEM_STATUS;
 
 static ENTERED: AtomicBool = AtomicBool::new(false);
 static COMMON_SEEN: AtomicBool = AtomicBool::new(false);
@@ -44,8 +44,8 @@ unsafe fn update_9(item: *mut smash::app::BattleObject) {
         let object = item as *const core::ffi::c_void;
         skyline::println!(
             "[template_item_v2] made by {:?}, parent kind {:?}",
-            clone_engine_api::item_spawn_source(object), // how the item came to be: a drop, a fighter, a family parent...
-            clone_engine_api::item_parent_kind(object),  // the item that created it, for a family member
+            dionysus_api::item_spawn_source(object), // how the item came to be: a drop, a fighter, a family parent...
+            dionysus_api::item_parent_kind(object),  // the item that created it, for a family member
         );
     }
 }
@@ -63,10 +63,10 @@ unsafe fn start_coroutine(agent: u64, index: i32, name: u64, state: *mut i32) ->
     call_original!(agent, index, name, state)
 }
 
-#[skyline::main(name = "clone_engine_item_template_v2")]
+#[skyline::main(name = "dionysus_item_template_v2")]
 pub fn main() {
-    let missing = (NEEDED & !clone_engine_api::runtime_capabilities())
-        | (NEEDED_LATER & !clone_engine_api::compiled_capabilities());
+    let missing = (NEEDED & !dionysus_api::runtime_capabilities())
+        | (NEEDED_LATER & !dionysus_api::compiled_capabilities());
     if missing != 0 {
         skyline::println!("[template_item_v2] disabled: the engine lacks capabilities {missing:#x}");
         return;
@@ -94,10 +94,10 @@ pub fn main() {
     // status line, a status name of the base item, function; at startup, by name
     TEMPLATE_ITEM.status(ItemStatusLine::Init, "THROW", throw_init);
     // every #[hook] in the crate, after registration
-    clone_engine_api::install_hooks!(update_9, start_coroutine);
+    dionysus_api::install_hooks!(update_9, start_coroutine);
 
     // A boss with the items it creates, as one family (family.rs).
-    if clone_engine_api::runtime_capabilities() & clone_engine_api::CAP_RESEARCH_ITEM_FAMILIES != 0 {
+    if dionysus_api::runtime_capabilities() & dionysus_api::CAP_RESEARCH_ITEM_FAMILIES != 0 {
         family::register();
     }
 

@@ -9,13 +9,13 @@
 
 pub use smashline::skyline_smash as smash;
 
-use clone_engine_api::menu;
+use dionysus_api::menu;
 use smashline::{Agent, Main};
 
 mod battle;
 mod setup;
 
-#[skyline::main(name = "clone_engine_menu_template")]
+#[skyline::main(name = "dionysus_menu_template")]
 pub fn main() {
     // the names the Lua passes to prg_func.engine_call, and the functions that answer
     let calls: [(&str, menu::MenuCall); 6] = [

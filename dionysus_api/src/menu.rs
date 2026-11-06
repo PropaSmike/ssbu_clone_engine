@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicUsize;
 
 use crate::{resolve, Error};
 
-pub use clone_engine_core::menu::vanilla_code;
+pub use dionysus_core::menu::vanilla_code;
 
 pub type MenuCall = unsafe extern "C" fn(*const i64, usize) -> i64;
 
@@ -147,7 +147,7 @@ pub fn battle_player(slot: u32, kind: PlayerType, ui_chara: &str, pad: i32) -> R
     let address = resolve(&BATTLE_PLAYER_FN, b"clone_engine_battle_player\0")
         .ok_or(Error::EngineUnavailable)?;
     let function: BattlePlayerFn = unsafe { std::mem::transmute(address) };
-    let hash = clone_engine_core::hash40(&ui_chara.to_ascii_lowercase());
+    let hash = dionysus_core::hash40(&ui_chara.to_ascii_lowercase());
     let result = unsafe { function(slot, kind as u32, hash, pad) };
     if result < 0 {
         return Err(Error::Engine(result));
@@ -159,7 +159,7 @@ pub fn change_fighter(slot: u32, ui_chara: &str, color: u32) -> Result<(), Error
     let address = resolve(&FIGHTER_CHANGE_FN, b"clone_engine_fighter_change_v1\0")
         .ok_or(Error::EngineUnavailable)?;
     let function: unsafe extern "C" fn(u32, u64, u32) -> i32 = unsafe { std::mem::transmute(address) };
-    let result = unsafe { function(slot, clone_engine_core::hash40(&ui_chara.to_ascii_lowercase()), color) };
+    let result = unsafe { function(slot, dionysus_core::hash40(&ui_chara.to_ascii_lowercase()), color) };
     if result < 0 {
         return Err(Error::Engine(result));
     }
@@ -170,7 +170,7 @@ pub fn battle_stage(ui_stage: &str) -> Result<(), Error> {
     let address = resolve(&BATTLE_STAGE_FN, b"clone_engine_battle_stage\0")
         .ok_or(Error::EngineUnavailable)?;
     let function: BattleStageFn = unsafe { std::mem::transmute(address) };
-    let result = unsafe { function(clone_engine_core::hash40(&ui_stage.to_ascii_lowercase())) };
+    let result = unsafe { function(dionysus_core::hash40(&ui_stage.to_ascii_lowercase())) };
     if result < 0 {
         return Err(Error::Engine(result));
     }

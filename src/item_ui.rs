@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering
 use std::ffi::{CStr, CString};
 use std::sync::{OnceLock, RwLock};
 
-use clone_engine_api::{
+use dionysus_api::{
     CloneItemUiRegistrationV1, ItemCategory, ItemSpawnSource, API_VERSION_V1, ERROR_DUPLICATE,
     ERROR_ITEM_CATEGORY, ERROR_ITEM_UI_CAPACITY, ERROR_ITEM_UI_METADATA, ERROR_ITEM_UI_UNAVAILABLE,
     ERROR_NULL, ERROR_REGISTRATION_CLOSED, ERROR_STRUCT_SIZE, ERROR_UNSUPPORTED, ERROR_VERSION,

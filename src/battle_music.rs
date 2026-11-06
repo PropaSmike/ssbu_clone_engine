@@ -62,7 +62,7 @@ pub(crate) fn keep_into_battle(keep: bool) -> i32 {
 }
 
 pub(crate) fn play(name: &str) -> i32 {
-    queue(Request::Play(clone_engine_core::hash40(name)))
+    queue(Request::Play(dionysus_core::hash40(name)))
 }
 
 pub(crate) fn stop() -> i32 {

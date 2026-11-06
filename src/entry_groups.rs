@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
 
-use clone_engine_core::partner_params::PartnerParam;
-use clone_engine_core::switch_group::{Shape, TRAINER_KINDS};
+use dionysus_core::partner_params::PartnerParam;
+use dionysus_core::switch_group::{Shape, TRAINER_KINDS};
 
 pub(crate) const NANA: i32 = 0x4c;
 const POPO: i32 = 0x4b;
@@ -77,7 +77,7 @@ fn resolve_group(leader: i32, names: &[String]) -> Option<Vec<i32>> {
         .iter()
         .map(|kind| crate::clone_definition(*kind).map(|definition| definition.base_kind))
         .collect();
-    match clone_engine_core::switch_group::shape(&bases?) {
+    match dionysus_core::switch_group::shape(&bases?) {
         Ok(_) => Some(kinds),
         Err(message) => {
             refuse_once(leader, message);
@@ -115,7 +115,7 @@ fn resolved_groups() -> Vec<Vec<i32>> {
 pub(crate) fn switch_group(kind: i32) -> Option<Vec<i32>> {
     resolved_groups().into_iter().find_map(|group| {
         let first = group.iter().position(|member| *member == kind)?;
-        Some(clone_engine_core::switch_group::rotate(&group, first))
+        Some(dionysus_core::switch_group::rotate(&group, first))
     })
 }
 
@@ -287,7 +287,7 @@ fn group_shape(group: &[i32]) -> Option<Shape> {
         .iter()
         .map(|kind| crate::clone_definition(*kind).map(|definition| definition.base_kind))
         .collect();
-    clone_engine_core::switch_group::shape(&bases?).ok()
+    dionysus_core::switch_group::shape(&bases?).ok()
 }
 
 unsafe fn free_group(object: u64) -> Option<usize> {

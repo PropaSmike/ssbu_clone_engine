@@ -10,8 +10,8 @@ come from the base item's banks. Start from
 In the plugin, before anything else:
 
 ```rust
-use clone_engine_api::v2::{item, ItemManifest};
-use clone_engine_api::ItemStatusLine;
+use dionysus_api::v2::{item, ItemManifest};
+use dionysus_api::ItemStatusLine;
 
 item!(WAWA, "wawa");
 
@@ -72,7 +72,7 @@ To create an item of any kind at a point, with no fighter involved (Assist
 Trophy summons included), use the game's own creation entry:
 
 ```rust
-let id = clone_engine_api::item::spawn(kind, x, y, 0.0, lr, 0)?; // battle object id
+let id = dionysus_api::item::spawn(kind, x, y, 0.0, lr, 0)?; // battle object id
 let item = smash::app::sv_battle_object::module_accessor(id);
 TeamModule::set_team(item, 7, true); // a new item has no team; an assist on its own team fights everyone
 ```
@@ -81,7 +81,7 @@ Call it during a battle frame. A boss created this way waits, invisible, in
 its first status until it is sent to its `wait` status:
 
 ```rust
-if let Some(status) = clone_engine_api::item::alias_status(item as usize, "wait") {
+if let Some(status) = dionysus_api::item::alias_status(item as usize, "wait") {
     StatusModule::change_status_request(item, status, false); // the boss starts its fight
 }
 ```

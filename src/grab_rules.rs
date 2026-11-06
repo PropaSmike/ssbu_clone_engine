@@ -1,15 +1,15 @@
-use clone_engine_api::{
+use dionysus_api::{
     CloneGrabRuleV1, API_VERSION_V1, ERROR_CUSTOM_KIND, ERROR_NAME, ERROR_NULL, ERROR_STRUCT_SIZE,
     ERROR_UNSUPPORTED, ERROR_VERSION, GRAB_CATCH, GRAB_SET_THEN, GRAB_SET_VICTIM,
 };
-use clone_engine_core::grab_rule::{
+use dionysus_core::grab_rule::{
     answer, is_capture, status_label, GrabRule, Reply, DEFAULT_NODE, EVENT_CONSTRAINT,
     EVENT_CONSTRAINT_OFFSET, EVENT_IS_MOTION_HI_LW, EVENT_KIND, EVENT_MOTION_OFFSET,
     EVENT_MOTION_OFFSET_LW, EVENT_NODE, EVENT_RESULT, EVENT_SENDER_ID, EVENT_STATUS, MAX_RULES,
     ON_LINK_EVENT_SLOT, WORK_FLAG_CATCH_MOTION_HI_LW, WORK_INT_CATCH_MOTION_OFFSET,
     WORK_INT_CATCH_MOTION_OFFSET_LW,
 };
-use clone_engine_core::{clone_row, CLONE_SLOTS};
+use dionysus_core::{clone_row, CLONE_SLOTS};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use smash::app::lua_bind::{CatchModule, StatusModule, WorkModule};
 use smash::app::BattleObjectModuleAccessor;

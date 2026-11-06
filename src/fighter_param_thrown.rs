@@ -2,9 +2,9 @@
 
 use super::*;
 
-use clone_engine_core::fighter_param_row::{Op, Reject};
-use clone_engine_core::fighter_param_thrown::{self as thrown, Hold, Role, ThrownOverride};
-use clone_engine_core::slots::{clone_row, CLONE_SLOTS};
+use dionysus_core::fighter_param_row::{Op, Reject};
+use dionysus_core::fighter_param_thrown::{self as thrown, Hold, Role, ThrownOverride};
+use dionysus_core::slots::{clone_row, CLONE_SLOTS};
 use core::arch::aarch64::float32x4_t;
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;

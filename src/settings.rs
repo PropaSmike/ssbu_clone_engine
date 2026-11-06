@@ -1,8 +1,8 @@
-use clone_engine_core::settings::{self, Settings, DEFAULT_TEXT};
+use dionysus_core::settings::{self, Settings, DEFAULT_TEXT};
 use std::sync::OnceLock;
 
-const SETTINGS_DIRECTORY: &str = "sd:/ultimate/clone_engine";
-const SETTINGS_PATH: &str = "sd:/ultimate/clone_engine/settings.toml";
+const SETTINGS_DIRECTORY: &str = "sd:/ultimate/dionysus";
+const SETTINGS_PATH: &str = "sd:/ultimate/dionysus/settings.toml";
 
 static SETTINGS: OnceLock<Settings> = OnceLock::new();
 
@@ -11,6 +11,7 @@ pub(crate) fn get() -> Settings {
 }
 
 fn load() -> Settings {
+    crate::upgrade::carry_old_folder();
     let loaded = match std::fs::read_to_string(SETTINGS_PATH) {
         Ok(text) => {
             let (loaded, problems) = settings::parse(&text);

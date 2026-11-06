@@ -6,7 +6,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::smash;
-use clone_engine_api::v2::Hud;
+use dionysus_api::v2::Hud;
 use smash::app::lua_bind::*;
 use smash::lib::lua_const::*;
 use smash::lua2cpp::L2CFighterCommon;

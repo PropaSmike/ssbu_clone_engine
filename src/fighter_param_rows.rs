@@ -1,10 +1,10 @@
 use super::*;
 
-use clone_engine_core::fighter_param_row::{
+use dionysus_core::fighter_param_row::{
     self as row, Install, NestStack, Op, Reject, RowOverride, Table, MOTION_ROW_SIZE,
     ORDINAL_STRIDE, PAYLOAD_BEGIN, PAYLOAD_END, ROW_SIZE,
 };
-use clone_engine_core::slots::{base_row, clone_row, CLONE_SLOTS, PARAM_NATIVE_KINDS};
+use dionysus_core::slots::{base_row, clone_row, CLONE_SLOTS, PARAM_NATIVE_KINDS};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::RwLock;

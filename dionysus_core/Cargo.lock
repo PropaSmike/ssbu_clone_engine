@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "clone_engine_core"
+name = "dionysus_core"
 version = "0.7.0-beta.1"

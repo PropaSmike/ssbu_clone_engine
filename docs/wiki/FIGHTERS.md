@@ -5,7 +5,7 @@
 In the plugin, before anything else:
 
 ```rust
-use clone_engine_api::v2::{fighter, Manifest};
+use dionysus_api::v2::{fighter, Manifest};
 
 fighter!(MY_FIGHTER, "my_fighter");
 
@@ -82,7 +82,7 @@ global motion adds one to every fighter's motion list, clones and every costume
 included:
 
 ```rust
-use clone_engine_api::v2::Motion;
+use dionysus_api::v2::Motion;
 
 Manifest::new("my_fighter", "mario")
     .global_motion(Motion::from_template("catched_my_fighter", "catched_ganon"))
@@ -110,7 +110,7 @@ animation = "e01thrownmyfighterf.nuanmb"
 Play it with `MotionModule::change_motion` on an opponent your grab is holding;
 a grabbed pose on a fighter nobody holds crashes.
 `custom_fighters/template_v2/src/throws.rs` does this for a forward throw. A
-plugin with no fighter calls `clone_engine_api::global_motion` or
+plugin with no fighter calls `dionysus_api::global_motion` or
 `global_victim_motion`. Every key is in the [API reference](../API.md#fighters).
 
 ## Command grabs
@@ -120,7 +120,7 @@ in its grab statuses (`CATCH`, `CATCH_DASH`, `CATCH_TURN`); anywhere else the
 victim slips out. A grab rule accepts it in your own status:
 
 ```rust
-use clone_engine_api::v2::Grab;
+use dionysus_api::v2::Grab;
 
 Manifest::new("my_fighter", "mario")
     .grab(Grab::new(*FIGHTER_STATUS_KIND_SPECIAL_S)
@@ -152,14 +152,14 @@ then = "own 0"              # the grabber status once caught: your fighter's fir
 
 A status is a number or a name from the
 [API reference](../API.md#fighters). A plugin with no manifest calls
-`clone_engine_api::grab(kind, &Grab)`.
+`dionysus_api::grab(kind, &Grab)`.
 
 ## Borrowed HUDs
 
 Show another fighter's HUD by your portrait and drive it from your code.
 
 ```rust
-use clone_engine_api::v2::{Hud, MenuCommand};
+use dionysus_api::v2::{Hud, MenuCommand};
 
 Manifest::new("my_fighter", "mario")
     .hud("pickel")
@@ -214,7 +214,7 @@ Commands: 0 blank, 1 Heal, 2 Sizz, 3 Sizzle, 4 Bang, 5 Kaboom, 6 Whack,
 - Only the picture is borrowed. It starts empty or off, the meter lives in
   your code, and the donor's moves stay with the donor.
 - A call that HUD has no use for returns false.
-- Without the `Fighter` handle: `clone_engine_api::hud(boma, &HudAction::Gauge(0.5))`.
+- Without the `Fighter` handle: `dionysus_api::hud(boma, &HudAction::Gauge(0.5))`.
 - `custom_fighters/template_v2/src/hud.rs` fills Joker's gauge with damage.
 
 ## Your own HUD
@@ -270,8 +270,8 @@ A plugin that is not a fighter can draw one layout on every player's damage
 card, vanilla fighters included, and drive it by player slot:
 
 ```rust
-clone_engine_api::hud_layout_every("ui/layout/hud/my_mode/layout.arc")?; // before the battle
-unsafe { clone_engine_api::hud_entry(0, &HudAction::Show("gauge", true)) }?;
+dionysus_api::hud_layout_every("ui/layout/hud/my_mode/layout.arc")?; // before the battle
+unsafe { dionysus_api::hud_entry(0, &HudAction::Show("gauge", true)) }?;
 ```
 
 - A fighter with a layout of its own keeps it.
@@ -357,10 +357,10 @@ Cliff hang data 1 is the tether, 2 the hang.
 
 Brawl's glide. The game still runs the five glide statuses (`GLIDE_START`,
 `GLIDE`, `GLIDE_ATTACK`, `GLIDE_END`, `GLIDE_LANDING`);
-`clone_engine_api::glide` adds the way in and the flight.
+`dionysus_api::glide` adds the way in and the flight.
 
 ```rust
-use clone_engine_api::glide::{self, Glide};
+use dionysus_api::glide::{self, Glide};
 
 const GLIDE: Glide = Glide::META_KNIGHT;
 
@@ -385,7 +385,7 @@ if glide::enabled() {
 ```
 
 - Players with another glide mod set `gliding = false` in
-  `sd:/ultimate/clone_engine/settings.toml`, which the engine writes on its
+  `sd:/ultimate/dionysus/settings.toml`, which the engine writes on its
   first boot (`gliding = true`). `glide::enabled()` is then false, so install
   nothing glide-related; `glide::frame` does nothing either way.
 
@@ -407,7 +407,7 @@ if glide::enabled() {
 Peach's float on any base, with her rules and values.
 
 ```rust
-use clone_engine_api::float::{self, Float};
+use dionysus_api::float::{self, Float};
 
 let start = MY_FIGHTER.own_status(0); // the first status number past the base's own
 float::register("my_fighter", Float::PEACH, start);
@@ -473,7 +473,7 @@ cpu = 0.3              # a computer player's special press reads it 30% of the t
 ```
 
 ```rust
-use clone_engine_api::fight;
+use dionysus_api::fight;
 
 let cat4 = ControlModule::get_command_flag_cat(fighter.module_accessor, 3);
 if cat4 & *FIGHTER_PAD_CMD_CAT4_FLAG_SPECIAL_N_COMMAND != 0 { /* 236 + A or B */ }
@@ -511,7 +511,7 @@ if let Some(lr) = fight::command_lr(fighter, "geyser") {
 ### Motions and facing in code
 
 ```rust
-use clone_engine_api::fight::{self, Motion};
+use dionysus_api::fight::{self, Motion};
 
 unsafe extern "C" fn every_frame(fighter: &mut L2CFighterCommon) {
     fight::track(fighter);
@@ -566,7 +566,7 @@ partner = false           # none: the default, except on base popo
 - A fighter has a partner or a switch group, not both.
 
 ```rust
-use clone_engine_api::partner;
+use dionysus_api::partner;
 
 let boma = fighter.module_accessor;
 if partner::is_partner(boma) { /* only the partner */ }
@@ -640,7 +640,7 @@ switch = ["my_other_fighter", "my_third_fighter"]   # on bases pikachu and luigi
   `my_fighter`). A KO costs one stock; a KO'd fighter comes back as itself.
 - On the Pyra and Mythra or Trainer set, down special switches, as does a
   change to `FIGHTER_STATUS_KIND_SPECIAL_LW` from another move.
-- On other bases call `clone_engine_api::switch::next(boma)` from a move of
+- On other bases call `dionysus_api::switch::next(boma)` from a move of
   your choice. The next fighter takes over where the last stood, facing the
   same way, in wait. False outside a group or mid-switch.
 - A fighter on a Pyra, Mythra or Trainer base without `switch` plays alone:
@@ -700,7 +700,7 @@ Any fighter can ship its own; your Final Smash statuses start them.
 | Movies | `prebuilt:/movie/fighter/<your name>/cNN/<file>.h264`; the pack folder is `prebuilt;` | `FighterManager::prepare_movie(manager, Hash40::new(path))`, then `start_movie` once `is_prepared_movie`, `exit_movie` once `is_end_movie` |
 
 ```rust
-let manager = clone_engine_api::fighter_manager();
+let manager = dionysus_api::fighter_manager();
 let kind = MY_FIGHTER.kind().get().unwrap();
 FighterManager::start_finalbg(manager, kind, 1.0);
 FighterManager::prepare_movie(manager, Hash40::new("prebuilt:/movie/fighter/my_fighter/c00/final_00.h264"));

@@ -10,7 +10,7 @@ pub use smashline::skyline_smash as smash;
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use clone_engine_api::{enemy, menu};
+use dionysus_api::{enemy, menu};
 use smash::app::lua_bind::*;
 use smash::app::{sv_battle_object, BattleObjectModuleAccessor};
 use smash::lib::lua_const::*;
@@ -147,7 +147,7 @@ unsafe extern "C" fn battle_frame(fighter: &mut L2CFighterCommon) {
     }
 }
 
-#[skyline::main(name = "clone_engine_enemy_template")]
+#[skyline::main(name = "dionysus_enemy_template")]
 pub fn main() {
     let kind = match enemy::clone(
         enemy::NABBIT, // the base: YELLOW_DEVIL, DARK_EMPEROR, FLYING_MAN, METAL_FACE or NABBIT

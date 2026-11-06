@@ -97,7 +97,7 @@ Mii editing tools do. Leave it out to keep the base's.
 
 - A saved Mii keeps its hat and outfit by number. Each part gets one past
   the game's: hats 133 to 415, outfits 154 to 1023.
-- The engine writes them to `sd:/ultimate/clone_engine/mii_parts.txt` and
+- The engine writes them to `sd:/ultimate/dionysus/mii_parts.txt` and
   keeps each line forever, installed or not.
 - A Mii wearing a part whose pack is gone shows the part's base instead.
   Put the pack back and it wears the part again.

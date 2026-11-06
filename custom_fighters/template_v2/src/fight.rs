@@ -2,8 +2,8 @@
 //! the commands to the manifest with `commands`; `install` reads them.
 
 use crate::smash;
-use clone_engine_api::fight::{self, Button, Command};
-use clone_engine_api::v2::Manifest;
+use dionysus_api::fight::{self, Button, Command};
+use dionysus_api::v2::Manifest;
 use smash::app::lua_bind::*;
 use smash::lib::lua_const::*;
 use smash::lua2cpp::L2CFighterCommon;

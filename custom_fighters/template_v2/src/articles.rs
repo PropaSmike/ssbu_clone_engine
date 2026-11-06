@@ -37,7 +37,7 @@ pub fn install(kind: i32) {
     // How other fighters treat it, through ParamConfig: (kind, costumes, weapon kind, behaviour).
     // ORIGINAL keeps what the source weapon does; IGNORE, DELETE and MISFIRE change it.
     let Some(fireball) = TEMPLATE.article("template_fireball").weapon_kind() else {
-        clone_engine_api::elog!("[template_v2] template_fireball has no weapon kind");
+        dionysus_api::elog!("[template_v2] template_fireball has no weapon kind");
         return;
     };
     param_config::set_kirby_inhale_behavior(kind, vec![-1], fireball, param_config::POCKET_BEHAVIOR_ORIGINAL); // Kirby's inhale

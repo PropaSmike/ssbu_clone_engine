@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::ffi::CString;
 use std::sync::Mutex;
 
-use clone_engine_core::move_list::{MoveList, Pager, Turn, SLOTS};
+use dionysus_core::move_list::{MoveList, Pager, Turn, SLOTS};
 
 const OFF_PAGE_COUNT: usize = 0x326_53f0;
 const PAGE_COUNT_OPCODE: u32 = 0xd101_43ff;
@@ -95,7 +95,7 @@ pub(crate) fn armed() -> bool {
 
 pub(crate) fn register(ui_chara: &str, list: &MoveList) -> Result<i32, String> {
     let pages = i32::from(list.check()?);
-    let hash = clone_engine_core::hash40(ui_chara) & UI_HASH_MASK;
+    let hash = dionysus_core::hash40(ui_chara) & UI_HASH_MASK;
     let mut configs = CONFIGS.lock().map_err(|_| "the move list registry is unavailable".to_string())?;
     configs.retain(|(known, _)| *known != hash);
     configs.push((

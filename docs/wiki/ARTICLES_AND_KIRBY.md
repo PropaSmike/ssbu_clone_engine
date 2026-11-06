@@ -62,7 +62,7 @@ Any article made with `from` can carry a platform from an `.lvd` file of your ow
 source. Each vertex you list follows a joint every frame:
 
 ```rust
-use clone_engine_api::v2::ArticleLvd;
+use dionysus_api::v2::ArticleLvd;
 
 Manifest::new("my_fighter", "samus")
     .article("plank", "koopajr/cannonball")
@@ -116,7 +116,7 @@ An article made with `from` can be given hurtboxes, on top of any its source alr
 In the manifest:
 
 ```rust
-use clone_engine_api::v2::Hurtbox;
+use dionysus_api::v2::Hurtbox;
 
 Manifest::new("my_fighter", "samus")
     .article("rock", "koopajr/cannonball")
@@ -221,7 +221,7 @@ model you did not declare is never loaded.
 Only the animations you change; the rest come from the base fighter:
 
 ```rust
-use clone_engine_api::v2::Motion;
+use dionysus_api::v2::Motion;
 
 Manifest::new("my_fighter", "mario")
     .kirby_motion(

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-pub(crate) use clone_engine_core::{plan_chunks, Chunk, CHECK_WINDOW, PAGE};
+pub(crate) use dionysus_core::{plan_chunks, Chunk, CHECK_WINDOW, PAGE};
 
 pub(crate) unsafe fn write_bytes(address: usize, bytes: &[u8]) -> bool {
     let mut done = 0usize;

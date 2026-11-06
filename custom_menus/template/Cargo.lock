@@ -76,21 +76,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "clone_engine_api"
+name = "dionysus_api"
 version = "0.7.0-beta.1"
 dependencies = [
- "clone_engine_core",
- "clone_engine_macros",
+ "dionysus_core",
+ "dionysus_macros",
  "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
  "skyline_smash",
 ]
 
 [[package]]
-name = "clone_engine_core"
+name = "dionysus_core"
 version = "0.7.0-beta.1"
 
 [[package]]
-name = "clone_engine_macros"
+name = "dionysus_macros"
 version = "0.7.0-beta.1"
 dependencies = [
  "proc-macro2",
@@ -99,10 +99,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "clone_engine_menu_template"
+name = "dionysus_menu_template"
 version = "0.1.0"
 dependencies = [
- "clone_engine_api",
+ "dionysus_api",
  "skyline 0.6.0 (git+https://github.com/ultimate-research/skyline-rs.git?rev=6b52d321275639f26c2371d8142550ba0013a5e4)",
  "smashline",
 ]

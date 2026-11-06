@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-pub use clone_engine_core::csk_stage_vec::{decode, plan, Growth, VecFields, ROW};
+pub use dionysus_core::csk_stage_vec::{decode, plan, Growth, VecFields, ROW};
 
 #[cfg(not(test))]
 pub unsafe fn apply(growth: &Growth, buffer: *mut u8) -> *mut u8 {

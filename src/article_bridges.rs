@@ -221,7 +221,7 @@ const WEAPON_RECORD_SWITCH_JOIN: usize = 0x33b5f30;
 
 #[cfg(feature = "css_slot")]
 unsafe fn weapon_record_kind(weapon_kind: i32) -> Option<i32> {
-    use clone_engine_core::weapon_record::{arm_record_kind, switch_index};
+    use dionysus_core::weapon_record::{arm_record_kind, switch_index};
     let Some(index) = switch_index(weapon_kind) else {
         return Some(weapon_kind);
     };
@@ -520,8 +520,8 @@ pub(crate) unsafe fn article_lvd_parse_guard(article: u64) {
 }
 
 #[cfg(feature = "css_slot")]
-static LVD_REMAP: std::sync::RwLock<clone_engine_core::article_lvd::RemapTable> =
-    std::sync::RwLock::new(clone_engine_core::article_lvd::RemapTable::new());
+static LVD_REMAP: std::sync::RwLock<dionysus_core::article_lvd::RemapTable> =
+    std::sync::RwLock::new(dionysus_core::article_lvd::RemapTable::new());
 
 #[cfg(feature = "css_slot")]
 fn note_lvd_remap(source: u32, kind: i32, clone: u32) {
@@ -567,7 +567,7 @@ unsafe fn keep_article_lvd_resident(weapon_kind: i32) {
 }
 
 #[cfg(feature = "css_slot")]
-const ARTICLE_COSTUME_SLOTS: usize = clone_engine_core::article_lvd::COSTUMES;
+const ARTICLE_COSTUME_SLOTS: usize = dionysus_core::article_lvd::COSTUMES;
 
 #[cfg(feature = "css_slot")]
 static LVD_REQUESTED: [core::sync::atomic::AtomicI32; WEAPON_RECORD_SLOTS] =
@@ -619,7 +619,7 @@ unsafe fn request_article_lvd(weapon_kind: i32) {
         })
         .collect();
     let found = shipped.iter().flatten().count();
-    let plan = clone_engine_core::article_lvd::plan(&shipped);
+    let plan = dionysus_core::article_lvd::plan(&shipped);
     for (costume, chosen) in plan.chosen.iter().enumerate() {
         let (Some((_, index)), Some(from)) = (chosen, vanilla[costume]) else {
             continue;
@@ -1453,7 +1453,7 @@ pub unsafe extern "C" fn clone_engine_article_status_v1(
     #[cfg(not(feature = "css_slot"))]
     {
         let _ = (weapon_kind, line, status_kind, function);
-        clone_engine_api::ERROR_UNSUPPORTED
+        dionysus_api::ERROR_UNSUPPORTED
     }
 }
 
@@ -1544,7 +1544,7 @@ const LITERAL_NOT_FOUND: u32 = 0xffffff;
 
 #[cfg(feature = "css_slot")]
 unsafe fn literal_resident(path: &str, resource_type: i32) -> bool {
-    use clone_engine_core::article_literals::{residency_probe, MODEL};
+    use dionysus_core::article_literals::{residency_probe, MODEL};
     let index = fighter_modules::search_path_index(&residency_probe(path, resource_type));
     if resource_type == MODEL {
         crate::copy_model_probe::model_residency(index).0
@@ -1561,7 +1561,7 @@ unsafe fn literal_article_path(
     resource_type: i32,
     color: i32,
 ) -> Option<(&'static CloneDefinition, u32, u32, String, &'static str)> {
-    use clone_engine_core::article_literals::{base_path, clone_path};
+    use dionysus_core::article_literals::{base_path, clone_path};
     if out.is_null() || crate::kirby_copy::active_kirby_copy_kind().is_some() {
         return None;
     }
@@ -1673,8 +1673,8 @@ pub(crate) unsafe fn custom_article_path_probe(
             );
         }
     }
-    if (resource_type == clone_engine_core::article_literals::MOTION_DIRECTORY
-        || resource_type == clone_engine_core::article_literals::MOTION_LIST)
+    if (resource_type == dionysus_core::article_literals::MOTION_DIRECTORY
+        || resource_type == dionysus_core::article_literals::MOTION_LIST)
         && !out.is_null()
         && !custom_articles::is_custom_weapon_kind(weapon_kind)
     {

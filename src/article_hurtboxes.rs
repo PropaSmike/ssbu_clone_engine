@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
-use clone_engine_core::article_hurtbox::{
+use dionysus_core::article_hurtbox::{
     Hurtbox, ACCESSOR_HIT_MODULE, HIT_MODULE_SET_HIT_DATA, OBJECT_MODULE_ACCESSOR, SETUP_SLOT,
 };
 

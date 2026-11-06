@@ -483,7 +483,7 @@ impl Registry {
         let mut entries = self.entries.clone();
         entries.sort_by(|a, b| (a.part, a.save_no).cmp(&(b.part, b.save_no)));
         let mut out = String::from(
-            "# SSBU clone engine Mii hat and outfit save numbers.\n\
+            "# Dionysus Mii hat and outfit save numbers.\n\
              # <hat|outfit> <save_no> <id> <base>, one per line. A saved Mii keeps\n\
              # its hat and outfit by this number, so a line is never reused.\n",
         );

@@ -5,7 +5,7 @@
 use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
 use crate::smash::lib::lua_const::*;
-use clone_engine_api::{menu, Error};
+use dionysus_api::{menu, Error};
 
 /// One gauntlet round: the CPU's fighter and the stage.
 pub struct Round {
@@ -76,7 +76,7 @@ pub fn round(index: u32, fighter: &str, color: u32, damage: u32) -> Result<(), E
             // the boss round: player 1 alone, so a time battle (a stock one would end at once)
             menu::battle_stage(BOSS_STAGE)?;
             menu::battle_rules(menu::Rules { kind: menu::RuleKind::Time, stock: 0, seconds: 0, items: 0 })?;
-            clone_engine_api::boss_gauge_battle()?; // the game's boss HP bar, for the boss battle.rs brings in
+            dionysus_api::boss_gauge_battle()?; // the game's boss HP bar, for the boss battle.rs brings in
             menu::battle_entrance(false)?; // the fighters start in place
             menu::battle_ready_go(false)?; // and fight at once
             1
@@ -103,11 +103,11 @@ pub unsafe extern "C" fn gauntlet(args: *const i64, count: usize) -> i64 {
         }))?;
         menu::keep_music_into_battle(true)?; // the modes page's song carries into round 1
         if let Some(path) = CARD_LAYOUT {
-            clone_engine_api::hud_layout_every(path)?; // on every player's damage card
+            dionysus_api::hud_layout_every(path)?; // on every player's damage card
         }
         if let Some(path) = ROUND_LAYOUT {
             // a name of your own, the layout, x and y (screen centre 0, 1920 x 1080), scale
-            clone_engine_api::hud_screen_layout("template_round", path, 0.0, 420.0, 1.0)?;
+            dionysus_api::hud_screen_layout("template_round", path, 0.0, 420.0, 1.0)?;
         }
         Ok(())
     })();
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn boss(args: *const i64, count: usize) -> i64 {
         menu::battle_rules(menu::Rules { kind: menu::RuleKind::Stock, stock: 2, seconds: 0, items: 0 })?;
         // the boss item kind; the game creates it, plays its intro and ends the battle on its defeat
         menu::battle_boss(Some(*ITEM_KIND_GALLEOM))?;
-        clone_engine_api::boss_gauge_hide(false)?; // true leaves its bar out, for a mod that draws its own
+        dionysus_api::boss_gauge_hide(false)?; // true leaves its bar out, for a mod that draws its own
         menu::pause_exit(None)?; // the vanilla pause menu
         Ok(())
     })();

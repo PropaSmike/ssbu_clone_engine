@@ -6,7 +6,7 @@ compile_error!(
      (enable `clone_runtime`, or use the default `beta` feature)"
 );
 
-pub use clone_engine_api::{
+pub use dionysus_api::{
     CloneArticleRegistrationV1, CloneRegistrationV1, SharedHookRegistrationV1, API_VERSION_V1,
     BACKEND_STATUS_COMPILED, BACKEND_STATUS_HOOKS_INSTALLED, BACKEND_STATUS_READY,
     BACKEND_STATUS_REGISTRATION_CLOSED, BACKEND_STATUS_RESOURCE_LAYOUT_PROVEN,
@@ -114,6 +114,7 @@ mod custom_articles;
 #[cfg(feature = "css_slot")]
 mod fighter_modules;
 mod param_overrides;
+mod upgrade;
 mod stage_alts_bridge;
 mod stage_backend;
 #[cfg(feature = "css_slot")]
@@ -460,55 +461,55 @@ pub extern "C" fn clone_engine_api_version() -> u32 {
 }
 
 fn compiled_capabilities() -> u64 {
-    let mut capabilities = clone_engine_api::CAP_SHARED_HOOKS | clone_engine_api::CAP_MII_PARTS;
+    let mut capabilities = dionysus_api::CAP_SHARED_HOOKS | dionysus_api::CAP_MII_PARTS;
     #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
     {
-        capabilities |= clone_engine_api::CAP_FIGHTER_IDENTITY
-            | clone_engine_api::CAP_SMASHLINE_BRIDGE
-            | clone_engine_api::CAP_FIGHTER_ARTICLES
-            | clone_engine_api::CAP_KIRBY_COPY
-            | clone_engine_api::CAP_PARAMCONFIG_BRIDGE;
+        capabilities |= dionysus_api::CAP_FIGHTER_IDENTITY
+            | dionysus_api::CAP_SMASHLINE_BRIDGE
+            | dionysus_api::CAP_FIGHTER_ARTICLES
+            | dionysus_api::CAP_KIRBY_COPY
+            | dionysus_api::CAP_PARAMCONFIG_BRIDGE;
     }
     #[cfg(feature = "item_clone_backend")]
     {
-        capabilities |= clone_engine_api::CAP_ITEM_IDENTITY
-            | clone_engine_api::CAP_ITEM_RESOURCES
-            | clone_engine_api::CAP_ITEM_PARAMS
-            | clone_engine_api::CAP_ITEM_ANIMCMD
-            | clone_engine_api::CAP_ITEM_STATUS;
+        capabilities |= dionysus_api::CAP_ITEM_IDENTITY
+            | dionysus_api::CAP_ITEM_RESOURCES
+            | dionysus_api::CAP_ITEM_PARAMS
+            | dionysus_api::CAP_ITEM_ANIMCMD
+            | dionysus_api::CAP_ITEM_STATUS;
     }
     #[cfg(feature = "item_ui_backend")]
     {
-        capabilities |= clone_engine_api::CAP_ITEM_TRAINING_UI;
+        capabilities |= dionysus_api::CAP_ITEM_TRAINING_UI;
     }
     #[cfg(feature = "stage_mint")]
     {
-        capabilities |= clone_engine_api::CAP_STAGE_MINT | clone_engine_api::CAP_STAGE_CONFIG;
+        capabilities |= dionysus_api::CAP_STAGE_MINT | dionysus_api::CAP_STAGE_CONFIG;
     }
     #[cfg(feature = "stage_select_runtime")]
     {
-        capabilities |= clone_engine_api::CAP_STAGE_SELECT_EXTENDED;
+        capabilities |= dionysus_api::CAP_STAGE_SELECT_EXTENDED;
     }
     #[cfg(feature = "stage_slot")]
     {
-        capabilities |= clone_engine_api::CAP_STAGE_CSK;
+        capabilities |= dionysus_api::CAP_STAGE_CSK;
     }
     #[cfg(feature = "css_slot")]
     {
-        capabilities |= clone_engine_api::CAP_GLOBAL_MOTIONS
-            | clone_engine_api::CAP_GRAB_RULES
-            | clone_engine_api::CAP_HUD
-            | clone_engine_api::CAP_FINAL_SMASH
-            | clone_engine_api::CAP_TETHER
-            | clone_engine_api::CAP_ENTRY_GROUPS
-            | clone_engine_api::CAP_ANY_BASE_GROUPS
-            | clone_engine_api::CAP_PARTNER_SWAP
-            | clone_engine_api::CAP_COMMAND_INPUTS
-            | clone_engine_api::CAP_MOVE_LIST_PAGES;
+        capabilities |= dionysus_api::CAP_GLOBAL_MOTIONS
+            | dionysus_api::CAP_GRAB_RULES
+            | dionysus_api::CAP_HUD
+            | dionysus_api::CAP_FINAL_SMASH
+            | dionysus_api::CAP_TETHER
+            | dionysus_api::CAP_ENTRY_GROUPS
+            | dionysus_api::CAP_ANY_BASE_GROUPS
+            | dionysus_api::CAP_PARTNER_SWAP
+            | dionysus_api::CAP_COMMAND_INPUTS
+            | dionysus_api::CAP_MOVE_LIST_PAGES;
     }
     #[cfg(feature = "item_clone_backend")]
     {
-        capabilities |= clone_engine_api::CAP_RESEARCH_ITEM_FAMILIES;
+        capabilities |= dionysus_api::CAP_RESEARCH_ITEM_FAMILIES;
     }
     capabilities
 }
@@ -522,38 +523,38 @@ pub extern "C" fn clone_engine_compiled_capabilities_v1() -> u64 {
 pub extern "C" fn clone_engine_runtime_capabilities_v1() -> u64 {
     let mut capabilities = compiled_capabilities();
     if !param_overrides::available() {
-        capabilities &= !clone_engine_api::CAP_PARAMCONFIG_BRIDGE;
+        capabilities &= !dionysus_api::CAP_PARAMCONFIG_BRIDGE;
     }
-    if shared_hooks::status() & clone_engine_api::SHARED_HOOK_STATUS_READY == 0 {
-        capabilities &= !clone_engine_api::CAP_SHARED_HOOKS;
+    if shared_hooks::status() & dionysus_api::SHARED_HOOK_STATUS_READY == 0 {
+        capabilities &= !dionysus_api::CAP_SHARED_HOOKS;
     }
     #[cfg(feature = "css_slot")]
     if !move_list::armed() {
-        capabilities &= !clone_engine_api::CAP_MOVE_LIST_PAGES;
+        capabilities &= !dionysus_api::CAP_MOVE_LIST_PAGES;
     }
     if mii_parts::refused() {
-        capabilities &= !clone_engine_api::CAP_MII_PARTS;
+        capabilities &= !dionysus_api::CAP_MII_PARTS;
     }
     #[cfg(feature = "item_clone_backend")]
     {
         let status = item_clones::clone_engine_item_backend_status();
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_IDENTITY;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_IDENTITY;
         }
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_RESOURCE_ROUTER_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_RESOURCES;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_RESOURCE_ROUTER_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_RESOURCES;
         }
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_PARAM_ROUTER_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_PARAMS;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_PARAM_ROUTER_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_PARAMS;
         }
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_CATEGORY_ROUTER_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_ANIMCMD;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_CATEGORY_ROUTER_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_ANIMCMD;
         }
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_STATUS_ROUTER_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_STATUS;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_STATUS_ROUTER_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_STATUS;
         }
-        if status & clone_engine_api::ITEM_BACKEND_STATUS_TRAINING_UI_READY == 0 {
-            capabilities &= !clone_engine_api::CAP_ITEM_TRAINING_UI;
+        if status & dionysus_api::ITEM_BACKEND_STATUS_TRAINING_UI_READY == 0 {
+            capabilities &= !dionysus_api::CAP_ITEM_TRAINING_UI;
         }
     }
     #[cfg(feature = "stage_mint")]
@@ -564,12 +565,12 @@ pub extern "C" fn clone_engine_runtime_capabilities_v1() -> u64 {
             .unwrap_or(false);
         if !ready {
             capabilities &=
-                !(clone_engine_api::CAP_STAGE_MINT | clone_engine_api::CAP_STAGE_CONFIG);
+                !(dionysus_api::CAP_STAGE_MINT | dionysus_api::CAP_STAGE_CONFIG);
         }
     }
     #[cfg(feature = "stage_select_runtime")]
     if !stage_resolve_probe::ready() {
-        capabilities &= !clone_engine_api::CAP_STAGE_SELECT_EXTENDED;
+        capabilities &= !dionysus_api::CAP_STAGE_SELECT_EXTENDED;
     }
     capabilities
 }
@@ -1406,7 +1407,7 @@ fn shared_hook_result(result: shared_hooks::Register, offset: u64, callback: usi
             RESULT_OK
         }
         shared_hooks::Register::Duplicate => RESULT_OK,
-        shared_hooks::Register::Full => clone_engine_api::ERROR_HOOK_CAPACITY,
+        shared_hooks::Register::Full => dionysus_api::ERROR_HOOK_CAPACITY,
         shared_hooks::Register::Unavailable => ERROR_HOOK_UNAVAILABLE,
         shared_hooks::Register::Invalid => ERROR_HOOK_PREFLIGHT,
         shared_hooks::Register::InvalidAbi => ERROR_HOOK_ABI,
@@ -1428,7 +1429,7 @@ pub unsafe extern "C" fn clone_engine_shared_hook_v2(
         return ERROR_REGISTRATION_CLOSED;
     }
     let registration = &*registration;
-    if registration.api_version != clone_engine_api::API_VERSION_V1 {
+    if registration.api_version != dionysus_api::API_VERSION_V1 {
         return ERROR_VERSION;
     }
     if (registration.struct_size as usize) < core::mem::size_of::<SharedHookRegistrationV1>() {
@@ -2097,7 +2098,7 @@ pub extern "C" fn clone_engine_copy_common_vtable_override_v2(
             Ok(_) => {
                 dbg_log_public(&format!(
                     "[clone_engine] copy common vtable: kind {kind} slot {slot} ({}) taken; it runs on KIRBY while he holds this ability",
-                    clone_engine_core::common_vtable::slot_name(slot).unwrap_or("?"),
+                    dionysus_core::common_vtable::slot_name(slot).unwrap_or("?"),
                 ));
                 1
             }
@@ -2157,7 +2158,7 @@ pub extern "C" fn clone_engine_common_vtable_override_v1(
                 dbg_log_public(&format!(
                     "[clone_engine] common vtable: {} kind {kind} slot {slot} ({}) taken",
                     if space == common_vtables::SPACE_WEAPON { "weapon" } else { "fighter" },
-                    clone_engine_core::common_vtable::slot_name(slot).unwrap_or("?"),
+                    dionysus_core::common_vtable::slot_name(slot).unwrap_or("?"),
                 ));
                 previous.unwrap_or(0)
             }
@@ -2190,18 +2191,18 @@ pub extern "C" fn clone_engine_param_override_v1(
         let key = (param_type, param_hash);
         let slots = [slot];
         let row_op = match op {
-            param_overrides::OP_SET => Some(clone_engine_core::fighter_param_row::Op::Set(value)),
-            param_overrides::OP_MUL => Some(clone_engine_core::fighter_param_row::Op::Mul(value)),
+            param_overrides::OP_SET => Some(dionysus_core::fighter_param_row::Op::Set(value)),
+            param_overrides::OP_MUL => Some(dionysus_core::fighter_param_row::Op::Mul(value)),
             _ => None,
         };
         let available = param_overrides::available();
         let (row, forward) = match row_op {
-            Some(row_op) if param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN => {
+            Some(row_op) if param_type == dionysus_core::fighter_param_thrown::PARAM_THROWN => {
                 let recorded = fighter_param_thrown::record(kind, slot, param_hash, row_op);
                 (recorded.message, !recorded.recorded)
             }
             Some(_) if !available => (String::from("row: not recorded, ParamConfig missing"), true),
-            Some(row_op) if param_type == clone_engine_core::fighter_common_copies::COMMON => {
+            Some(row_op) if param_type == dionysus_core::fighter_common_copies::COMMON => {
                 let recorded = fighter_common_copies::record(kind, slot, param_hash, row_op);
                 let forward = !recorded.recorded || op == param_overrides::OP_SET;
                 (recorded.message, forward)
@@ -2215,7 +2216,7 @@ pub extern "C" fn clone_engine_param_override_v1(
         let accepted = if forward {
             unsafe { param_overrides::push_to_param_config(kind, &slots, key, op, value) }
         } else {
-            available || param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN
+            available || param_type == dionysus_core::fighter_param_thrown::PARAM_THROWN
         };
         let n = PARAM_REGISTER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < PARAM_REGISTER_LOG_LIMIT {
@@ -2246,12 +2247,12 @@ pub extern "C" fn clone_engine_param_int_override_v1(
         let accepted = unsafe {
             param_overrides::push_int_to_param_config(kind, &slots, (param_type, param_hash), value)
         };
-        let op = clone_engine_core::fighter_param_row::Op::SetInt(value);
+        let op = dionysus_core::fighter_param_row::Op::SetInt(value);
         let row = if !accepted {
             String::from("row: not recorded")
-        } else if param_type == clone_engine_core::fighter_common_copies::COMMON {
+        } else if param_type == dionysus_core::fighter_common_copies::COMMON {
             fighter_common_copies::record(kind, slot, param_hash, op).message
-        } else if param_type == clone_engine_core::fighter_param_thrown::PARAM_THROWN {
+        } else if param_type == dionysus_core::fighter_param_thrown::PARAM_THROWN {
             fighter_param_thrown::record(kind, slot, param_hash, op).message
         } else {
             fighter_param_rows::record(kind, slot, param_type, param_hash, op).message
@@ -2345,12 +2346,12 @@ unsafe fn param_getter_native(module: u64, member: usize, slot: usize) -> Option
 #[cfg(feature = "css_slot")]
 unsafe fn install_param_getter_bracket(
     offset: usize,
-    expected: &[u32; clone_engine_core::hook_site::PROLOGUE_WORDS],
+    expected: &[u32; dionysus_core::hook_site::PROLOGUE_WORDS],
     handler: usize,
     tag: &str,
 ) {
     let site = game::addr(offset);
-    let mut live = [0u32; clone_engine_core::hook_site::PROLOGUE_WORDS];
+    let mut live = [0u32; dionysus_core::hook_site::PROLOGUE_WORDS];
     for (index, word) in live.iter_mut().enumerate() {
         *word = core::ptr::read_volatile((site + index * 4) as *const u32);
     }
@@ -2359,7 +2360,7 @@ unsafe fn install_param_getter_bracket(
         *word = game::opcode(offset + index * 4, *word);
     }
     if live != expected {
-        let why = match clone_engine_core::hook_site::relocation_hazard(&live) {
+        let why = match dionysus_core::hook_site::relocation_hazard(&live) {
             Some(hazard) => hazard.reason(),
             None => "the thunk does not read as vanilla",
         };
@@ -3599,7 +3600,7 @@ fn custom_kirby_copy_name_record(kind: i32) -> Option<usize> {
     let mut slots = [name, empty, empty, empty];
     for (index, extra) in kirby_copy::copy_models(kind)
         .iter()
-        .take(clone_engine_api::MAX_COPY_MODELS)
+        .take(dionysus_api::MAX_COPY_MODELS)
         .enumerate()
     {
         let mut bytes = extra.clone().into_bytes();
@@ -4928,9 +4929,11 @@ pub extern "C" fn clone_engine_smashline_bridge_version() -> u32 {
 }
 
 #[cfg(not(test))]
-#[skyline::main(name = "ssbu_clone_engine")]
+#[skyline::main(name = "dionysus")]
 pub fn main() {
-    skyline::println!("[clone_engine] init (SSBU {} create_agent clone engine)", game::version().name());
+    upgrade::stop_if_old_plugin_installed();
+    upgrade::carry_old_folder();
+    skyline::println!("[dionysus] init (SSBU {})", game::version().name());
     report_smashline_name_support();
     common_vtables::note_smashline();
     unsafe { smashline_vtables::install() };

@@ -1,4 +1,4 @@
-use clone_engine_core::csk_database::{chara_disp_orders, prc_disp_orders, translate_disp_order, vanilla_disp_orders};
+use dionysus_core::csk_database::{chara_disp_orders, prc_disp_orders, translate_disp_order, vanilla_disp_orders};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

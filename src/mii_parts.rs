@@ -1,14 +1,14 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use clone_engine_core::mii_parts::{
+use dionysus_core::mii_parts::{
     self, Added, Assigned, Declaration, Outcome, Part, Registry, HASH_MASK, HAT_DB_PATH,
     OUTFIT_DB_PATH,
 };
-use clone_engine_core::prc;
+use dionysus_core::prc;
 
-const REGISTRY_DIRECTORY: &str = "sd:/ultimate/clone_engine";
-const REGISTRY_PATH: &str = "sd:/ultimate/clone_engine/mii_parts.txt";
+const REGISTRY_DIRECTORY: &str = "sd:/ultimate/dionysus";
+const REGISTRY_PATH: &str = "sd:/ultimate/dionysus/mii_parts.txt";
 const MANIFEST: &str = "mii.toml";
 const SERVE_CAPACITY: usize = 4 << 20;
 const OFF_HAT_OWNED: usize = 0x179_7ab0;
@@ -236,6 +236,7 @@ fn discover() -> Vec<(String, Declaration)> {
 }
 
 pub(crate) fn load_all() {
+    crate::upgrade::carry_old_folder();
     let declarations = discover();
     let registry = std::fs::read_to_string(REGISTRY_PATH)
         .map(|text| Registry::parse(&text))

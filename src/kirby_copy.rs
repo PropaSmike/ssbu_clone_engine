@@ -77,7 +77,7 @@ pub(crate) fn copy_mesh_defaults(fighter_kind: i32) -> Vec<(u64, bool)> {
         .map(|held| {
             held.iter()
                 .filter(|(known, _, _)| *known == fighter_kind)
-                .map(|(_, mesh, visible)| (clone_engine_core::hash::hash40(mesh), *visible))
+                .map(|(_, mesh, visible)| (dionysus_core::hash::hash40(mesh), *visible))
                 .collect()
         })
         .unwrap_or_default()
@@ -86,39 +86,39 @@ pub(crate) fn copy_mesh_defaults(fighter_kind: i32) -> Vec<(u64, bool)> {
 #[cfg(feature = "css_slot")]
 #[no_mangle]
 pub unsafe extern "C" fn clone_engine_clone_copy_mesh_default_v1(
-    registration: *const clone_engine_api::CloneCopyMeshV1,
+    registration: *const dionysus_api::CloneCopyMeshV1,
 ) -> i32 {
     if registration.is_null() {
-        return clone_engine_api::ERROR_NULL;
+        return dionysus_api::ERROR_NULL;
     }
     let registration = &*registration;
-    if registration.api_version != clone_engine_api::API_VERSION_V1 {
-        return clone_engine_api::ERROR_VERSION;
+    if registration.api_version != dionysus_api::API_VERSION_V1 {
+        return dionysus_api::ERROR_VERSION;
     }
     if (registration.struct_size as usize)
-        < core::mem::size_of::<clone_engine_api::CloneCopyMeshV1>()
+        < core::mem::size_of::<dionysus_api::CloneCopyMeshV1>()
     {
-        return clone_engine_api::ERROR_STRUCT_SIZE;
+        return dionysus_api::ERROR_STRUCT_SIZE;
     }
     if registration.mesh.is_null() {
-        return clone_engine_api::ERROR_NAME;
+        return dionysus_api::ERROR_NAME;
     }
     let Ok(mesh) = core::ffi::CStr::from_ptr(registration.mesh).to_str() else {
-        return clone_engine_api::ERROR_NAME;
+        return dionysus_api::ERROR_NAME;
     };
     if mesh.is_empty() {
-        return clone_engine_api::ERROR_NAME;
+        return dionysus_api::ERROR_NAME;
     }
     let kind = registration.fighter_kind;
     let visible = registration.visible != 0;
     let Ok(mut held) = copy_mesh_registry().write() else {
-        return clone_engine_api::ERROR_UNSUPPORTED;
+        return dionysus_api::ERROR_UNSUPPORTED;
     };
     if held.iter().filter(|(known, _, _)| *known == kind).count() >= MAX_COPY_MESH_DEFAULTS {
         dbg_log!(
             "[kirbymesh] kind {kind} already has {MAX_COPY_MESH_DEFAULTS} mesh defaults; '{mesh}' refused"
         );
-        return clone_engine_api::ERROR_UNSUPPORTED;
+        return dionysus_api::ERROR_UNSUPPORTED;
     }
     if let Some(slot) = held
         .iter_mut()
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn clone_engine_clone_copy_mesh_default_v1(
     held.push((kind, mesh.to_string(), visible));
     dbg_log!(
         "[kirbymesh] kind {kind} registered mesh '{mesh}' default visible={visible} (hash {:#x})",
-        clone_engine_core::hash::hash40(mesh)
+        dionysus_core::hash::hash40(mesh)
     );
     0
 }
@@ -139,41 +139,41 @@ pub unsafe extern "C" fn clone_engine_clone_copy_mesh_default_v1(
 #[cfg(feature = "css_slot")]
 #[no_mangle]
 pub unsafe extern "C" fn clone_engine_clone_copy_model_v1(
-    registration: *const clone_engine_api::CloneCopyModelV1,
+    registration: *const dionysus_api::CloneCopyModelV1,
 ) -> i32 {
     if registration.is_null() {
-        return clone_engine_api::ERROR_NULL;
+        return dionysus_api::ERROR_NULL;
     }
     let registration = &*registration;
-    if registration.api_version != clone_engine_api::API_VERSION_V1 {
-        return clone_engine_api::ERROR_VERSION;
+    if registration.api_version != dionysus_api::API_VERSION_V1 {
+        return dionysus_api::ERROR_VERSION;
     }
     if (registration.struct_size as usize)
-        < core::mem::size_of::<clone_engine_api::CloneCopyModelV1>()
+        < core::mem::size_of::<dionysus_api::CloneCopyModelV1>()
     {
-        return clone_engine_api::ERROR_STRUCT_SIZE;
+        return dionysus_api::ERROR_STRUCT_SIZE;
     }
     if registration.directory.is_null() {
-        return clone_engine_api::ERROR_NAME;
+        return dionysus_api::ERROR_NAME;
     }
     let Ok(directory) = core::ffi::CStr::from_ptr(registration.directory).to_str() else {
-        return clone_engine_api::ERROR_NAME;
+        return dionysus_api::ERROR_NAME;
     };
     let kind = registration.fighter_kind;
     let Ok(mut held) = copy_model_registry().write() else {
-        return clone_engine_api::ERROR_UNSUPPORTED;
+        return dionysus_api::ERROR_UNSUPPORTED;
     };
     if held.iter().filter(|(known, _)| *known == kind).count()
-        >= clone_engine_api::MAX_COPY_MODELS
+        >= dionysus_api::MAX_COPY_MODELS
     {
-        dbg_log!("[kirbyrec] kind {kind} already has {} copy models; '{directory}' refused", clone_engine_api::MAX_COPY_MODELS);
-        return clone_engine_api::ERROR_UNSUPPORTED;
+        dbg_log!("[kirbyrec] kind {kind} already has {} copy models; '{directory}' refused", dionysus_api::MAX_COPY_MODELS);
+        return dionysus_api::ERROR_UNSUPPORTED;
     }
     if held
         .iter()
         .any(|(known, name)| *known == kind && name == directory)
     {
-        return clone_engine_api::ERROR_DUPLICATE;
+        return dionysus_api::ERROR_DUPLICATE;
     }
     held.push((kind, directory.to_string()));
     dbg_log!("[kirbyrec] kind {kind} registered copy model '{directory}'");
@@ -1177,7 +1177,7 @@ pub(crate) unsafe fn ensure_kirby_copy_model_record(
 
     for (index, extra) in copy_models(kind)
         .iter()
-        .take(clone_engine_api::MAX_COPY_MODELS)
+        .take(dionysus_api::MAX_COPY_MODELS)
         .enumerate()
     {
         let bytes = extra.as_bytes();

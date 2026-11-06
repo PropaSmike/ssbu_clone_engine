@@ -2,7 +2,7 @@
 
 use crate::stage_ledger::{CloneStage, Form};
 use crate::stage_music::MusicRequest;
-use clone_engine_core::stage_gimmicks::{
+use dionysus_core::stage_gimmicks::{
     gimmick_header, Barrel, BarrelDraft, Door, DoorDraft, GimmickError, GimmickKind, Ladder,
     LadderDraft, Spring, SpringDraft, MAX_GIMMICKS,
 };
@@ -328,7 +328,7 @@ fn top_level(
 }
 
 pub fn parse_all(text: &str) -> Result<Vec<PackDeclaration>, ParseError> {
-    let blocks = clone_engine_core::manifest::blocks(text, "stage")
+    let blocks = dionysus_core::manifest::blocks(text, "stage")
         .map_err(|line| ParseError::Malformed { line })?;
     blocks
         .iter()

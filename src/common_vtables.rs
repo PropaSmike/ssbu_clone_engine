@@ -1,11 +1,11 @@
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use clone_engine_core::common_vtable::{
+use dionysus_core::common_vtable::{
     self, Arena, Entries, Shared, ARENA_WORDS, HEADER_WORDS, OUR_CONTEXT_WORD,
     SMASHLINE_CONTEXT_WORD, SMASHLINE_MODULE_BLOCKS, SLOTS,
 };
-use clone_engine_core::slots::{clone_row, CLONE_SLOTS};
+use dionysus_core::slots::{clone_row, CLONE_SLOTS};
 
 use crate::custom_articles;
 use crate::item_clones::FIRST_SPARSE_ITEM_KIND;

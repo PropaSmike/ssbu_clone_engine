@@ -8,7 +8,7 @@ use crate::smash::app::lua_bind::*;
 use crate::smash::app::{sv_battle_object, BattleObjectModuleAccessor};
 use crate::smash::lib::lua_const::*;
 use crate::smash::lua2cpp::L2CFighterCommon;
-use clone_engine_api::{item, menu, HudAction};
+use dionysus_api::{item, menu, HudAction};
 
 /// The battle frame the gauntlet's boss arrives at.
 const BOSS_FRAME: u64 = 60;
@@ -78,7 +78,7 @@ unsafe fn gauntlet(boma: *mut BattleObjectModuleAccessor, new_battle: bool) {
         if ROUND_LAYOUT.is_some() {
             let title = format!("Round {}", round + 1);
             // the screen layout's name (setup.rs), then a text pane of it and its text
-            let _ = clone_engine_api::hud_screen("template_round", &HudAction::Text("round", &title));
+            let _ = dionysus_api::hud_screen("template_round", &HudAction::Text("round", &title));
         }
         if round as usize == ROUNDS.len() {
             let _ = menu::play_bgm(BOSS_SONG); // a ui_bgm_db label
@@ -94,7 +94,7 @@ unsafe fn gauntlet(boma: *mut BattleObjectModuleAccessor, new_battle: bool) {
         let _ = menu::change_fighter(0, TEAM[member], 0); // slot, fighter, costume
         if CARD_LAYOUT.is_some() {
             // player 1's card layout (setup.rs): show its pane "swap"
-            let _ = clone_engine_api::hud_entry(0, &HudAction::Show("swap", true));
+            let _ = dionysus_api::hud_entry(0, &HudAction::Show("swap", true));
         }
     }
 
@@ -137,7 +137,7 @@ unsafe fn boss_round(frame: u64) {
             StatusModule::change_status_request(boss, status, false);
         }
         // the item and the name its row shows; the row number comes back
-        if let Ok(row) = clone_engine_api::boss_gauge(boss as *const core::ffi::c_void, "Galleom") {
+        if let Ok(row) = dionysus_api::boss_gauge(boss as *const core::ffi::c_void, "Galleom") {
             BOSS_ROW.store(row, Ordering::Release);
         }
         return;
@@ -148,7 +148,7 @@ unsafe fn boss_round(frame: u64) {
         let max = WorkModule::get_float(item, *ITEM_INSTANCE_WORK_FLOAT_HP_MAX);
         let row = BOSS_ROW.load(Ordering::Acquire);
         if row != NONE && hp < max / 2.0 && !ANGRY.swap(true, Ordering::AcqRel) {
-            let _ = clone_engine_api::boss_gauge_name(row, "Galleom (angry)"); // the row, its new name
+            let _ = dionysus_api::boss_gauge_name(row, "Galleom (angry)"); // the row, its new name
         }
         hp <= 0.0
     };

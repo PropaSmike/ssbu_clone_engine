@@ -249,7 +249,7 @@ fn slot_override(args: &HookArgs, function: &ItemFn, site: proc_macro2::TokenStr
 
     let expanded = quote! {
         #[allow(non_upper_case_globals)]
-        #vis static #name: ::clone_engine_api::v2::Override = ::clone_engine_api::v2::Override::new(
+        #vis static #name: ::dionysus_api::v2::Override = ::dionysus_api::v2::Override::new(
             #site,
             #entry_name as *const (),
             stringify!(#name),
@@ -262,7 +262,7 @@ fn slot_override(args: &HookArgs, function: &ItemFn, site: proc_macro2::TokenStr
                 ($($arg:expr),* $(,)?) => {{
                     let __original = #name.original();
                     if __original == 0 {
-                        ::clone_engine_api::elog!(
+                        ::dionysus_api::elog!(
                             "[clone_engine] {}: call_original! before the slot was taken",
                             stringify!(#name)
                         );
@@ -299,7 +299,7 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
         if let Err(error) = check_system_line(copy, &function) {
             return error.to_compile_error().into();
         }
-        let site = quote!(::clone_engine_api::v2::Site::CopyCommonSlot(#fighter_of, (#copy) as u32));
+        let site = quote!(::dionysus_api::v2::Site::CopyCommonSlot(#fighter_of, (#copy) as u32));
         return slot_override(&args, &function, site);
     }
     if let Some(common) = &args.common_slot {
@@ -316,14 +316,14 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         let site = match (&args.item, &args.article) {
             (Some(item), None) => {
-                quote!(::clone_engine_api::v2::Site::ItemCommonSlot(&#item, (#common) as u32))
+                quote!(::dionysus_api::v2::Site::ItemCommonSlot(&#item, (#common) as u32))
             }
-            (None, Some(article)) => quote!(::clone_engine_api::v2::Site::WeaponCommonSlot(
+            (None, Some(article)) => quote!(::dionysus_api::v2::Site::WeaponCommonSlot(
                 #fighter_of,
                 #article,
                 (#common) as u32
             )),
-            (None, None) => quote!(::clone_engine_api::v2::Site::FighterCommonSlot(
+            (None, None) => quote!(::dionysus_api::v2::Site::FighterCommonSlot(
                 #fighter_of,
                 (#common) as u32
             )),
@@ -349,18 +349,18 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .to_compile_error()
                 .into();
         };
-        let site = quote!(::clone_engine_api::v2::Site::ItemSlot(&#item, (#slot) as u32));
+        let site = quote!(::dionysus_api::v2::Site::ItemSlot(&#item, (#slot) as u32));
         return slot_override(&args, &function, site);
     }
     let site = match (&args.offset, &args.slot, &args.article) {
-        (Some(offset), None, None) => quote!(::clone_engine_api::v2::Site::Offset((#offset) as u64)),
+        (Some(offset), None, None) => quote!(::dionysus_api::v2::Site::Offset((#offset) as u64)),
         (None, Some(slot), None) => {
-            let site = quote!(::clone_engine_api::v2::Site::FighterSlot(#fighter_of, (#slot) as u32));
+            let site = quote!(::dionysus_api::v2::Site::FighterSlot(#fighter_of, (#slot) as u32));
             return slot_override(&args, &function, site);
         }
         (None, Some(slot), Some(article)) => {
             let site =
-                quote!(::clone_engine_api::v2::Site::WeaponSlot(#fighter_of, #article, (#slot) as u32));
+                quote!(::dionysus_api::v2::Site::WeaponSlot(#fighter_of, #article, (#slot) as u32));
             return slot_override(&args, &function, site);
         }
         (Some(_), Some(_), _) => {
@@ -423,7 +423,7 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
             quote! {
                 if !(#fighter_of).is_or_owns(#me) {
-                    return ::clone_engine_api::HOOK_DECLINED;
+                    return ::dionysus_api::HOOK_DECLINED;
                 }
             }
         }
@@ -436,13 +436,13 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let unpack = param_names.iter().zip(param_types.iter()).enumerate().map(|(index, (param, ty))| {
-        quote! { let #param: #ty = ::clone_engine_api::v2::FromRaw::from_raw(call.args[#index]); }
+        quote! { let #param: #ty = ::dionysus_api::v2::FromRaw::from_raw(call.args[#index]); }
     });
     let count = LitInt::new(&argument_count.to_string(), proc_macro2::Span::call_site());
 
     let expanded = quote! {
         #[allow(non_upper_case_globals)]
-        #vis static #name: ::clone_engine_api::v2::Hook = ::clone_engine_api::v2::Hook::at(
+        #vis static #name: ::dionysus_api::v2::Hook = ::dionysus_api::v2::Hook::at(
             #site,
             #count,
             #expect,
@@ -458,27 +458,27 @@ pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
                     let mut __args: [u64; 6] = [0; 6];
                     let mut __index = 0usize;
                     $(
-                        __args[__index] = ::clone_engine_api::v2::IntoRaw::into_raw($arg);
+                        __args[__index] = ::dionysus_api::v2::IntoRaw::into_raw($arg);
                         __index += 1;
                     )*
-                    let __raw = ::clone_engine_api::shared_hook_original(#name.offset(), &__args);
-                    <#return_type as ::clone_engine_api::v2::FromRaw>::from_raw(__raw)
+                    let __raw = ::dionysus_api::shared_hook_original(#name.offset(), &__args);
+                    <#return_type as ::dionysus_api::v2::FromRaw>::from_raw(__raw)
                 }};
             }
             #body
         }
 
         #[allow(non_snake_case)]
-        unsafe extern "C" fn #shim_name(call: *mut ::clone_engine_api::HookCall) -> u32 {
+        unsafe extern "C" fn #shim_name(call: *mut ::dionysus_api::HookCall) -> u32 {
             if call.is_null() {
-                return ::clone_engine_api::HOOK_DECLINED;
+                return ::dionysus_api::HOOK_DECLINED;
             }
             let call = &mut *call;
             #(#unpack)*
             #gate
             let __result: #return_type = #body_name(#(#param_names),*);
-            call.result = ::clone_engine_api::v2::IntoRaw::into_raw(__result);
-            ::clone_engine_api::HOOK_HANDLED
+            call.result = ::dionysus_api::v2::IntoRaw::into_raw(__result);
+            ::dionysus_api::HOOK_HANDLED
         }
     };
     expanded.into()

@@ -1,9 +1,9 @@
 [package]
-name = "clone_engine_api"
+name = "dionysus_api"
 version = "0.7.0-beta.1"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Client API for registering and identifying SSBU Clone Engine fighters"
+description = "Client API for Dionysus packs"
 
 [lib]
 crate-type = ["rlib"]
@@ -13,7 +13,7 @@ default = ["smash"]
 smash = ["dep:skyline_smash"]
 
 [dependencies]
-clone_engine_core = { path = "../clone_engine_core" }
-clone_engine_macros = { path = "../clone_engine_macros" }
+dionysus_core = { path = "../dionysus_core" }
+dionysus_macros = { path = "../dionysus_macros" }
 skyline = { git = "https://github.com/ultimate-research/skyline-rs.git", rev = "6b52d321275639f26c2371d8142550ba0013a5e4" }
 skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash", optional = true }

@@ -106,7 +106,7 @@ paused_motions = ["gdor_01_set", "gmov_00_set"]
 They hold their first frame until a plugin starts them:
 
 ```rust
-use clone_engine_api::stage;
+use dionysus_api::stage;
 
 stage::set_motion_frame("gdor_01_set", 0.0)?;
 stage::set_motion_rate("gdor_01_set", 1.0)?;   // 0 holds it, 0.5 half speed

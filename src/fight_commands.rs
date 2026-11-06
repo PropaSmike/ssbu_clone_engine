@@ -1,6 +1,6 @@
-use clone_engine_core::command_input::{self as input, Command, Frame, Recognizer, Settings, StickRange, Tuning, SECTORS};
-use clone_engine_core::fighter_common_copies::{ACCESSOR_PARAM_OBJECT, COPIES};
-use clone_engine_core::fighter_param_row::Op;
+use dionysus_core::command_input::{self as input, Command, Frame, Recognizer, Settings, StickRange, Tuning, SECTORS};
+use dionysus_core::fighter_common_copies::{ACCESSOR_PARAM_OBJECT, COPIES};
+use dionysus_core::fighter_param_row::Op;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use smash::app::lua_bind::{ControlModule, PostureModule, SlowModule, StopModule, WorkModule};
 use smash::app::{sv_math, BattleObjectModuleAccessor};
@@ -86,7 +86,7 @@ pub(crate) fn register(kind: i32, settings: &Settings, commands: &[Command]) -> 
         let recorded = crate::fighter_common_copies::record(
             kind,
             crate::param_overrides::ANY_SLOT,
-            clone_engine_core::hash40(name),
+            dionysus_core::hash40(name),
             op,
         );
         if recorded.recorded {
@@ -200,7 +200,7 @@ unsafe fn computer_roll(boma: *mut BattleObjectModuleAccessor, entry: &Registere
     if !crate::entry_groups::entry_is_cpu(player) {
         return None;
     }
-    Some(sv_math::randf(clone_engine_core::hash40("fighter"), 1.0).clamp(0.0, 1.0))
+    Some(sv_math::randf(dionysus_core::hash40("fighter"), 1.0).clamp(0.0, 1.0))
 }
 
 unsafe fn recognise(boma: *mut BattleObjectModuleAccessor, entry: &Registered, common: usize) {

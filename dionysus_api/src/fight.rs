@@ -5,9 +5,9 @@ use smash::lua2cpp::L2CFighterCommon;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
-pub use clone_engine_core::command_input::{Button, Command, StickRange};
-pub use clone_engine_core::motion_input::Motion;
-use clone_engine_core::motion_input::{numpad, InputHistory};
+pub use dionysus_core::command_input::{Button, Command, StickRange};
+pub use dionysus_core::motion_input::Motion;
+use dionysus_core::motion_input::{numpad, InputHistory};
 
 use crate::resolve;
 

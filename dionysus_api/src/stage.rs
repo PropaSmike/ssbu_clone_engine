@@ -16,7 +16,7 @@ pub struct Motion {
 }
 
 fn set_hash(set: &str) -> u64 {
-    clone_engine_core::hash40(&set.to_ascii_lowercase())
+    dionysus_core::hash40(&set.to_ascii_lowercase())
 }
 
 pub fn motion(set: &str) -> Result<Motion, Error> {
