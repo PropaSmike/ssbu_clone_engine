@@ -1,4 +1,5 @@
 use crate::hash40;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Json {
@@ -310,9 +311,243 @@ pub fn chara_disp_orders(text: &str) -> Result<CharaOrders, JsonError> {
     Ok(out)
 }
 
+pub fn prc_disp_orders(bytes: &[u8]) -> Result<Vec<(u64, i8)>, crate::prc::PrcError> {
+    let root = crate::prc::parse(bytes)?;
+    let rows = root
+        .get(hash40("db_root"))
+        .and_then(crate::prc::Param::list)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut orders: Vec<(u64, i8)> = Vec::new();
+    for row in rows {
+        let Some(ui_chara) = row.get(hash40("ui_chara_id")).and_then(crate::prc::Param::hash) else {
+            continue;
+        };
+        let Some(order) = row
+            .get(hash40("disp_order"))
+            .and_then(crate::prc::Param::integer)
+            .and_then(|order| i8::try_from(order).ok())
+        else {
+            continue;
+        };
+        orders.retain(|(known, _)| *known != ui_chara);
+        orders.push((ui_chara, order));
+    }
+    Ok(orders)
+}
+
+pub const VANILLA_DISP_ORDERS: &[(&str, i8)] = &[
+    ("ui_chara_mario", 0),
+    ("ui_chara_donkey", 1),
+    ("ui_chara_link", 2),
+    ("ui_chara_samus", 3),
+    ("ui_chara_samusd", 4),
+    ("ui_chara_yoshi", 5),
+    ("ui_chara_kirby", 6),
+    ("ui_chara_fox", 7),
+    ("ui_chara_pikachu", 8),
+    ("ui_chara_luigi", 9),
+    ("ui_chara_ness", 10),
+    ("ui_chara_captain", 11),
+    ("ui_chara_purin", 12),
+    ("ui_chara_peach", 13),
+    ("ui_chara_daisy", 14),
+    ("ui_chara_koopa", 15),
+    ("ui_chara_ice_climber", 16),
+    ("ui_chara_sheik", 17),
+    ("ui_chara_zelda", 18),
+    ("ui_chara_mariod", 19),
+    ("ui_chara_pichu", 20),
+    ("ui_chara_falco", 21),
+    ("ui_chara_marth", 22),
+    ("ui_chara_lucina", 23),
+    ("ui_chara_younglink", 24),
+    ("ui_chara_ganon", 25),
+    ("ui_chara_mewtwo", 26),
+    ("ui_chara_roy", 27),
+    ("ui_chara_chrom", 28),
+    ("ui_chara_gamewatch", 29),
+    ("ui_chara_metaknight", 30),
+    ("ui_chara_pit", 31),
+    ("ui_chara_pitb", 32),
+    ("ui_chara_szerosuit", 33),
+    ("ui_chara_wario", 34),
+    ("ui_chara_snake", 35),
+    ("ui_chara_ike", 36),
+    ("ui_chara_ptrainer", 37),
+    ("ui_chara_diddy", 38),
+    ("ui_chara_lucas", 39),
+    ("ui_chara_sonic", 40),
+    ("ui_chara_dedede", 41),
+    ("ui_chara_pikmin", 42),
+    ("ui_chara_lucario", 43),
+    ("ui_chara_robot", 44),
+    ("ui_chara_toonlink", 45),
+    ("ui_chara_wolf", 46),
+    ("ui_chara_murabito", 47),
+    ("ui_chara_rockman", 48),
+    ("ui_chara_wiifit", 49),
+    ("ui_chara_rosetta", 50),
+    ("ui_chara_littlemac", 51),
+    ("ui_chara_gekkouga", 52),
+    ("ui_chara_palutena", 53),
+    ("ui_chara_pacman", 54),
+    ("ui_chara_reflet", 55),
+    ("ui_chara_shulk", 56),
+    ("ui_chara_koopajr", 57),
+    ("ui_chara_duckhunt", 58),
+    ("ui_chara_ryu", 59),
+    ("ui_chara_ken", 60),
+    ("ui_chara_cloud", 61),
+    ("ui_chara_kamui", 62),
+    ("ui_chara_bayonetta", 63),
+    ("ui_chara_richter", 67),
+    ("ui_chara_inkling", 64),
+    ("ui_chara_ridley", 65),
+    ("ui_chara_krool", 68),
+    ("ui_chara_simon", 66),
+    ("ui_chara_shizue", 69),
+    ("ui_chara_gaogaen", 70),
+    ("ui_chara_miiall", 83),
+    ("ui_chara_miifighter", 84),
+    ("ui_chara_miiswordsman", 85),
+    ("ui_chara_miigunner", 86),
+    ("ui_chara_packun", 71),
+    ("ui_chara_jack", 72),
+    ("ui_chara_brave", 73),
+    ("ui_chara_buddy", 74),
+    ("ui_chara_dolly", 75),
+    ("ui_chara_master", 76),
+    ("ui_chara_tantan", 77),
+    ("ui_chara_pickel", 78),
+    ("ui_chara_edge", 79),
+    ("ui_chara_flame_first", 80),
+    ("ui_chara_light_first", 80),
+    ("ui_chara_demon", 81),
+    ("ui_chara_trail", 82),
+];
+
+pub fn vanilla_disp_orders() -> HashMap<u64, i8> {
+    VANILLA_DISP_ORDERS.iter().map(|(name, order)| (hash40(name), *order)).collect()
+}
+
+pub fn translate_disp_order(order: i8, vanilla: &HashMap<u64, i8>, player: &HashMap<u64, i8>) -> i8 {
+    if order < 0 {
+        return order;
+    }
+    let mut pairs: Vec<(i8, i8)> = vanilla
+        .iter()
+        .filter(|(_, v)| **v >= 0)
+        .filter_map(|(row, v)| player.get(row).filter(|p| **p >= 0).map(|p| (*v, *p)))
+        .collect();
+    pairs.sort();
+    let Some(&(below, _)) = pairs.iter().filter(|(v, _)| *v <= order).last() else {
+        return order;
+    };
+    let at = pairs.iter().filter(|(v, _)| *v == below).map(|(_, p)| *p).max().unwrap_or(order);
+    let wanted = at as i16 + (order as i16 - below as i16);
+    let next = pairs.iter().find(|(v, _)| *v > below).map(|(v, _)| *v);
+    let ceiling = next
+        .and_then(|next| pairs.iter().filter(|(v, _)| *v == next).map(|(_, p)| *p).min())
+        .map(|p| (p as i16 - 1).max(at as i16))
+        .unwrap_or(i8::MAX as i16);
+    wanted.min(ceiling).clamp(at as i16, i8::MAX as i16) as i8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prc::{write, Param};
+
+    fn table(rows: &[(&str, i8)]) -> HashMap<u64, i8> {
+        rows.iter().map(|(name, order)| (hash40(name), *order)).collect()
+    }
+
+    #[test]
+    fn the_vanilla_table_is_the_games_select_screen() {
+        let vanilla = vanilla_disp_orders();
+        assert_eq!(vanilla.len(), 88);
+        assert_eq!(vanilla[&hash40("ui_chara_mario")], 0);
+        assert_eq!(vanilla[&hash40("ui_chara_sonic")], 40);
+        assert_eq!(vanilla[&hash40("ui_chara_miigunner")], 86);
+        assert!(!vanilla.contains_key(&hash40("ui_chara_random")));
+    }
+
+    #[test]
+    fn a_vanilla_numbering_leaves_every_pack_order_alone() {
+        let vanilla = table(&[("mario", 0), ("donkey", 1), ("link", 2), ("sonic", 40), ("gunner", 86)]);
+        for order in [-1, 0, 1, 2, 3, 39, 40, 41, 86, 120, 127] {
+            assert_eq!(translate_disp_order(order, &vanilla, &vanilla), order, "order {order}");
+        }
+    }
+
+    #[test]
+    fn a_pack_order_follows_the_vanilla_neighbour_it_was_picked_against() {
+        let vanilla = table(&[("mario", 0), ("donkey", 1), ("link", 2), ("samus", 3), ("sonic", 40), ("snake", 41), ("gunner", 86)]);
+        let player = table(&[("mario", 0), ("donkey", 1), ("link", 4), ("samus", 5), ("sonic", 63), ("snake", 70), ("gunner", 120), ("funky", 2)]);
+        assert_eq!(translate_disp_order(40, &vanilla, &player), 63);
+        assert_eq!(translate_disp_order(3, &vanilla, &player), 5);
+        assert_eq!(translate_disp_order(1, &vanilla, &player), 1);
+        assert_eq!(translate_disp_order(120, &vanilla, &player), 127);
+        assert_eq!(translate_disp_order(90, &vanilla, &player), 124);
+        assert_eq!(translate_disp_order(-1, &vanilla, &player), -1);
+    }
+
+    #[test]
+    fn a_gap_in_vanilla_stays_between_the_same_neighbours() {
+        let vanilla = table(&[("a", 10), ("b", 20)]);
+        assert_eq!(translate_disp_order(15, &vanilla, &table(&[("a", 30), ("b", 50)])), 35);
+        assert_eq!(translate_disp_order(15, &vanilla, &table(&[("a", 30), ("b", 31)])), 30);
+        assert_eq!(translate_disp_order(15, &vanilla, &table(&[("a", 30), ("b", 12)])), 30);
+    }
+
+    #[test]
+    fn hidden_or_missing_vanilla_rows_are_no_anchor() {
+        let vanilla = table(&[("a", 10), ("b", 20)]);
+        assert_eq!(translate_disp_order(20, &vanilla, &table(&[("a", 30), ("b", -1)])), 40);
+        assert_eq!(translate_disp_order(20, &vanilla, &table(&[("a", 30)])), 40);
+        assert_eq!(translate_disp_order(5, &vanilla, &table(&[("a", 30)])), 5);
+        assert_eq!(translate_disp_order(20, &vanilla, &HashMap::new()), 20);
+    }
+
+    fn chara_row(ui_chara: &str, order: Option<i8>) -> Param {
+        let mut fields = vec![(hash40("ui_chara_id"), Param::Hash(hash40(ui_chara))), (hash40("name_id"), Param::Str("x".into()))];
+        if let Some(order) = order {
+            fields.push((hash40("disp_order"), Param::I8(order)));
+        }
+        Param::Struct(fields)
+    }
+
+    #[test]
+    fn a_players_chara_db_gives_each_rows_disp_order() {
+        let root = Param::Struct(vec![(
+            hash40("db_root"),
+            Param::List(vec![
+                chara_row("ui_chara_mario", Some(0)),
+                chara_row("ui_chara_mecha", Some(6)),
+                chara_row("ui_chara_latiicebeam", Some(-1)),
+                chara_row("ui_chara_nothing", None),
+                chara_row("ui_chara_mecha", Some(7)),
+            ]),
+        )]);
+        let orders = prc_disp_orders(&write(&root)).unwrap();
+        assert_eq!(
+            orders,
+            vec![
+                (hash40("ui_chara_mario"), 0),
+                (hash40("ui_chara_latiicebeam"), -1),
+                (hash40("ui_chara_mecha"), 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_chara_db_gives_nothing_or_an_error() {
+        let other = Param::Struct(vec![(hash40("db_root"), Param::List(vec![Param::Struct(vec![(hash40("ui_layout_id"), Param::Hash(1))])]))]);
+        assert_eq!(prc_disp_orders(&write(&other)).unwrap(), vec![]);
+        assert_eq!(prc_disp_orders(&write(&Param::Struct(vec![]))).unwrap(), vec![]);
+        assert!(prc_disp_orders(b"not a param file").is_err());
+    }
 
     #[test]
     fn parses_the_csk_schema_with_labels_and_plain_values() {

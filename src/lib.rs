@@ -4865,6 +4865,8 @@ use css_registration::*;
 mod csk_row_bridge;
 #[cfg(feature = "css_slot")]
 mod chara_orders;
+#[cfg(feature = "css_slot")]
+mod arc_files;
 
 #[cfg(all(feature = "clone_runtime", feature = "css_slot"))]
 mod fighter_params;

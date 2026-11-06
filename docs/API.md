@@ -94,7 +94,7 @@ or `Error::Engine(ERROR_MANIFEST)`; the log names the fault.
 | `owns_param_resources()`, `effect_namespace(n)`, `article_namespace(n)` | Leave out. |
 | `article(name, "fighter/weapon")` | Copy that vanilla weapon into `fighter/<name>/model/<article>`, scripts under `<name>_<article>`. |
 | `base_article(name, "weapon")` | Rename one of the base's own articles into that folder. |
-| `kirby_article(name, "fighter/weapon")` | An article for Kirby's copy, files under `fighter/kirby/model/<name>/`, scripts under `kirby_<name>`. |
+| `kirby_article(name, "fighter/weapon")` | An article for Kirby's copy, files under `fighter/kirby/model/<name>/`, scripts under `kirby_<name>`. Ship a `cNN` folder for each costume and list it under `fighter/<clone>/kirbycopy/cNN`: the copied fighter's costume picks the folder, and without a loaded model the article is skipped. |
 | `kirby(statuses)`, `kirby_first(n)` | Reserve that many copy status numbers; the engine picks them and `kirby_status(n)` reads them. `kirby_first` pins the first, only for code that hard-codes them. |
 | `kirby_full_model()`, `kirby_model(dir)`, `kirby_mesh(name, visible)` | Full-body copy; one extra model folder under `fighter/kirby/model/`; a mesh's starting visibility (up to 16). |
 | `kirby_motion(Motion)` | A copy animation: `Motion::new(name, "file.nuanmb")` with `.template(motion)`, `.scripts(stem)` or `.game/.sound/.effect/.expression(script)`, `.flags(&[..])`, `.blend_frames(n)`, `.cancel_frame(n)`, `.xlu(start, end)`, `.no_stop_intp(b)`, `.animation_unk(n)`, `.no_extra()`. File: `fighter/kirby/motion/<name>body/c00/`, listed under `fighter/<name>/kirbycopy/cNN/bodymotion`. Name must start with `<name>`. |
@@ -175,10 +175,15 @@ Without `own_css()` the engine publishes an entry itself from `name_label`,
 `series`, `disp_order`, `save_no`, `exhibit_year` and `narration`. Do not do
 both; CSK keeps the last one written.
 
-A player's `disp_order` for a clone in any `mods:/database/*.json`
-(`character_database_entries`) wins over the pack's, whichever loads first.
-The engine merges that partial entry into the clone's full row; CSK alone
-would rebuild the row from it and blank the fighter.
+`disp_order` is a place on the vanilla select screen: the same number as
+a vanilla fighter puts the clone right after it. A player's `disp_order` for a
+clone wins over the pack's, whichever loads first: in any
+`mods:/database/*.json` (`character_database_entries`), or in the
+`ui/param/database/ui_chara_db.prc` the game loads, with every mod's `.prc`,
+`.prcx` and `.prcxml` applied. The JSON wins over the file. When the player's
+table renumbers the vanilla fighters, a clone it does not list moves with the
+vanilla fighter its number pointed at. A partial JSON entry is merged into the
+clone's full row.
 
 ### `fighter.toml`
 

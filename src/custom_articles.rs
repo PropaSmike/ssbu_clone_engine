@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicI32, AtomicU16, Ordering};
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use crate::RESULT_OK;
 use clone_engine_api::{
@@ -220,6 +220,15 @@ fn assets_present(weapon_kind: i32) -> bool {
         cached.push((weapon_kind, present));
     }
     present
+}
+
+pub fn registered_article_name(weapon_kind: i32) -> Option<&'static [u8]> {
+    registry()
+        .read()
+        .ok()?
+        .iter()
+        .find(|article| article.weapon_kind == weapon_kind)
+        .map(|article| article.name)
 }
 
 pub fn custom_weapon_name(weapon_kind: i32) -> Option<&'static [u8]> {
@@ -655,6 +664,31 @@ pub fn kirby_copy_header(target_kind: i32) -> Option<(usize, usize)> {
         .iter()
         .find(|header| header.target_kind == target_kind)?;
     Some((header.header, header.descriptor_count))
+}
+
+pub unsafe fn kirby_copy_header_without(header: usize, skipped: &[usize]) -> usize {
+    static MASKED: Mutex<Vec<(usize, Vec<usize>, usize)>> = Mutex::new(Vec::new());
+    let Ok(mut cache) = MASKED.lock() else {
+        return header;
+    };
+    if let Some((_, _, masked)) = cache
+        .iter()
+        .find(|(source, rows, _)| *source == header && rows.as_slice() == skipped)
+    {
+        return *masked;
+    }
+    let table = &*(header as *const StaticArticleData);
+    let mut descriptors = core::slice::from_raw_parts(table.descriptors, table.count).to_vec();
+    for index in skipped {
+        descriptors[*index].max_count = 0;
+    }
+    let count = descriptors.len();
+    let masked = Box::leak(Box::new(StaticArticleData {
+        descriptors: Vec::leak(descriptors).as_ptr(),
+        count,
+    })) as *const StaticArticleData as usize;
+    cache.push((header, skipped.to_vec(), masked));
+    masked
 }
 
 pub fn kirby_copy_header_slot(target_kind: i32) -> Option<usize> {

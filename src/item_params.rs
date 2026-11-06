@@ -499,47 +499,9 @@ unsafe extern "C" fn lookup_probe(ctx: &mut skyline::hooks::InlineCtx) {
 }
 
 const ARC_SERVICE_GLOBAL: usize = 0x5331F20;
-const ARC_SERVICE_ARC: usize = 0x78;
-const ARC_FS_HEADER: usize = 0x40;
-const ARC_FILE_PATHS: usize = 0x60;
-const FS_HEADER_PATH_COUNT: usize = 0x04;
-const FILE_PATH_STRIDE: usize = 0x20;
-const VANILLA_FILE_COUNT: usize = 590_711;
-
-unsafe fn loaded_arc() -> Option<usize> {
-    let service =
-        core::ptr::read_volatile((crate::game::addr(ARC_SERVICE_GLOBAL)) as *const usize);
-    if service == 0 {
-        return None;
-    }
-    let holder = core::ptr::read_volatile((service + ARC_SERVICE_ARC) as *const usize);
-    if holder == 0 {
-        return None;
-    }
-    let arc = core::ptr::read_volatile(holder as *const usize);
-    (arc != 0).then_some(arc)
-}
 
 pub(crate) unsafe fn scan_file_path_index(hash: u64) -> Option<u32> {
-    let arc = loaded_arc()?;
-    let header = core::ptr::read_volatile((arc + ARC_FS_HEADER) as *const usize);
-    let paths = core::ptr::read_volatile((arc + ARC_FILE_PATHS) as *const usize);
-    if header == 0 || paths == 0 {
-        return None;
-    }
-    let count = core::ptr::read_volatile((header + FS_HEADER_PATH_COUNT) as *const u32) as usize;
-    if !(VANILLA_FILE_COUNT..=VANILLA_FILE_COUNT * 4).contains(&count) {
-        return None;
-    }
-    for index in (0..count).rev() {
-        let entry = paths + index * FILE_PATH_STRIDE;
-        let low = core::ptr::read_volatile(entry as *const u32) as u64;
-        let length = core::ptr::read_volatile((entry + 4) as *const u8) as u64;
-        if (length << 32) | low == hash {
-            return Some(index as u32);
-        }
-    }
-    None
+    crate::arc_files::file_path_index(hash)
 }
 
 unsafe fn substitute_index(ctx: &mut skyline::hooks::InlineCtx, kind: usize, index: usize) {

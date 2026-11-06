@@ -627,20 +627,101 @@ pub(crate) fn bridged_clone_kind(kind: i32) -> i32 {
 }
 
 #[cfg(feature = "css_slot")]
-#[inline(always)]
-pub(crate) fn add_table_bias(address: u64, kind: i32) -> u64 {
-    let base_kind = bridged_clone_kind(kind);
-    let bias = i64::from(base_kind - kind) * 8;
-    (address as i64).wrapping_add(bias) as u64
+struct HeldKind {
+    thread: core::sync::atomic::AtomicUsize,
+    kind: core::sync::atomic::AtomicI32,
 }
+
+#[cfg(feature = "css_slot")]
+impl HeldKind {
+    const fn new() -> Self {
+        HeldKind {
+            thread: core::sync::atomic::AtomicUsize::new(0),
+            kind: core::sync::atomic::AtomicI32::new(-1),
+        }
+    }
+
+    unsafe fn hold(&self, kind: i32) {
+        self.kind.store(kind, core::sync::atomic::Ordering::Release);
+        self.thread.store(current_thread_key(), core::sync::atomic::Ordering::Release);
+    }
+
+    unsafe fn take(&self) -> Option<i32> {
+        let thread = current_thread_key();
+        if thread == 0 {
+            return None;
+        }
+        self.thread
+            .compare_exchange(thread, 0, core::sync::atomic::Ordering::AcqRel, core::sync::atomic::Ordering::Acquire)
+            .ok()
+            .map(|_| self.kind.load(core::sync::atomic::Ordering::Acquire))
+    }
+}
+
+#[cfg(feature = "css_slot")]
+struct HeldSlot {
+    thread: core::sync::atomic::AtomicUsize,
+    slot: core::sync::atomic::AtomicUsize,
+}
+
+#[cfg(feature = "css_slot")]
+impl HeldSlot {
+    const fn new() -> Self {
+        HeldSlot {
+            thread: core::sync::atomic::AtomicUsize::new(0),
+            slot: core::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    unsafe fn hold(&self, slot: usize) {
+        self.slot.store(slot, core::sync::atomic::Ordering::Release);
+        self.thread.store(current_thread_key(), core::sync::atomic::Ordering::Release);
+    }
+
+    unsafe fn take(&self) -> Option<usize> {
+        let thread = current_thread_key();
+        if thread == 0 {
+            return None;
+        }
+        self.thread
+            .compare_exchange(thread, 0, core::sync::atomic::Ordering::AcqRel, core::sync::atomic::Ordering::Acquire)
+            .ok()
+            .map(|_| self.slot.load(core::sync::atomic::Ordering::Acquire))
+    }
+}
+
+#[cfg(feature = "css_slot")]
+unsafe fn custom_header(slot: usize) -> Option<(u64, u32)> {
+    let header = core::ptr::read_volatile(slot as *const u64);
+    if header == 0 {
+        return None;
+    }
+    Some((header, core::ptr::read_volatile((header as usize + 8) as *const u32)))
+}
+
+#[cfg(feature = "css_slot")]
+static SETUP_KIND: HeldKind = HeldKind::new();
+
+#[cfg(feature = "css_slot")]
+static CALLBACK_SLOT: HeldSlot = HeldSlot::new();
+
+#[cfg(feature = "css_slot")]
+static RECORD_SLOT: HeldSlot = HeldSlot::new();
+
+#[cfg(feature = "css_slot")]
+static RECORD_KIND: HeldKind = HeldKind::new();
 
 #[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_STATIC_SETUP_TABLE), inline)]
 pub(crate) unsafe fn kirby_copy_static_setup_table(ctx: &mut skyline::hooks::InlineCtx) {
     let kind = ctx.registers[20].x() as i32;
     let before = ctx.registers[8].x();
-    let after = add_table_bias(before, kind);
-    ctx.registers[8].set_x(after);
+    let base = bridged_clone_kind(kind);
+    if base != kind {
+        SETUP_KIND.hold(kind);
+        ctx.registers[20].set_x(base as u32 as u64);
+    }
+    let after = before;
     if clone_definition(kind).is_some() {
         let n = KIRBY_COPY_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if n < 24 {
@@ -653,8 +734,69 @@ pub(crate) unsafe fn kirby_copy_static_setup_table(ctx: &mut skyline::hooks::Inl
 }
 
 #[cfg(feature = "css_slot")]
+unsafe fn copy_header_with_loaded_models(link: usize, target_kind: i32, header: usize) -> usize {
+    let table = &*(header as *const custom_articles::StaticArticleData);
+    if table.descriptors.is_null() || table.count == 0 {
+        return header;
+    }
+    let boma = core::ptr::read_volatile((link + 0x10) as *const usize);
+    if boma == 0 {
+        return header;
+    }
+    let target_entry = smash::app::lua_bind::WorkModule::get_int(
+        boma as *mut smash::app::BattleObjectModuleAccessor,
+        *smash::lib::lua_const::FIGHTER_KIRBY_INSTANCE_WORK_ID_INT_COPY_CHARA_SLOT_NO,
+    );
+    if !(0..8).contains(&target_entry) {
+        return header;
+    }
+    let target = crate::ENTRY_FIGHTER_BOMA[target_entry as usize].load(core::sync::atomic::Ordering::SeqCst);
+    if target == 0 {
+        return header;
+    }
+    let color = smash::app::lua_bind::WorkModule::get_int(
+        target as *mut smash::app::BattleObjectModuleAccessor,
+        *smash::lib::lua_const::FIGHTER_INSTANCE_WORK_ID_INT_COLOR,
+    );
+    let rows = core::slice::from_raw_parts(table.descriptors, table.count);
+    let skipped: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            row.max_count > 0
+                && row.extra & 1 == 0
+                && !crate::article_bridges::copy_article_model_loads(row.weapon_id, color)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if skipped.is_empty() {
+        return header;
+    }
+    static REPORTED: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+    if let Ok(mut reported) = REPORTED.lock() {
+        for index in skipped.iter() {
+            let weapon = rows[*index].weapon_id;
+            if !reported.contains(&weapon) {
+                reported.push(weapon);
+                let name = custom_articles::registered_article_name(weapon)
+                    .map(|name| String::from_utf8_lossy(name).trim_end_matches('\0').to_string())
+                    .unwrap_or_default();
+                let owner = clone_definition(target_kind).map(|definition| definition.resource_name).unwrap_or("?");
+                crate::dbg_log_public(&format!(
+                    "[copyarticle] {owner}: '{name}' skipped on costume c{color:02}, its model is missing or not loaded. Ship it for that costume and list it under fighter/{owner}/kirbycopy/c{color:02}"
+                ));
+            }
+        }
+    }
+    custom_articles::kirby_copy_header_without(header, &skipped)
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_ARTICLE_HEADER_ASSIGN), inline)]
 pub(crate) unsafe fn kirby_copy_article_header_assign(ctx: &mut skyline::hooks::InlineCtx) {
+    if let Some(kind) = SETUP_KIND.take() {
+        ctx.registers[20].set_x(kind as u32 as u64);
+    }
     let Some(target_kind) = active_kirby_copy_kind() else {
         return;
     };
@@ -662,6 +804,7 @@ pub(crate) unsafe fn kirby_copy_article_header_assign(ctx: &mut skyline::hooks::
         return;
     };
     let native_header = ctx.registers[23].x();
+    let header = copy_header_with_loaded_models(ctx.registers[0].x() as usize, target_kind, header);
     ctx.registers[23].set_x(header as u64);
     let n = KIRBY_COPY_ARTICLE_HEADER_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     if n < 32 {
@@ -689,8 +832,16 @@ pub(crate) unsafe fn load_bridged_kirby_callback_kind(ctx: &mut skyline::hooks::
         if let Some(definition) = clone_definition(target_kind) {
             if raw_kind == target_kind || raw_kind == definition.base_kind {
                 if let Some(slot) = custom_articles::kirby_copy_header_slot(target_kind) {
-                    let biased = (slot as u64).wrapping_sub((raw_kind as u32 as u64) * 8);
-                    ctx.registers[10].set_x(biased);
+                    let index = definition.base_kind;
+                    let table = ctx.registers[10].x() as usize;
+                    let native = core::ptr::read_volatile((table + index as usize * 8) as *const u64);
+                    ctx.registers[9].set_x(index as u32 as u64);
+                    if native == 0 {
+                        let biased = (slot as u64).wrapping_sub((index as u32 as u64) * 8);
+                        ctx.registers[10].set_x(biased);
+                    } else {
+                        CALLBACK_SLOT.hold(slot);
+                    }
                     static LOG: core::sync::atomic::AtomicU32 =
                         core::sync::atomic::AtomicU32::new(0);
                     let n = LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -708,9 +859,38 @@ pub(crate) unsafe fn load_bridged_kirby_callback_kind(ctx: &mut skyline::hooks::
 }
 
 #[cfg(feature = "css_slot")]
+unsafe fn place_custom_callback_table(ctx: &mut skyline::hooks::InlineCtx) {
+    let Some(slot) = CALLBACK_SLOT.take() else {
+        return;
+    };
+    if let Some((header, count)) = custom_header(slot) {
+        ctx.registers[9].set_x(header);
+        ctx.registers[10].set_x(count as u64);
+    }
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_1), inline)]
 pub(crate) unsafe fn kirby_copy_callback_kind_1(ctx: &mut skyline::hooks::InlineCtx) {
     load_bridged_kirby_callback_kind(ctx);
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_COUNT_1), inline)]
+pub(crate) unsafe fn kirby_copy_callback_count_1(ctx: &mut skyline::hooks::InlineCtx) {
+    place_custom_callback_table(ctx);
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_COUNT_2), inline)]
+pub(crate) unsafe fn kirby_copy_callback_count_2(ctx: &mut skyline::hooks::InlineCtx) {
+    place_custom_callback_table(ctx);
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_COUNT_3), inline)]
+pub(crate) unsafe fn kirby_copy_callback_count_3(ctx: &mut skyline::hooks::InlineCtx) {
+    place_custom_callback_table(ctx);
 }
 
 #[cfg(feature = "css_slot")]
@@ -1367,10 +1547,21 @@ pub(crate) unsafe fn kirby_copy_callback_kind_4(ctx: &mut skyline::hooks::Inline
         if let Some(definition) = clone_definition(target_kind) {
             if kind == target_kind || kind == definition.base_kind {
                 if let Some(slot) = custom_articles::kirby_copy_header_slot(target_kind) {
-                    let biased = (slot as u64)
-                        .wrapping_sub((kind as u32 as u64) * 8)
-                        .wrapping_sub(0x98);
-                    ctx.registers[12].set_x(biased);
+                    let index = definition.base_kind;
+                    let table = ctx.registers[12].x() as usize + 0x98;
+                    let native = core::ptr::read_volatile((table + index as usize * 8) as *const u64);
+                    if native == 0 {
+                        let biased = (slot as u64)
+                            .wrapping_sub((index as u32 as u64) * 8)
+                            .wrapping_sub(0x98);
+                        ctx.registers[12].set_x(biased);
+                    } else {
+                        RECORD_SLOT.hold(slot);
+                    }
+                    if kind != index {
+                        RECORD_KIND.hold(kind);
+                        ctx.registers[20].set_x(index as u32 as u64);
+                    }
                     if let Some(n) = kirby_hat_flow_log_index() {
                         dbg_log!(
                             "[kirbyhat] #{n} site=hat-record-found kind={kind} callback-table=custom({target_kind})"
@@ -1385,11 +1576,27 @@ pub(crate) unsafe fn kirby_copy_callback_kind_4(ctx: &mut skyline::hooks::Inline
         .and_then(clone_definition)
         .map(|definition| definition.base_kind)
         .unwrap_or_else(|| bridged_clone_kind(kind));
-    let bias = i64::from(base - kind) * 8;
-    ctx.registers[12].set_x((ctx.registers[12].x() as i64).wrapping_add(bias) as u64);
+    if kind != base {
+        RECORD_KIND.hold(kind);
+        ctx.registers[20].set_x(base as u32 as u64);
+    }
     if kind != base {
         if let Some(n) = kirby_hat_flow_log_index() {
             dbg_log!("[kirbyhat] #{n} site=hat-record-found kind={kind} callback-table={base}");
+        }
+    }
+}
+
+#[cfg(feature = "css_slot")]
+#[skyline::hook(offset = crate::game::rel(OFF_KIRBY_COPY_CALLBACK_KIND_4_RESTORE), inline)]
+pub(crate) unsafe fn kirby_copy_callback_kind_4_restore(ctx: &mut skyline::hooks::InlineCtx) {
+    if let Some(kind) = RECORD_KIND.take() {
+        ctx.registers[20].set_x(kind as u32 as u64);
+    }
+    if let Some(slot) = RECORD_SLOT.take() {
+        if let Some((header, count)) = custom_header(slot) {
+            ctx.registers[12].set_x(header);
+            ctx.registers[23].set_x(count as u64);
         }
     }
 }
@@ -2613,6 +2820,10 @@ pub(crate) fn install_custom_kirby_copy_hooks() {
         kirby_copy_kind_list_table,
         kirby_copy_second_name_merge,
         kirby_copy_callback_kind_4,
+        kirby_copy_callback_kind_4_restore,
+        kirby_copy_callback_count_1,
+        kirby_copy_callback_count_2,
+        kirby_copy_callback_count_3,
         kirby_copy_removal_hashlist_a,
         kirby_copy_removal_hashlist_b
     );

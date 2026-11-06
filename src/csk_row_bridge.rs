@@ -39,6 +39,7 @@ static KEPT: RwLock<Vec<KeptRow>> = RwLock::new(Vec::new());
 struct KeptRow {
     entry: CharacterDatabaseEntry,
     name: Option<String>,
+    own_order: SignedByteType,
 }
 
 unsafe impl Send for KeptRow {}
@@ -178,7 +179,9 @@ fn based_entry(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry>
         color_num as UnsignedByteType,
         shop_item_tag as Hash40Type,
     );
-    based.disp_order = placed(entry, true);
+    let own = own_order(entry, true);
+    based.disp_order = placed(entry.ui_chara_id, &own);
+    note_placed(entry.ui_chara_id, &own, &based.disp_order);
     based.save_no = SignedByteType::Optional(None);
     let mut indices = kept_index_map(&entry.extra_index_maps);
     let color_start = set_byte(indices.get(&hash40("color_start_index"))).unwrap_or(0) as u16;
@@ -242,17 +245,24 @@ fn is_partial_custom_row(entry: &CharacterDatabaseEntry) -> bool {
         && set_hash(&entry.fighter_kind).is_none()
 }
 
-fn remember(entry: &CharacterDatabaseEntry) {
+fn remember(entry: &CharacterDatabaseEntry, own_order: Option<SignedByteType>) {
     if !is_full_custom_row(entry) {
         return;
     }
-    let kept = KeptRow {
-        entry: entry.clone(),
-        name: name_text(&entry.name_id),
-    };
+    let name = name_text(&entry.name_id);
     if let Ok(mut rows) = KEPT.write() {
-        rows.retain(|row| row.entry.ui_chara_id != entry.ui_chara_id);
-        rows.push(kept);
+        let previous = rows
+            .iter()
+            .position(|row| row.entry.ui_chara_id == entry.ui_chara_id)
+            .map(|index| rows.remove(index));
+        let own_order = own_order
+            .or_else(|| previous.map(|row| row.own_order))
+            .unwrap_or_else(|| entry.disp_order.clone());
+        rows.push(KeptRow {
+            entry: entry.clone(),
+            name,
+            own_order,
+        });
     }
 }
 
@@ -323,42 +333,85 @@ fn merged_partial(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEnt
     Some(merged)
 }
 
-fn pack_order(value: &SignedByteType) -> Option<i8> {
-    match value {
-        SignedByteType::Overwrite(order) | SignedByteType::Optional(Some(order)) => Some(*order),
-        SignedByteType::Optional(None) => None,
+fn own_order(entry: &CharacterDatabaseEntry, cloned: bool) -> SignedByteType {
+    match &entry.disp_order {
+        SignedByteType::Optional(Some(order)) if cloned => SignedByteType::Overwrite(*order),
+        other => other.clone(),
     }
 }
 
-fn placed(entry: &CharacterDatabaseEntry, cloned: bool) -> SignedByteType {
-    match crate::chara_orders::player_disp_order(entry.ui_chara_id) {
-        Some(order) => {
-            if pack_order(&entry.disp_order) != Some(order) {
-                log(format!(
-                    "[cskrow] {:#x} disp_order {order} from mods:/database replaces the pack's {:?}",
-                    entry.ui_chara_id, entry.disp_order
-                ));
-            }
-            SignedByteType::Overwrite(order)
-        }
-        None => match &entry.disp_order {
-            SignedByteType::Optional(Some(order)) if cloned => SignedByteType::Overwrite(*order),
+fn same_order(a: &SignedByteType, b: &SignedByteType) -> bool {
+    match (a, b) {
+        (SignedByteType::Overwrite(a), SignedByteType::Overwrite(b)) => a == b,
+        (SignedByteType::Optional(a), SignedByteType::Optional(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn placed(ui_chara: u64, own: &SignedByteType) -> SignedByteType {
+    match crate::chara_orders::player_disp_order(ui_chara) {
+        Some(order) => SignedByteType::Overwrite(order),
+        None => match own {
+            SignedByteType::Overwrite(order) => SignedByteType::Overwrite(crate::chara_orders::translated(*order)),
             other => other.clone(),
         },
     }
+}
+
+fn note_placed(ui_chara: u64, own: &SignedByteType, wanted: &SignedByteType) {
+    if same_order(wanted, own) {
+        return;
+    }
+    let reason = if crate::chara_orders::player_disp_order(ui_chara).is_some() {
+        "the player's row"
+    } else {
+        "moved with the player's numbering"
+    };
+    log(format!("[cskrow] {ui_chara:#x} disp_order {wanted:?} instead of the pack's {own:?}: {reason}"));
 }
 
 fn reordered(entry: &CharacterDatabaseEntry) -> Option<CharacterDatabaseEntry> {
     if is_playable_row(entry.ui_chara_id) {
         return None;
     }
-    let order = crate::chara_orders::player_disp_order(entry.ui_chara_id)?;
-    if matches!(entry.disp_order, SignedByteType::Overwrite(current) if current == order) {
+    let own = own_order(entry, false);
+    let wanted = placed(entry.ui_chara_id, &own);
+    if same_order(&wanted, &entry.disp_order) {
         return None;
     }
+    note_placed(entry.ui_chara_id, &own, &wanted);
     let mut moved = entry.clone();
-    moved.disp_order = placed(entry, false);
+    moved.disp_order = wanted;
     Some(moved)
+}
+
+pub(crate) fn apply_player_orders() {
+    let original = ORIGINAL.load(Ordering::Acquire);
+    if original == 0 || !crate::mount_events::mods_fs_mounted() {
+        return;
+    }
+    let original: AddCharaFn = unsafe { core::mem::transmute(original) };
+    let moved: Vec<(CharacterDatabaseEntry, Option<String>, SignedByteType, SignedByteType)> = match KEPT.read() {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|row| {
+                let wanted = placed(row.entry.ui_chara_id, &row.own_order);
+                (!same_order(&wanted, &row.entry.disp_order))
+                    .then(|| (row.entry.clone(), row.name.clone(), row.own_order.clone(), wanted))
+            })
+            .collect(),
+        Err(_) => return,
+    };
+    for (mut entry, name, own, wanted) in moved {
+        note_placed(entry.ui_chara_id, &own, &wanted);
+        entry.disp_order = wanted;
+        entry.name_id = match name {
+            Some(text) => StringType::Overwrite(CStrCSK::new(&text)),
+            None => StringType::Optional(None),
+        };
+        remember(&entry, None);
+        unsafe { original(&entry) };
+    }
 }
 
 fn remember_color_start(entry: &CharacterDatabaseEntry) {
@@ -395,11 +448,15 @@ unsafe extern "C" fn add_chara_bridge(entry: *const CharacterDatabaseEntry) {
         return;
     };
     remember_color_start(given);
-    let rewritten = based_entry(given)
-        .or_else(|| merged_partial(given))
-        .or_else(|| reordered(given));
+    let (rewritten, own) = match based_entry(given) {
+        Some(based) => (Some(based), Some(own_order(given, true))),
+        None => match merged_partial(given) {
+            Some(merged) => (Some(merged), None),
+            None => (reordered(given), Some(own_order(given, false))),
+        },
+    };
     let sent = rewritten.as_ref().unwrap_or(given);
-    remember(sent);
+    remember(sent, own);
     original(sent);
 }
 

@@ -1595,6 +1595,23 @@ unsafe fn literal_article_path(
 }
 
 #[cfg(feature = "css_slot")]
+pub(crate) unsafe fn copy_article_model_loads(weapon_kind: i32, color: i32) -> bool {
+    let path: extern "C" fn(*mut u32, i32, i32, i32, i32, i32) =
+        core::mem::transmute(crate::game::addr(0x17e0840));
+    let lookup = |color: i32| {
+        let mut index: u32 = u32::MAX;
+        path(&mut index, weapon_kind, 0, 0, color, 0);
+        index
+    };
+    let missing = |index: u32| index == u32::MAX || index == LITERAL_NOT_FOUND;
+    let index = lookup(color);
+    if missing(index) {
+        return missing(lookup(0));
+    }
+    crate::copy_model_probe::model_residency(index).0
+}
+
+#[cfg(feature = "css_slot")]
 #[skyline::hook(offset = crate::game::rel(0x17e0840))]
 pub(crate) unsafe fn custom_article_path_probe(
     out: *mut u32,
@@ -1654,6 +1671,37 @@ pub(crate) unsafe fn custom_article_path_probe(
                 "[articleshare] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: base path {index:#x} (file {file_path:#x}) not loaded ({stop}); clone path {retry:#x}",
                 definition.kind
             );
+        }
+    }
+    if (resource_type == clone_engine_core::article_literals::MOTION_DIRECTORY
+        || resource_type == clone_engine_core::article_literals::MOTION_LIST)
+        && !out.is_null()
+        && !custom_articles::is_custom_weapon_kind(weapon_kind)
+    {
+        if let Some(definition) = construction_kind.and_then(clone_definition) {
+            if !definition.ships_own_param_resources() {
+                let mut model: u32 = u32::MAX;
+                call_original!(&mut model as *mut u32, weapon_kind, 0, variant, color, 0);
+                if model != u32::MAX
+                    && model != LITERAL_NOT_FOUND
+                    && !crate::copy_model_probe::model_residency(model).0
+                {
+                    let mut own: u32 = u32::MAX;
+                    crate::ARTICLE_OWNER_OVERRIDE.scope(current_thread_key(), definition.kind, || {
+                        call_original!(&mut own as *mut u32, weapon_kind, 0, variant, color, 0);
+                    });
+                    if own == LITERAL_NOT_FOUND {
+                        core::ptr::write_volatile(out, LITERAL_NOT_FOUND);
+                        let n = SHARED_ARTICLE_KEPT_LOG.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                        if n < SHARED_ARTICLE_FALLBACK_REPORTS {
+                            dbg_log!(
+                                "[articleshare] kind={} weapon={weapon_kind:#x} type={resource_type} color={color}: no model, so no motions",
+                                definition.kind
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
     let tracked = custom_articles::is_custom_weapon_kind(weapon_kind)

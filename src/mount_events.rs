@@ -49,6 +49,10 @@ fn mounted_now() {
     }
     #[cfg(feature = "css_slot")]
     crate::global_motions::install();
+    #[cfg(feature = "css_slot")]
+    crate::chara_orders::watch();
+    #[cfg(feature = "css_slot")]
+    crate::csk_row_bridge::apply_player_orders();
 }
 
 pub(crate) fn subscribe() {
