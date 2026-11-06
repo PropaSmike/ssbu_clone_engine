@@ -116,6 +116,8 @@ mod fighter_modules;
 mod param_overrides;
 mod stage_alts_bridge;
 mod stage_backend;
+#[cfg(feature = "css_slot")]
+mod starlight_bridge;
 mod stage_bounds;
 mod stage_collision_probe;
 mod stage_config_bridge;
